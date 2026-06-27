@@ -96,7 +96,7 @@ class TargetProfile(BaseModel):
 
 
 class PackageBuildRequest(PackagePreviewRequest):
-    image_mode: str = Field(default="image-manifest", alias="imageMode")
+    image_mode: Literal["image-manifest", "image-archive"] = Field(default="image-manifest", alias="imageMode")
     target_profile: TargetProfile = Field(default_factory=TargetProfile, alias="targetProfile")
 
 

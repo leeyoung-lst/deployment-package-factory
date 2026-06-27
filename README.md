@@ -103,6 +103,8 @@ GET /metrics
 
 ## 镜像导出模式
 
+导包页面默认使用 `image-archive`，用于生成包含离线镜像 tar 的生产交付包。导包后端机器必须安装 Docker CLI、具备 Docker 执行权限，并能访问来源镜像仓库；否则任务会失败并返回明确错误。
+
 `image-manifest` 适合在没有 Docker 或不希望立即拉取镜像时使用，部署包只包含镜像清单和脚本：
 
 ```bash

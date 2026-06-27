@@ -31,9 +31,10 @@ const DEFAULT_TARGET = {
   registry: "",
   namespacePrefix: "prod",
   storageClass: "",
-  exportImages: false,
+  exportImages: true,
 };
 type TargetDraft = typeof DEFAULT_TARGET & { imageMode?: "image-manifest" | "image-archive" };
+const DEFAULT_IMAGE_MODE: TargetDraft["imageMode"] = "image-archive";
 
 export const DeploymentPackageExportView: React.FC = () => {
   const { message } = App.useApp();
@@ -59,7 +60,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [auditLoading, setAuditLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
-  const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: "image-manifest" });
+  const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
 
   const requiredPlatformKeys = useMemo(
     () => options?.platformServices.filter((item) => item.required).map((item) => item.key) ?? [],
@@ -349,7 +350,7 @@ export const DeploymentPackageExportView: React.FC = () => {
             <Form
               form={form}
               layout="vertical"
-              initialValues={{ ...DEFAULT_TARGET, imageMode: "image-manifest" }}
+              initialValues={{ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE }}
               onValuesChange={(_, values) => setTargetDraft((current) => ({ ...current, ...values }))}
             >
               <h3 className={styles.sectionTitle}>导出范围</h3>
@@ -440,8 +441,8 @@ export const DeploymentPackageExportView: React.FC = () => {
                 <Form.Item label="镜像模式" name="imageMode">
                   <Select
                     options={[
-                      { value: "image-manifest", label: "镜像清单：生成 pull/save/load 脚本" },
                       { value: "image-archive", label: "镜像归档：执行 docker pull/save 并打包 tar" },
+                      { value: "image-manifest", label: "镜像清单：仅生成 pull/save/load 脚本" },
                     ]}
                   />
                 </Form.Item>

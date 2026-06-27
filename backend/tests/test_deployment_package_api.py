@@ -189,6 +189,22 @@ def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path,
     assert "Docker CLI is not available" in task["error"]
 
 
+def test_create_deployment_package_rejects_invalid_image_mode() -> None:
+    response = _client().post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam"}],
+            "database": "postgres",
+            "imageMode": "none",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "imageMode" in response.text
+
+
 def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
