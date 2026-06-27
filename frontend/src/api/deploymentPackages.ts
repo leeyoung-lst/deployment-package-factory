@@ -134,6 +134,18 @@ export interface CleanupResult {
   deletedPaths: string[];
 }
 
+export interface AuditEvent {
+  eventId: string;
+  action: string;
+  targetId: string;
+  status: string;
+  operator: string;
+  clientIp: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export function getDeploymentPackageOptions() {
   return request<DeploymentPackageOptions>("/api/deployment-packages/options");
 }
@@ -158,6 +170,10 @@ export function getDeploymentPackageTask(taskId: string) {
 
 export function listDeploymentPackageTasks(limit = 20) {
   return request<PackageTask[]>(`/api/deployment-packages/tasks?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export function listDeploymentPackageAuditEvents(limit = 20) {
+  return request<AuditEvent[]>(`/api/deployment-packages/audit-events?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export function cancelDeploymentPackageTask(taskId: string) {

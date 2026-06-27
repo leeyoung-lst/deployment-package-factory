@@ -10,6 +10,7 @@ import pytest
 from deployment_package_factory.api import deployment_packages
 from deployment_package_factory.services.deployment_packages import builder, task_executor
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, PackageBuildResult
+from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
@@ -95,7 +96,7 @@ def test_deployment_package_preview_rejects_unknown_database() -> None:
 
 def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    _set_repo(monkeypatch, repo, tmp_path)
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
         task_executor,
         "build_deployment_package",
@@ -105,6 +106,7 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
 
     created = client.post(
         "/api/deployment-packages",
+        headers={"X-Deployment-Package-Operator": "alice"},
         json={
             "sourceEnv": "test",
             "deployModes": ["k8s", "docker-compose"],
@@ -131,6 +133,13 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
     downloaded = client.get(f"/api/deployment-packages/{package_id}/download")
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.headers["content-type"] == "application/gzip"
+    events = audit_repo.list(limit=10)
+    actions = [event.action for event in events]
+    assert "package.create" in actions
+    assert "package.download" in actions
+    created_event = next(event for event in events if event.action == "package.create")
+    assert created_event.operator == "alice"
+    assert created_event.metadata["database"] == "postgres"
 
 
 def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,29 +191,36 @@ def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path,
 
 def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    _set_repo(monkeypatch, repo, tmp_path)
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     task = repo.create(deployment_packages.PackageBuildRequest())
 
     response = _client().post(f"/api/deployment-packages/tasks/{task.task_id}/cancel")
 
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "canceled"
+    events = audit_repo.list(limit=10)
+    assert events[0].action == "task.cancel"
+    assert events[0].target_id == task.task_id
 
 
 def test_cleanup_deployment_package_outputs_api(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    _set_repo(monkeypatch, repo, tmp_path)
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
 
     response = _client().post("/api/deployment-packages/cleanup?dry_run=true")
 
     assert response.status_code == 200, response.text
     assert response.json()["dryRun"] is True
     assert response.json()["scannedTasks"] == 0
+    events = audit_repo.list(limit=10)
+    assert events[0].action == "package.cleanup"
+    assert events[0].status == "dry-run"
+    assert events[0].metadata["dryRun"] is True
 
 
 def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    _set_repo(monkeypatch, repo, tmp_path)
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
         task_executor,
         "build_deployment_package",
@@ -221,6 +237,10 @@ def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.Monk
     retry_task = _wait_for_task(_client(), retry_task_id)
     assert retry_task["status"] == "failed"
     assert "still failing" in retry_task["error"]
+    events = audit_repo.list(limit=10)
+    retry_event = next(event for event in events if event.action == "task.retry")
+    assert retry_event.target_id == retry_task_id
+    assert retry_event.metadata["sourceTaskId"] == task.task_id
 
 
 def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -264,19 +284,33 @@ def test_list_deployment_package_tasks(tmp_path, monkeypatch: pytest.MonkeyPatch
     assert response.json()
 
 
+def test_list_deployment_package_audit_events(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
+    audit_repo.record(action="package.create", status="accepted", target_id="task-1")
+
+    response = _client().get("/api/deployment-packages/audit-events")
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["action"] == "package.create"
+
+
 def _app() -> FastAPI:
     app = FastAPI()
     app.include_router(deployment_packages.router)
     return app
 
 
-def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: PackageTaskRepository, output_dir) -> None:
+def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: PackageTaskRepository, output_dir) -> AuditEventRepository:
+    audit_repo = AuditEventRepository(output_dir / "audit.sqlite3")
     monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    monkeypatch.setattr(deployment_packages, "_AUDIT_REPO", audit_repo)
     monkeypatch.setattr(
         deployment_packages,
         "_TASK_EXECUTOR",
         PackageTaskExecutor(repo, PackageTaskExecutorConfig(max_concurrent_builds=1, output_dir=output_dir)),
     )
+    return audit_repo
 
 
 def _wait_for_task(client: TestClient, task_id: str) -> dict:

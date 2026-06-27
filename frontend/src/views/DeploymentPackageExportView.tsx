@@ -8,9 +8,11 @@ import {
   downloadDeploymentPackage,
   getDeploymentPackageOptions,
   getDeploymentPackageTask,
+  listDeploymentPackageAuditEvents,
   listDeploymentPackageTasks,
   previewDeploymentPackage,
   retryDeploymentPackageTask,
+  type AuditEvent,
   type BusinessSelection,
   type CleanupResult,
   type DeployMode,
@@ -47,12 +49,14 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [preview, setPreview] = useState<PackagePreview | null>(null);
   const [task, setTask] = useState<PackageTask | null>(null);
   const [tasks, setTasks] = useState<PackageTask[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [building, setBuilding] = useState(false);
   const [taskActionLoading, setTaskActionLoading] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: "image-manifest" });
@@ -157,6 +161,18 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   }, [message]);
 
+  const refreshAuditEvents = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const payload = await listDeploymentPackageAuditEvents(20);
+      setAuditEvents(payload);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "审计日志刷新失败");
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [message]);
+
   const refreshSelectedTask = useCallback(async (taskId: string) => {
     try {
       const payload = await getDeploymentPackageTask(taskId);
@@ -210,6 +226,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       });
       setTask(payload);
       void refreshTasks();
+      void refreshAuditEvents();
       message.success("部署任务已创建");
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
@@ -225,6 +242,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       const payload = await cancelDeploymentPackageTask(task.taskId);
       setTask(payload);
       void refreshTasks();
+      void refreshAuditEvents();
       message.success(payload.status === "canceled" ? "任务已取消" : "已请求取消任务");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "任务取消失败");
@@ -240,6 +258,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       const payload = await retryDeploymentPackageTask(task.taskId);
       setTask(payload);
       void refreshTasks();
+      void refreshAuditEvents();
       message.success("已创建重试任务");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "任务重试失败");
@@ -254,6 +273,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       const payload = await cleanupDeploymentPackages(dryRun);
       setCleanupResult(payload);
       void refreshTasks();
+      void refreshAuditEvents();
       if (task) void refreshSelectedTask(task.taskId);
       message.success(dryRun ? "清理预演完成" : "清理完成");
     } catch (error) {
@@ -276,6 +296,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+      void refreshAuditEvents();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "部署包下载失败");
     } finally {
@@ -299,7 +320,8 @@ export const DeploymentPackageExportView: React.FC = () => {
 
   useEffect(() => {
     void refreshTasks();
-  }, [refreshTasks]);
+    void refreshAuditEvents();
+  }, [refreshAuditEvents, refreshTasks]);
 
   useEffect(() => {
     if (!tasks.some((item) => item.status === "pending" || item.status === "running")) return;
@@ -552,6 +574,12 @@ export const DeploymentPackageExportView: React.FC = () => {
             onDryRun={() => void runCleanup(true)}
             onCleanup={() => void runCleanup(false)}
           />
+
+          <AuditPanel
+            events={auditEvents}
+            loading={auditLoading}
+            onRefresh={() => void refreshAuditEvents()}
+          />
         </div>
       </div>
     </section>
@@ -582,6 +610,43 @@ function ProjectSummary({ project }: { project: ProjectProfile | null }) {
         <span className={styles.muted}>目标配置</span>
         <span className={styles.mono}>{project.namespacePrefix} / {project.domain} / {project.storageClass || "default-storage"}</span>
       </div>
+    </div>
+  );
+}
+
+function AuditPanel({
+  events,
+  loading,
+  onRefresh,
+}: {
+  events: AuditEvent[];
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className={styles.resultPanel}>
+      <div className={styles.panelTitleRow}>
+        <h3 className={styles.sectionTitle}>最近审计</h3>
+        <Button size="small" icon={<i className="ri-shield-check-line" />} loading={loading} onClick={onRefresh}>刷新</Button>
+      </div>
+      {events.length ? (
+        <div className={styles.taskList}>
+          {events.map((event) => (
+            <div key={event.eventId} className={styles.taskItem}>
+              <span className={styles.taskItemMain}>
+                <span className={styles.mono}>{event.action}</span>
+                <span className={styles.muted}>{event.message || event.targetId || event.createdAt}</span>
+              </span>
+              <Space size={4}>
+                {event.operator ? <Tag>{event.operator}</Tag> : null}
+                <Tag color={auditStatusColor(event.status)}>{event.status}</Tag>
+              </Space>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审计日志" />
+      )}
     </div>
   );
 }
@@ -772,6 +837,13 @@ function taskStatusColor(status: PackageTask["status"]) {
   if (status === "failed") return "error";
   if (status === "canceled") return "default";
   if (status === "running") return "processing";
+  return "default";
+}
+
+function auditStatusColor(status: string) {
+  if (status === "completed" || status === "accepted") return "success";
+  if (status === "failed" || status === "error") return "error";
+  if (status === "dry-run") return "blue";
   return "default";
 }
 

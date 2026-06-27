@@ -5,6 +5,7 @@ services:
     environment:
       DEPLOYMENT_PACKAGE_DATA_DIR: /app/data
       DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
+      DEPLOYMENT_PACKAGE_AUDIT_DB: /app/data/deployment-package-audit.sqlite3
       DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages
       DEPLOYMENT_PACKAGE_API_TOKEN: ${DEPLOYMENT_PACKAGE_API_TOKEN:-}
       DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS: ${DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS:-1}

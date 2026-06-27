@@ -149,3 +149,17 @@ class PackageTask(BaseModel):
     heartbeat_at: str = Field(default="", alias="heartbeatAt")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
+
+
+class AuditEvent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    event_id: str = Field(alias="eventId")
+    action: str
+    target_id: str = Field(default="", alias="targetId")
+    status: str
+    operator: str = ""
+    client_ip: str = Field(default="", alias="clientIp")
+    message: str = ""
+    metadata: dict = Field(default_factory=dict)
+    created_at: str = Field(alias="createdAt")

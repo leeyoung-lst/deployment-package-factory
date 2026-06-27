@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from deployment_package_factory.auth import require_api_token
@@ -14,14 +16,18 @@ from deployment_package_factory.services.deployment_packages.dependency_resolver
     resolve_package_preview,
 )
 from deployment_package_factory.services.deployment_packages.models import (
+    AuditEvent,
     PackageBuildRequest,
     PackageBuildResult,
     PackagePreview,
     PackagePreviewRequest,
     PackageTask,
 )
+from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/deployment-packages",
@@ -30,6 +36,7 @@ router = APIRouter(
 )
 _SETTINGS = load_settings()
 _TASK_REPO = PackageTaskRepository(_SETTINGS.task_db_path)
+_AUDIT_REPO = AuditEventRepository(_SETTINGS.audit_db_path)
 _TASK_EXECUTOR = PackageTaskExecutor(
     _TASK_REPO,
     PackageTaskExecutorConfig(
@@ -43,6 +50,10 @@ _TASK_EXECUTOR = PackageTaskExecutor(
 
 def get_task_repository() -> PackageTaskRepository:
     return _TASK_REPO
+
+
+def get_audit_repository() -> AuditEventRepository:
+    return _AUDIT_REPO
 
 
 def get_task_executor() -> PackageTaskExecutor:
@@ -110,12 +121,38 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
 
 
 @router.post("", response_model=PackageTask)
-async def create_deployment_package(payload: PackageBuildRequest, background_tasks: BackgroundTasks) -> PackageTask:
+async def create_deployment_package(
+    payload: PackageBuildRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> PackageTask:
     repo = get_task_repository()
     task = repo.create(payload)
+    _audit(
+        request,
+        action="package.create",
+        status="accepted",
+        target_id=task.task_id,
+        message="Deployment package task created.",
+        operator=x_deployment_package_operator,
+        metadata={
+            "projectKey": payload.project_key,
+            "sourceEnv": payload.source_env,
+            "deployModes": payload.deploy_modes,
+            "businessServices": [item.model_dump() for item in payload.business_services],
+            "database": payload.database,
+            "imageMode": payload.image_mode,
+        },
+    )
     if should_run_background_tasks():
         background_tasks.add_task(get_task_executor().run, task.task_id, payload)
     return task
+
+
+@router.get("/audit-events", response_model=list[AuditEvent])
+async def list_deployment_package_audit_events(limit: int = 100) -> list[AuditEvent]:
+    return get_audit_repository().list(limit=limit)
 
 
 @router.get("/tasks", response_model=list[PackageTask])
@@ -132,8 +169,12 @@ async def get_deployment_package_task(task_id: str) -> PackageTask:
 
 
 @router.post("/cleanup", response_model=CleanupResult)
-async def cleanup_deployment_package_outputs(dry_run: bool = False) -> CleanupResult:
-    return cleanup_deployment_packages(
+async def cleanup_deployment_package_outputs(
+    request: Request,
+    dry_run: bool = False,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> CleanupResult:
+    result = cleanup_deployment_packages(
         get_task_repository(),
         CleanupPolicy(
             retention_days=_SETTINGS.retention_days,
@@ -141,12 +182,34 @@ async def cleanup_deployment_package_outputs(dry_run: bool = False) -> CleanupRe
             dry_run=dry_run,
         ),
     )
+    _audit(
+        request,
+        action="package.cleanup",
+        status="dry-run" if dry_run else "completed",
+        message="Deployment package cleanup executed.",
+        operator=x_deployment_package_operator,
+        metadata=result.model_dump(by_alias=True),
+    )
+    return result
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=PackageTask)
-async def cancel_deployment_package_task(task_id: str) -> PackageTask:
+async def cancel_deployment_package_task(
+    task_id: str,
+    request: Request,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> PackageTask:
     try:
-        return get_task_repository().cancel(task_id)
+        task = get_task_repository().cancel(task_id)
+        _audit(
+            request,
+            action="task.cancel",
+            status=task.status,
+            target_id=task_id,
+            message=task.message,
+            operator=x_deployment_package_operator,
+        )
+        return task
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Deployment package task not found") from exc
     except ValueError as exc:
@@ -154,7 +217,12 @@ async def cancel_deployment_package_task(task_id: str) -> PackageTask:
 
 
 @router.post("/tasks/{task_id}/retry", response_model=PackageTask)
-async def retry_deployment_package_task(task_id: str, background_tasks: BackgroundTasks) -> PackageTask:
+async def retry_deployment_package_task(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> PackageTask:
     repo = get_task_repository()
     try:
         retry_task = repo.retry(task_id)
@@ -162,6 +230,15 @@ async def retry_deployment_package_task(task_id: str, background_tasks: Backgrou
         raise HTTPException(status_code=404, detail="Deployment package task not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _audit(
+        request,
+        action="task.retry",
+        status="accepted",
+        target_id=retry_task.task_id,
+        message=f"Retry task created from {task_id}.",
+        operator=x_deployment_package_operator,
+        metadata={"sourceTaskId": task_id},
+    )
     if should_run_background_tasks():
         background_tasks.add_task(get_task_executor().run, retry_task.task_id, PackageBuildRequest.model_validate(retry_task.request))
     return retry_task
@@ -176,13 +253,26 @@ async def get_deployment_package(package_id: str) -> PackageBuildResult:
 
 
 @router.get("/{package_id}/download")
-async def download_deployment_package(package_id: str) -> FileResponse:
+async def download_deployment_package(
+    package_id: str,
+    request: Request,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> FileResponse:
     task = _find_completed_task(package_id)
     if task is None or task.result is None:
         raise HTTPException(status_code=404, detail="Deployment package task not found")
     artifact = Path(task.result.artifact_path)
     if not artifact.exists():
         raise HTTPException(status_code=404, detail="Deployment package artifact not found")
+    _audit(
+        request,
+        action="package.download",
+        status="completed",
+        target_id=task.result.package_id,
+        message="Deployment package downloaded.",
+        operator=x_deployment_package_operator,
+        metadata={"taskId": task.task_id, "artifactPath": task.result.artifact_path},
+    )
     return FileResponse(
         artifact,
         media_type="application/gzip",
@@ -199,3 +289,42 @@ def _find_completed_task(package_or_task_id: str) -> PackageTask | None:
         if candidate.result and candidate.result.package_id == package_or_task_id and candidate.status == "completed":
             return candidate
     return None
+
+
+def _audit(
+    request: Request,
+    *,
+    action: str,
+    status: str,
+    target_id: str = "",
+    message: str = "",
+    operator: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    try:
+        get_audit_repository().record(
+            action=action,
+            status=status,
+            target_id=target_id,
+            operator=_operator(request, operator),
+            client_ip=_client_ip(request),
+            message=message,
+            metadata=metadata or {},
+        )
+    except Exception as exc:  # pragma: no cover - audit must not break package operations
+        LOGGER.warning("Failed to record deployment package audit event: %s", exc)
+
+
+def _operator(request: Request, explicit_operator: str | None) -> str:
+    if explicit_operator and explicit_operator.strip():
+        return explicit_operator.strip()
+    if getattr(request.state, "deployment_package_authenticated", False):
+        return "api-token"
+    return "anonymous"
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else ""

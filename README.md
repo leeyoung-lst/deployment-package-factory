@@ -45,6 +45,7 @@ docker compose up --build
 | --- | --- | --- |
 | `DEPLOYMENT_PACKAGE_DATA_DIR` | `data/` | 运行时数据根目录 |
 | `DEPLOYMENT_PACKAGE_TASK_DB` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-package-tasks.sqlite3` | 导包任务 SQLite 路径 |
+| `DEPLOYMENT_PACKAGE_AUDIT_DB` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-package-audit.sqlite3` | 操作审计 SQLite 路径 |
 | `DEPLOYMENT_PACKAGE_OUTPUT_DIR` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-packages` | 工作目录和 tar.gz 产物输出目录 |
 | `DEPLOYMENT_PACKAGE_API_TOKEN` | 空 | 可选 API 访问令牌；配置后 `/api/deployment-packages` 必须携带 Bearer token 或 `X-Deployment-Package-Token` |
 | `DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL` | 空 | 前端容器启动时写入的 API 地址；空值表示使用同源 `/api` 代理 |
@@ -84,6 +85,7 @@ docker compose up --build
 - K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装、卸载和 dry-run 脚本。
 - Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装、卸载和 dry-run 脚本。
 - 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 SQLite。
+- 导包创建、取消、重试、下载和清理会写入操作审计日志，前端可查看最近审计事件。
 - 导包任务支持取消和失败重试，后端默认同一进程内仅允许 1 个构建任务同时执行，其他任务会排队等待执行槽位。独立 worker 模式会记录 `workerId`、领取时间和心跳时间，进程崩溃后的 running 任务会按心跳超时转为 failed 以便重试。
 - 生成包会写入 `package-index.json`，按 root/docs/k8s/docker-compose/init/overlays/images/scripts/security 分区登记文件、大小、SHA256 和可执行标记。
 - 生成包会写入 `verify.sh`、`verify.ps1` 和 `security/SHA256SUMS`，安装前默认校验文件完整性、包索引和镜像归档锁。
@@ -231,6 +233,7 @@ POST /api/deployment-packages
 ```http
 GET /api/deployment-packages/tasks/{taskId}
 GET /api/deployment-packages/tasks
+GET /api/deployment-packages/audit-events
 ```
 
 取消或重试任务：
