@@ -39,10 +39,29 @@ Windows PowerShell：
 
 推送后，替换 `deploy/k8s/backend.yaml` 和 `deploy/k8s/frontend.yaml` 中的 `image`，或在 Docker Compose 中设置 `DPF_BACKEND_IMAGE` 和 `DPF_FRONTEND_IMAGE`。
 
+也可以生成部署镜像配置文件：
+
+```bash
+scripts/render-deploy-images.sh --registry registry.example.com --repository platform --tag 2026.06
+```
+
+Windows PowerShell：
+
+```powershell
+.\scripts\render-deploy-images.ps1 -Registry registry.example.com -Repository platform -Tag 2026.06
+```
+
+默认会生成：
+
+```text
+deploy/generated/factory.env
+deploy/generated/kustomization.yaml
+```
+
 ## Docker Compose
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml up -d
+docker compose --env-file deploy/generated/factory.env -f deploy/docker-compose.prod.yml up -d
 ```
 
 可选环境变量：
@@ -69,7 +88,7 @@ http://localhost:5186
 部署：
 
 ```bash
-kubectl apply -k deploy/k8s
+kubectl apply -k deploy/generated
 ```
 
 部署后检查：
@@ -88,7 +107,7 @@ deployment-package-factory.example.com
 生产使用前需要调整：
 
 - `deploy/k8s/ingress.yaml` 中的域名。
-- `deploy/k8s/backend.yaml` 和 `deploy/k8s/frontend.yaml` 中的镜像地址。
+- `scripts/render-deploy-images.*` 生成的镜像地址。
 - `deploy/k8s/pvc.yaml` 中的存储大小和 StorageClass。
 - `deploy/k8s/configmap.yaml` 中的并发数、保留天数和容量上限。
 
