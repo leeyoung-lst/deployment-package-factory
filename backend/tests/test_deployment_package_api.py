@@ -139,6 +139,17 @@ def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.Mo
     assert response.json()["status"] == "canceled"
 
 
+def test_cleanup_deployment_package_outputs_api(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    _set_repo(monkeypatch, repo, tmp_path)
+
+    response = _client().post("/api/deployment-packages/cleanup?dry_run=true")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["dryRun"] is True
+    assert response.json()["scannedTasks"] == 0
+
+
 def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     _set_repo(monkeypatch, repo, tmp_path)

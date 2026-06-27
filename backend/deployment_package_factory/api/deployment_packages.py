@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.builder import PackageBuildError
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError, load_catalog
+from deployment_package_factory.services.deployment_packages.cleanup import CleanupPolicy, CleanupResult, cleanup_deployment_packages
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
     resolve_package_preview,
 )
@@ -113,6 +114,18 @@ async def get_deployment_package_task(task_id: str) -> PackageTask:
     if task is None:
         raise HTTPException(status_code=404, detail="Deployment package task not found")
     return task
+
+
+@router.post("/cleanup", response_model=CleanupResult)
+async def cleanup_deployment_package_outputs(dry_run: bool = False) -> CleanupResult:
+    return cleanup_deployment_packages(
+        get_task_repository(),
+        CleanupPolicy(
+            retention_days=_SETTINGS.retention_days,
+            max_total_bytes=_SETTINGS.max_total_gb * 1024 * 1024 * 1024,
+            dry_run=dry_run,
+        ),
+    )
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=PackageTask)

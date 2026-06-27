@@ -10,6 +10,8 @@ services:
       DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
       DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages
       DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS: "1"
+      DEPLOYMENT_PACKAGE_RETENTION_DAYS: "30"
+      DEPLOYMENT_PACKAGE_MAX_TOTAL_GB: "500"
     volumes:
       - ./data:/app/data
     healthcheck:

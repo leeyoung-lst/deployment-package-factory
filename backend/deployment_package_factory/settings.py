@@ -14,6 +14,8 @@ class DeploymentPackageSettings:
     task_db_path: Path
     output_dir: Path
     max_concurrent_builds: int
+    retention_days: int
+    max_total_gb: int
 
 
 def load_settings() -> DeploymentPackageSettings:
@@ -27,6 +29,8 @@ def load_settings() -> DeploymentPackageSettings:
         task_db_path=task_db_path,
         output_dir=output_dir,
         max_concurrent_builds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS"), default=1),
+        retention_days=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_RETENTION_DAYS"), default=30),
+        max_total_gb=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_TOTAL_GB"), default=500),
     )
 
 
