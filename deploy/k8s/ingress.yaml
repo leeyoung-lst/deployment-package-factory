@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: deployment-package-factory
+  namespace: deployment-package-factory
+  labels:
+    app.kubernetes.io/name: deployment-package-factory
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+spec:
+  rules:
+    - host: deployment-package-factory.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: deployment-package-factory-frontend
+                port:
+                  name: http

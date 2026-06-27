@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-package-factory-backend
+  namespace: deployment-package-factory
+  labels:
+    app.kubernetes.io/name: deployment-package-factory
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deployment-package-factory
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deployment-package-factory
+        app.kubernetes.io/component: backend
+    spec:
+      containers:
+        - name: backend
+          image: deployment-package-factory-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8096
+          envFrom:
+            - configMapRef:
+                name: deployment-package-factory-config
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: deployment-package-factory-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deployment-package-factory-backend
+  namespace: deployment-package-factory
+  labels:
+    app.kubernetes.io/name: deployment-package-factory
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: deployment-package-factory
+    app.kubernetes.io/component: backend
+  ports:
+    - name: http
+      port: 8096
+      targetPort: http

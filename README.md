@@ -52,6 +52,15 @@ docker compose up --build
 
 当前版本仍使用 FastAPI 后台任务执行导包，但执行逻辑已经抽到 `PackageTaskExecutor`。后续拆成独立 worker 进程时，可以复用同一套任务仓储、并发控制和输出目录配置。
 
+## 部署部署包工厂
+
+`deploy/` 目录提供部署包工厂自身的生产部署清单：
+
+- `deploy/docker-compose.prod.yml`：单机或轻量环境部署。
+- `deploy/k8s/`：Kubernetes namespace、ConfigMap、PVC、Deployment、Service、Ingress 和 Kustomize 入口。
+
+详细步骤见 `deploy/README.md`。
+
 ## 当前能力
 
 - 支持 `dev`、`test` 来源环境。

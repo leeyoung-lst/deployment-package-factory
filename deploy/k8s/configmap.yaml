@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-package-factory-config
+  namespace: deployment-package-factory
+  labels:
+    app.kubernetes.io/name: deployment-package-factory
+data:
+  DEPLOYMENT_PACKAGE_DATA_DIR: /app/data
+  DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
+  DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages
+  DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS: "1"
+  DEPLOYMENT_PACKAGE_RETENTION_DAYS: "30"
+  DEPLOYMENT_PACKAGE_MAX_TOTAL_GB: "500"

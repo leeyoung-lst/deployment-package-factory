@@ -1,0 +1,37 @@
+services:
+  deployment-package-factory-backend:
+    image: ${DPF_BACKEND_IMAGE:-deployment-package-factory-backend:latest}
+    restart: unless-stopped
+    environment:
+      DEPLOYMENT_PACKAGE_DATA_DIR: /app/data
+      DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
+      DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages
+      DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS: ${DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS:-1}
+      DEPLOYMENT_PACKAGE_RETENTION_DAYS: ${DEPLOYMENT_PACKAGE_RETENTION_DAYS:-30}
+      DEPLOYMENT_PACKAGE_MAX_TOTAL_GB: ${DEPLOYMENT_PACKAGE_MAX_TOTAL_GB:-500}
+    volumes:
+      - deployment-package-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8096/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    networks:
+      - deployment-package-factory
+
+  deployment-package-factory-frontend:
+    image: ${DPF_FRONTEND_IMAGE:-deployment-package-factory-frontend:latest}
+    restart: unless-stopped
+    depends_on:
+      deployment-package-factory-backend:
+        condition: service_healthy
+    ports:
+      - "${DPF_HTTP_PORT:-5186}:80"
+    networks:
+      - deployment-package-factory
+
+volumes:
+  deployment-package-data:
+
+networks:
+  deployment-package-factory:
