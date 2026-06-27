@@ -120,6 +120,16 @@ export interface PackageTask {
   updatedAt: string;
 }
 
+export interface CleanupResult {
+  scannedTasks: number;
+  deletedArtifacts: number;
+  deletedWorkDirs: number;
+  freedBytes: number;
+  retainedBytes: number;
+  dryRun: boolean;
+  deletedPaths: string[];
+}
+
 export function getDeploymentPackageOptions() {
   return request<DeploymentPackageOptions>("/api/deployment-packages/options");
 }
@@ -142,6 +152,10 @@ export function getDeploymentPackageTask(taskId: string) {
   return request<PackageTask>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}`);
 }
 
+export function listDeploymentPackageTasks(limit = 20) {
+  return request<PackageTask[]>(`/api/deployment-packages/tasks?limit=${encodeURIComponent(String(limit))}`);
+}
+
 export function cancelDeploymentPackageTask(taskId: string) {
   return request<PackageTask>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}/cancel`, {
     method: "POST",
@@ -150,6 +164,12 @@ export function cancelDeploymentPackageTask(taskId: string) {
 
 export function retryDeploymentPackageTask(taskId: string) {
   return request<PackageTask>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}/retry`, {
+    method: "POST",
+  });
+}
+
+export function cleanupDeploymentPackages(dryRun: boolean) {
+  return request<CleanupResult>(`/api/deployment-packages/cleanup?dry_run=${dryRun ? "true" : "false"}`, {
     method: "POST",
   });
 }

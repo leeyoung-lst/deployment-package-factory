@@ -1,15 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { App, Button, Checkbox, Divider, Empty, Form, Input, Progress, Radio, Select, Space, Spin, Tag } from "antd";
+import { App, Button, Checkbox, Divider, Empty, Form, Input, Popconfirm, Progress, Radio, Select, Space, Spin, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
   cancelDeploymentPackageTask,
+  cleanupDeploymentPackages,
   createDeploymentPackage,
   deploymentPackageDownloadUrl,
   getDeploymentPackageOptions,
   getDeploymentPackageTask,
+  listDeploymentPackageTasks,
   previewDeploymentPackage,
   retryDeploymentPackageTask,
   type BusinessSelection,
+  type CleanupResult,
   type DeployMode,
   type DeploymentPackageOptions,
   type PackagePreview,
@@ -43,10 +46,14 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [database, setDatabase] = useState("postgres");
   const [preview, setPreview] = useState<PackagePreview | null>(null);
   const [task, setTask] = useState<PackageTask | null>(null);
+  const [tasks, setTasks] = useState<PackageTask[]>([]);
+  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [building, setBuilding] = useState(false);
   const [taskActionLoading, setTaskActionLoading] = useState(false);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: "image-manifest" });
 
   const requiredPlatformKeys = useMemo(
@@ -137,6 +144,18 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   }, [makePreviewPayload, message, options]);
 
+  const refreshTasks = useCallback(async () => {
+    setTasksLoading(true);
+    try {
+      const payload = await listDeploymentPackageTasks(20);
+      setTasks(payload);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "任务列表刷新失败");
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [message]);
+
   useEffect(() => {
     queueMicrotask(() => void loadOptions());
   }, [loadOptions]);
@@ -177,6 +196,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         },
       });
       setTask(payload);
+      void refreshTasks();
       message.success("部署任务已创建");
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
@@ -191,6 +211,7 @@ export const DeploymentPackageExportView: React.FC = () => {
     try {
       const payload = await cancelDeploymentPackageTask(task.taskId);
       setTask(payload);
+      void refreshTasks();
       message.success(payload.status === "canceled" ? "任务已取消" : "已请求取消任务");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "任务取消失败");
@@ -205,11 +226,26 @@ export const DeploymentPackageExportView: React.FC = () => {
     try {
       const payload = await retryDeploymentPackageTask(task.taskId);
       setTask(payload);
+      void refreshTasks();
       message.success("已创建重试任务");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "任务重试失败");
     } finally {
       setTaskActionLoading(false);
+    }
+  };
+
+  const runCleanup = async (dryRun: boolean) => {
+    setCleanupLoading(true);
+    try {
+      const payload = await cleanupDeploymentPackages(dryRun);
+      setCleanupResult(payload);
+      void refreshTasks();
+      message.success(dryRun ? "清理预演完成" : "清理完成");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "部署包清理失败");
+    } finally {
+      setCleanupLoading(false);
     }
   };
 
@@ -219,6 +255,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       void getDeploymentPackageTask(task.taskId)
         .then((payload) => {
           setTask(payload);
+          setTasks((current) => current.map((item) => (item.taskId === payload.taskId ? payload : item)));
           if (payload.status === "completed") message.success("部署包生成完成");
           if (payload.status === "failed") message.error(payload.error || "部署包生成失败");
           if (payload.status === "canceled") message.info("部署包任务已取消");
@@ -228,6 +265,10 @@ export const DeploymentPackageExportView: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [message, task]);
 
+  useEffect(() => {
+    void refreshTasks();
+  }, [refreshTasks]);
+
   return (
     <section className={`panel ${styles.page}`}>
       <div className="panel-header">
@@ -236,6 +277,7 @@ export const DeploymentPackageExportView: React.FC = () => {
           <p>按环境、基础能力、业务产品和中间件依赖生成生产部署包</p>
         </div>
         <Space>
+          <Button icon={<i className="ri-list-check-3" />} loading={tasksLoading} onClick={() => void refreshTasks()}>刷新任务</Button>
           <Button icon={<i className="ri-refresh-line" />} loading={loadingOptions} onClick={() => void loadOptions()}>刷新选项</Button>
           <Button type="primary" icon={<i className="ri-package-line" />} loading={building} onClick={() => void buildPackage()}>生成部署包</Button>
         </Space>
@@ -453,6 +495,21 @@ export const DeploymentPackageExportView: React.FC = () => {
               </div>
             </div>
           ) : null}
+
+          <TaskListPanel
+            tasks={tasks}
+            loading={tasksLoading}
+            selectedTaskId={task?.taskId}
+            onSelect={(item) => setTask(item)}
+            onRefresh={() => void refreshTasks()}
+          />
+
+          <CleanupPanel
+            result={cleanupResult}
+            loading={cleanupLoading}
+            onDryRun={() => void runCleanup(true)}
+            onCleanup={() => void runCleanup(false)}
+          />
         </div>
       </div>
     </section>
@@ -483,6 +540,109 @@ function ProjectSummary({ project }: { project: ProjectProfile | null }) {
         <span className={styles.muted}>目标配置</span>
         <span className={styles.mono}>{project.namespacePrefix} / {project.domain} / {project.storageClass || "default-storage"}</span>
       </div>
+    </div>
+  );
+}
+
+function TaskListPanel({
+  tasks,
+  loading,
+  selectedTaskId,
+  onSelect,
+  onRefresh,
+}: {
+  tasks: PackageTask[];
+  loading: boolean;
+  selectedTaskId?: string;
+  onSelect: (task: PackageTask) => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className={styles.resultPanel}>
+      <div className={styles.panelTitleRow}>
+        <h3 className={styles.sectionTitle}>最近任务</h3>
+        <Button size="small" icon={<i className="ri-refresh-line" />} loading={loading} onClick={onRefresh}>刷新</Button>
+      </div>
+      {tasks.length ? (
+        <div className={styles.taskList}>
+          {tasks.map((item) => (
+            <button
+              key={item.taskId}
+              type="button"
+              className={`${styles.taskItem} ${item.taskId === selectedTaskId ? styles.taskItemActive : ""}`}
+              onClick={() => onSelect(item)}
+            >
+              <span className={styles.taskItemMain}>
+                <span className={styles.mono}>{item.result?.packageId || item.taskId}</span>
+                <span className={styles.muted}>{item.message || item.updatedAt}</span>
+              </span>
+              <Tag color={taskStatusColor(item.status)}>{item.status}</Tag>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务" />
+      )}
+    </div>
+  );
+}
+
+function CleanupPanel({
+  result,
+  loading,
+  onDryRun,
+  onCleanup,
+}: {
+  result: CleanupResult | null;
+  loading: boolean;
+  onDryRun: () => void;
+  onCleanup: () => void;
+}) {
+  return (
+    <div className={styles.resultPanel}>
+      <div className={styles.panelTitleRow}>
+        <h3 className={styles.sectionTitle}>产物清理</h3>
+        <Space>
+          <Button size="small" icon={<i className="ri-search-eye-line" />} loading={loading} onClick={onDryRun}>预演</Button>
+          <Popconfirm title="确认清理部署包产物？" description="任务记录会保留，已清理的包不能继续下载。" onConfirm={onCleanup}>
+            <Button size="small" danger icon={<i className="ri-delete-bin-line" />} loading={loading}>清理</Button>
+          </Popconfirm>
+        </Space>
+      </div>
+      {result ? (
+        <div className={styles.cleanupSummary}>
+          <div className={styles.metricItem}>
+            <span className={styles.muted}>扫描任务</span>
+            <strong>{result.scannedTasks}</strong>
+          </div>
+          <div className={styles.metricItem}>
+            <span className={styles.muted}>产物</span>
+            <strong>{result.deletedArtifacts}</strong>
+          </div>
+          <div className={styles.metricItem}>
+            <span className={styles.muted}>临时目录</span>
+            <strong>{result.deletedWorkDirs}</strong>
+          </div>
+          <div className={styles.metricItem}>
+            <span className={styles.muted}>释放</span>
+            <strong>{formatBytes(result.freedBytes)}</strong>
+          </div>
+          <div className={styles.resultRow}>
+            <span className={styles.muted}>模式</span>
+            <Tag color={result.dryRun ? "blue" : "green"}>{result.dryRun ? "dry-run" : "executed"}</Tag>
+          </div>
+          <div className={styles.resultRow}>
+            <span className={styles.muted}>路径</span>
+            <div className={styles.logBox}>
+              {result.deletedPaths.length ? result.deletedPaths.slice(0, 20).map((item) => (
+                <div key={item} className={styles.mono}>{item}</div>
+              )) : <span className={styles.muted}>没有需要清理的产物</span>}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先执行清理预演" />
+      )}
     </div>
   );
 }
@@ -568,6 +728,13 @@ function taskStatusColor(status: PackageTask["status"]) {
   if (status === "canceled") return "default";
   if (status === "running") return "processing";
   return "default";
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GiB`;
 }
 
 function DependencyBlock({ title, items, color }: { title: string; items: PackagePreview["middleware"]; color: string }) {

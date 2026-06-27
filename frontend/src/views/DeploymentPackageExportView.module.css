@@ -172,6 +172,13 @@
   gap: 10px;
 }
 
+.panelTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .resultRow {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -188,6 +195,61 @@
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.04);
+}
+
+.taskList {
+  display: grid;
+  gap: 8px;
+}
+
+.taskItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.72);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.taskItem:hover,
+.taskItemActive {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: rgba(239, 246, 255, 0.9);
+}
+
+.taskItemMain {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.cleanupSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metricItem {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.metricItem strong {
+  font-size: 18px;
+}
+
+.cleanupSummary .resultRow {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 1120px) {
@@ -208,6 +270,11 @@
 
   .summaryRow,
   .imageMapRow {
+    grid-template-columns: 1fr;
+  }
+
+  .taskItem,
+  .cleanupSummary {
     grid-template-columns: 1fr;
   }
 
