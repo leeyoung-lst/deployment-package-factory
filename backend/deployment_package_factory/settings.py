@@ -16,6 +16,7 @@ class DeploymentPackageSettings:
     max_concurrent_builds: int
     execution_mode: str
     worker_poll_interval_seconds: int
+    worker_heartbeat_seconds: int
     running_task_timeout_minutes: int
     retention_days: int
     max_total_gb: int
@@ -34,6 +35,7 @@ def load_settings() -> DeploymentPackageSettings:
         max_concurrent_builds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS"), default=1),
         execution_mode=_execution_mode(os.getenv("DEPLOYMENT_PACKAGE_EXECUTION_MODE")),
         worker_poll_interval_seconds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS"), default=3),
+        worker_heartbeat_seconds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS"), default=15),
         running_task_timeout_minutes=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES"), default=120),
         retention_days=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_RETENTION_DAYS"), default=30),
         max_total_gb=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_TOTAL_GB"), default=500),

@@ -43,8 +43,8 @@ class PackageTaskRepository:
                 """
                 insert into package_tasks(
                     task_id, status, progress, message, request_json, result_json,
-                    error, logs_json, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error, logs_json, worker_id, claimed_at, heartbeat_at, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 _task_to_row(task),
             )
@@ -63,7 +63,7 @@ class PackageTaskRepository:
             ).fetchall()
         return [_task_from_row(row) for row in rows]
 
-    def claim_next_pending(self) -> PackageTask | None:
+    def claim_next_pending(self, worker_id: str = "") -> PackageTask | None:
         now = _now_iso()
         with self._connect() as conn:
             conn.execute("begin immediate")
@@ -82,14 +82,48 @@ class PackageTaskRepository:
             conn.execute(
                 """
                 update package_tasks
-                set status = ?, progress = ?, message = ?, logs_json = ?, updated_at = ?
+                set status = ?, progress = ?, message = ?, logs_json = ?,
+                    worker_id = ?, claimed_at = ?, heartbeat_at = ?, updated_at = ?
                 where task_id = ?
                 """,
-                ("running", 8, "Worker 已领取任务，等待执行", json.dumps(logs, ensure_ascii=False), now, row["task_id"]),
+                (
+                    "running",
+                    8,
+                    "Worker 已领取任务，等待执行",
+                    json.dumps(logs, ensure_ascii=False),
+                    worker_id,
+                    now,
+                    now,
+                    now,
+                    row["task_id"],
+                ),
             )
             claimed = conn.execute("select * from package_tasks where task_id = ?", (row["task_id"],)).fetchone()
             conn.commit()
         return _task_from_row(claimed) if claimed else None
+
+    def heartbeat(self, task_id: str, worker_id: str = "") -> PackageTask:
+        task = self.get(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task.status != "running":
+            return task
+        if task.worker_id and worker_id and task.worker_id != worker_id:
+            raise ValueError(f"Task {task_id} is owned by worker {task.worker_id}.")
+        now = _now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update package_tasks
+                set heartbeat_at = ?, updated_at = ?
+                where task_id = ? and status = 'running'
+                """,
+                (now, now, task_id),
+            )
+            row = conn.execute("select * from package_tasks where task_id = ?", (task_id,)).fetchone()
+        if row is None:
+            raise KeyError(task_id)
+        return _task_from_row(row)
 
     def mark_stale_running_failed(self, timeout_minutes: int) -> list[PackageTask]:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, timeout_minutes))
@@ -98,8 +132,8 @@ class PackageTaskRepository:
         with self._connect() as conn:
             rows = conn.execute("select * from package_tasks where status = 'running'").fetchall()
             for row in rows:
-                updated_at = _parse_iso(row["updated_at"])
-                if updated_at >= cutoff:
+                last_seen = _parse_iso(row["heartbeat_at"] or row["updated_at"])
+                if last_seen >= cutoff:
                     continue
                 error = f"Worker task timed out after {timeout_minutes} minutes."
                 logs = [*json.loads(row["logs_json"]), f"部署包生成失败：{error}"]
@@ -116,8 +150,24 @@ class PackageTaskRepository:
                     updated.append(_task_from_row(updated_row))
         return updated
 
-    def mark_running(self, task_id: str, message: str = "正在生成部署包") -> PackageTask:
-        return self.update(task_id, status="running", progress=10, message=message, log=message)
+    def mark_running(self, task_id: str, message: str = "正在生成部署包", worker_id: str = "") -> PackageTask:
+        task = self.update(task_id, status="running", progress=10, message=message, log=message)
+        if task.worker_id or not worker_id:
+            return task
+        now = _now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update package_tasks
+                set worker_id = ?, claimed_at = ?, heartbeat_at = ?, updated_at = ?
+                where task_id = ?
+                """,
+                (worker_id, now, now, now, task_id),
+            )
+            row = conn.execute("select * from package_tasks where task_id = ?", (task_id,)).fetchone()
+        if row is None:
+            raise KeyError(task_id)
+        return _task_from_row(row)
 
     def mark_completed(self, task_id: str, result: PackageBuildResult) -> PackageTask:
         return self.update(
@@ -224,7 +274,9 @@ class PackageTaskRepository:
                 """
                 update package_tasks
                 set status = ?, progress = ?, message = ?, request_json = ?,
-                    result_json = ?, error = ?, logs_json = ?, created_at = ?, updated_at = ?
+                    result_json = ?, error = ?, logs_json = ?,
+                    worker_id = ?, claimed_at = ?, heartbeat_at = ?,
+                    created_at = ?, updated_at = ?
                 where task_id = ?
                 """,
                 (*_task_to_row(updated)[1:], updated.task_id),
@@ -244,11 +296,21 @@ class PackageTaskRepository:
                     result_json text,
                     error text not null,
                     logs_json text not null,
+                    worker_id text not null default '',
+                    claimed_at text not null default '',
+                    heartbeat_at text not null default '',
                     created_at text not null,
                     updated_at text not null
                 )
                 """
             )
+            existing_columns = {
+                row["name"]
+                for row in conn.execute("pragma table_info(package_tasks)").fetchall()
+            }
+            for column_name in ("worker_id", "claimed_at", "heartbeat_at"):
+                if column_name not in existing_columns:
+                    conn.execute(f"alter table package_tasks add column {column_name} text not null default ''")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -266,6 +328,9 @@ def _task_to_row(task: PackageTask) -> tuple:
         task.result.model_dump_json(by_alias=True) if task.result else None,
         task.error,
         json.dumps(task.logs, ensure_ascii=False),
+        task.worker_id,
+        task.claimed_at,
+        task.heartbeat_at,
         task.created_at,
         task.updated_at,
     )
@@ -283,6 +348,9 @@ def _task_from_row(row: sqlite3.Row) -> PackageTask:
         artifactAvailable=_artifact_available(result_raw),
         error=row["error"],
         logs=json.loads(row["logs_json"]),
+        workerId=row["worker_id"],
+        claimedAt=row["claimed_at"],
+        heartbeatAt=row["heartbeat_at"],
         createdAt=row["created_at"],
         updatedAt=row["updated_at"],
     )

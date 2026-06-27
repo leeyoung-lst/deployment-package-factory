@@ -49,6 +49,7 @@ docker compose up --build
 | `DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS` | `1` | 单进程内同时执行的导包任务数 |
 | `DEPLOYMENT_PACKAGE_EXECUTION_MODE` | `background` | `background` 由 API 后台任务执行，`worker` 由独立 worker 领取执行 |
 | `DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS` | `3` | worker 轮询 pending 任务的间隔 |
+| `DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS` | `15` | worker 执行 running 任务时刷新心跳的间隔 |
 | `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES` | `120` | worker 将超时 running 任务标记失败的阈值 |
 | `DEPLOYMENT_PACKAGE_RETENTION_DAYS` | `30` | 清理任务保留最近多少天的部署包产物 |
 | `DEPLOYMENT_PACKAGE_MAX_TOTAL_GB` | `500` | 清理任务保留的部署包产物总容量上限 |
@@ -79,7 +80,7 @@ docker compose up --build
 - K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装、卸载和 dry-run 脚本。
 - Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装、卸载和 dry-run 脚本。
 - 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 SQLite。
-- 导包任务支持取消和失败重试，后端默认同一进程内仅允许 1 个构建任务同时执行，其他任务会排队等待执行槽位。
+- 导包任务支持取消和失败重试，后端默认同一进程内仅允许 1 个构建任务同时执行，其他任务会排队等待执行槽位。独立 worker 模式会记录 `workerId`、领取时间和心跳时间，进程崩溃后的 running 任务会按心跳超时转为 failed 以便重试。
 - 生成包会写入 `package-index.json`，按 root/docs/k8s/docker-compose/init/overlays/images/scripts/security 分区登记文件、大小、SHA256 和可执行标记。
 - 生成包会写入 `verify.sh`、`verify.ps1` 和 `security/SHA256SUMS`，安装前默认校验文件完整性、包索引和镜像归档锁。
 

@@ -117,6 +117,9 @@ export interface PackageTask {
   artifactAvailable: boolean;
   error: string;
   logs: string[];
+  workerId: string;
+  claimedAt: string;
+  heartbeatAt: string;
   createdAt: string;
   updatedAt: string;
 }

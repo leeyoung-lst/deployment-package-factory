@@ -144,5 +144,8 @@ class PackageTask(BaseModel):
     artifact_available: bool = Field(default=False, alias="artifactAvailable")
     error: str = ""
     logs: list[str] = Field(default_factory=list)
+    worker_id: str = Field(default="", alias="workerId")
+    claimed_at: str = Field(default="", alias="claimedAt")
+    heartbeat_at: str = Field(default="", alias="heartbeatAt")
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")

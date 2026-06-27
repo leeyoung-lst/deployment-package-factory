@@ -14,6 +14,8 @@ from deployment_package_factory.services.deployment_packages.task_repository imp
 class PackageTaskExecutorConfig:
     max_concurrent_builds: int = 1
     output_dir: Path | None = None
+    heartbeat_seconds: int = 15
+    worker_id: str = ""
 
 
 class PackageTaskExecutor:
@@ -33,8 +35,8 @@ class PackageTaskExecutor:
                 task = self.repo.get(task_id)
                 if task is None or task.status == "canceled":
                     return
-                self.repo.mark_running(task_id)
-                result = await asyncio.to_thread(build_deployment_package, payload, output_dir=self.config.output_dir)
+                self.repo.mark_running(task_id, worker_id=self.config.worker_id)
+                result = await self._build_with_heartbeat(task_id, payload)
                 if self.repo.is_cancel_requested(task_id):
                     self.repo.mark_canceled(task_id, "部署包任务已取消，已丢弃本次构建结果")
                 else:
@@ -48,3 +50,28 @@ class PackageTaskExecutor:
         if self.repo.is_cancel_requested(task_id):
             return self.repo.mark_canceled(task_id)
         return self.repo.mark_failed(task_id, error)
+
+    async def _build_with_heartbeat(self, task_id: str, payload: PackageBuildRequest):
+        stop = asyncio.Event()
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop(task_id, stop))
+        try:
+            return await asyncio.to_thread(build_deployment_package, payload, output_dir=self.config.output_dir)
+        finally:
+            try:
+                self.repo.heartbeat(task_id, self.config.worker_id)
+            except (KeyError, ValueError):
+                pass
+            stop.set()
+            await heartbeat_task
+
+    async def _heartbeat_loop(self, task_id: str, stop: asyncio.Event) -> None:
+        interval = max(1, self.config.heartbeat_seconds)
+        while not stop.is_set():
+            try:
+                self.repo.heartbeat(task_id, self.config.worker_id)
+            except (KeyError, ValueError):
+                return
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=interval)
+            except TimeoutError:
+                continue

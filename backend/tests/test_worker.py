@@ -15,6 +15,7 @@ def test_worker_runs_one_pending_task(tmp_path, monkeypatch) -> None:
     task = repo.create(PackageBuildRequest())
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_TASK_DB", str(db_path))
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_OUTPUT_DIR", str(output_dir))
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_WORKER_ID", "worker-test")
     monkeypatch.setattr(
         "deployment_package_factory.services.deployment_packages.task_executor.build_deployment_package",
         lambda payload, *, output_dir=None: PackageBuildResult(
@@ -31,6 +32,8 @@ def test_worker_runs_one_pending_task(tmp_path, monkeypatch) -> None:
     completed = repo.get(task.task_id)
     assert completed is not None
     assert completed.status == "completed"
+    assert completed.worker_id == "worker-test"
+    assert completed.heartbeat_at
     assert completed.result is not None
     assert completed.result.package_id == "pkg-worker"
 

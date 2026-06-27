@@ -128,15 +128,50 @@ def test_task_repository_claims_oldest_pending_task(tmp_path) -> None:
     first = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
     second = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="mes")]))
 
-    claimed = repo.claim_next_pending()
+    claimed = repo.claim_next_pending("worker-a")
 
     assert claimed is not None
     assert claimed.task_id == first.task_id
     assert claimed.status == "running"
+    assert claimed.worker_id == "worker-a"
+    assert claimed.claimed_at
+    assert claimed.heartbeat_at
     assert "Worker 已领取任务" in claimed.logs
     remaining = repo.get(second.task_id)
     assert remaining is not None
     assert remaining.status == "pending"
+
+
+def test_task_repository_heartbeat_refreshes_owned_running_task(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+    claimed = repo.claim_next_pending("worker-a")
+    assert claimed is not None
+    stale_at = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
+    with repo._connect() as conn:
+        conn.execute(
+            "update package_tasks set heartbeat_at = ?, updated_at = ? where task_id = ?",
+            (stale_at, stale_at, task.task_id),
+        )
+
+    refreshed = repo.heartbeat(task.task_id, "worker-a")
+
+    assert refreshed.worker_id == "worker-a"
+    assert datetime.fromisoformat(refreshed.heartbeat_at) > datetime.fromisoformat(stale_at)
+
+
+def test_task_repository_rejects_heartbeat_from_another_worker(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+    claimed = repo.claim_next_pending("worker-a")
+    assert claimed is not None
+
+    try:
+        repo.heartbeat(claimed.task_id, "worker-b")
+    except ValueError as exc:
+        assert "worker-a" in str(exc)
+    else:
+        raise AssertionError("Expected heartbeat from a different worker to fail")
 
 
 def test_task_repository_marks_stale_running_tasks_failed(tmp_path) -> None:
@@ -156,3 +191,54 @@ def test_task_repository_marks_stale_running_tasks_failed(tmp_path) -> None:
     assert updated[0].task_id == task.task_id
     assert updated[0].status == "failed"
     assert "timed out" in updated[0].error
+
+
+def test_task_repository_stale_detection_uses_heartbeat(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+    repo.claim_next_pending("worker-a")
+    stale_at = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
+    fresh_at = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        conn.execute(
+            "update package_tasks set heartbeat_at = ?, updated_at = ? where task_id = ?",
+            (fresh_at, stale_at, task.task_id),
+        )
+
+    updated = repo.mark_stale_running_failed(timeout_minutes=30)
+
+    assert updated == []
+    reloaded = repo.get(task.task_id)
+    assert reloaded is not None
+    assert reloaded.status == "running"
+
+
+def test_task_repository_migrates_worker_lease_columns(tmp_path) -> None:
+    db_path = tmp_path / "legacy.sqlite3"
+    with PackageTaskRepository(db_path)._connect() as conn:
+        conn.execute("alter table package_tasks rename to package_tasks_new")
+        conn.execute(
+            """
+            create table package_tasks (
+                task_id text primary key,
+                status text not null,
+                progress integer not null,
+                message text not null,
+                request_json text not null,
+                result_json text,
+                error text not null,
+                logs_json text not null,
+                created_at text not null,
+                updated_at text not null
+            )
+            """
+        )
+        conn.execute("drop table package_tasks_new")
+
+    repo = PackageTaskRepository(db_path)
+    task = repo.create(PackageBuildRequest())
+    claimed = repo.claim_next_pending("worker-a")
+
+    assert task.worker_id == ""
+    assert claimed is not None
+    assert claimed.worker_id == "worker-a"

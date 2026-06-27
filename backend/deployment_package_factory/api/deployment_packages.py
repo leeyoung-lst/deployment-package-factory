@@ -27,7 +27,12 @@ _SETTINGS = load_settings()
 _TASK_REPO = PackageTaskRepository(_SETTINGS.task_db_path)
 _TASK_EXECUTOR = PackageTaskExecutor(
     _TASK_REPO,
-    PackageTaskExecutorConfig(max_concurrent_builds=_SETTINGS.max_concurrent_builds, output_dir=_SETTINGS.output_dir),
+    PackageTaskExecutorConfig(
+        max_concurrent_builds=_SETTINGS.max_concurrent_builds,
+        output_dir=_SETTINGS.output_dir,
+        heartbeat_seconds=_SETTINGS.worker_heartbeat_seconds,
+        worker_id="api-background",
+    ),
 )
 
 

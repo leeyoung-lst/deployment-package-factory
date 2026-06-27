@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
+import socket
+from uuid import uuid4
 
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest
@@ -15,17 +18,27 @@ LOGGER = logging.getLogger("deployment_package_factory.worker")
 
 async def run_worker(*, once: bool = False) -> None:
     settings = load_settings()
+    worker_id = os.getenv("DEPLOYMENT_PACKAGE_WORKER_ID") or f"{socket.gethostname()}-{uuid4().hex[:8]}"
     repo = PackageTaskRepository(settings.task_db_path)
     executor = PackageTaskExecutor(
         repo,
-        PackageTaskExecutorConfig(max_concurrent_builds=settings.max_concurrent_builds, output_dir=settings.output_dir),
+        PackageTaskExecutorConfig(
+            max_concurrent_builds=settings.max_concurrent_builds,
+            output_dir=settings.output_dir,
+            heartbeat_seconds=settings.worker_heartbeat_seconds,
+            worker_id=worker_id,
+        ),
     )
-    LOGGER.info("Deployment package worker started with poll interval %ss", settings.worker_poll_interval_seconds)
+    LOGGER.info(
+        "Deployment package worker %s started with poll interval %ss",
+        worker_id,
+        settings.worker_poll_interval_seconds,
+    )
     while True:
         stale_tasks = repo.mark_stale_running_failed(settings.running_task_timeout_minutes)
         for stale_task in stale_tasks:
             LOGGER.warning("Marked stale deployment package task %s as failed", stale_task.task_id)
-        task = repo.claim_next_pending()
+        task = repo.claim_next_pending(worker_id)
         if task is None:
             if once:
                 return

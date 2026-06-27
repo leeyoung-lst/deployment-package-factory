@@ -74,6 +74,7 @@ export DPF_FRONTEND_IMAGE=registry.example.com/platform/deployment-package-facto
 export DPF_HTTP_PORT=5186
 export DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS=1
 export DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS=3
+export DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS=15
 export DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES=120
 export DEPLOYMENT_PACKAGE_RETENTION_DAYS=30
 export DEPLOYMENT_PACKAGE_MAX_TOTAL_GB=500
@@ -116,7 +117,7 @@ deployment-package-factory.example.com
 - `deploy/k8s/configmap.yaml` 中的并发数、保留天数和容量上限。
 
 默认 K8s/生产 Compose 部署采用 worker 模式：API 只创建任务，`deployment-package-factory-worker` 负责领取和执行任务。本地开发 `docker-compose.yml` 仍保留后台任务模式，便于单进程调试。
-如果 worker 进程崩溃，超过 `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES` 的 running 任务会被后续 worker 标记为 failed，用户可在页面上重试。
+如果 worker 进程崩溃，后续 worker 会根据任务的 `heartbeatAt` 判断是否超过 `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES`，超时的 running 任务会被标记为 failed，用户可在页面上重试。执行中的 worker 会按 `DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS` 周期刷新心跳。
 
 ## 数据与权限
 
