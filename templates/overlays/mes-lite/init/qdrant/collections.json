@@ -1,0 +1,9 @@
+{
+  "collections": [
+    {
+      "name": "mes_lite_knowledge",
+      "vectorSize": 1536,
+      "distance": "Cosine"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+-- MES lite project-specific DM initialization placeholder.
+-- Keep this script idempotent in production delivery.
+-- TODO: create MES-lite schemas, roles, seed data, and tablespace policy.

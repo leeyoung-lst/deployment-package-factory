@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_OVERLAY_TEMPLATE_DIR = PROJECT_ROOT / "templates" / "overlays"
 
 
 @dataclass(frozen=True)
@@ -12,16 +16,18 @@ class RenderedOverlayFile:
     executable: bool = False
 
 
-def render_project_overlay_files(manifest: dict) -> list[RenderedOverlayFile]:
+def render_project_overlay_files(manifest: dict, template_dir: Path | None = None) -> list[RenderedOverlayFile]:
     project_key = manifest.get("projectKey") or "custom"
     profile = manifest.get("projectProfile") or {}
     overlay_dir = PurePosixPath("overlays") / project_key
     values = _overlay_values(manifest, profile)
-    return [
+    files = [
         RenderedOverlayFile(overlay_dir / "README.md", _overlay_readme(manifest, profile)),
         RenderedOverlayFile(overlay_dir / "values.json", json.dumps(values, ensure_ascii=False, indent=2) + "\n"),
         RenderedOverlayFile(overlay_dir / "kustomization.yaml", _kustomization_stub(manifest, profile)),
     ]
+    files.extend(_template_files(project_key, overlay_dir, template_dir or DEFAULT_OVERLAY_TEMPLATE_DIR))
+    return files
 
 
 def _overlay_values(manifest: dict, profile: dict) -> dict:
@@ -69,3 +75,32 @@ def _kustomization_stub(manifest: dict, profile: dict) -> str:
         f"  local-ai/project: {manifest.get('projectKey') or 'custom'}\n"
         f"{label_lines}"
     )
+
+
+def _template_files(project_key: str, overlay_dir: PurePosixPath, template_dir: Path) -> list[RenderedOverlayFile]:
+    project_dir = (template_dir / project_key).resolve()
+    template_root = template_dir.resolve()
+    if not project_dir.exists():
+        return []
+    if not project_dir.is_dir():
+        raise ValueError(f"Overlay template path must be a directory: {project_dir}")
+    if not project_dir.is_relative_to(template_root):
+        raise ValueError(f"Overlay template path escapes template root: {project_dir}")
+
+    files: list[RenderedOverlayFile] = []
+    for path in sorted(item for item in project_dir.rglob("*") if item.is_file()):
+        relative = path.relative_to(project_dir).as_posix()
+        if _has_unsafe_path_segment(relative):
+            raise ValueError(f"Unsafe overlay template path: {relative}")
+        files.append(
+            RenderedOverlayFile(
+                overlay_dir / "files" / PurePosixPath(relative),
+                path.read_text(encoding="utf-8"),
+                executable=path.suffix == ".sh",
+            )
+        )
+    return files
+
+
+def _has_unsafe_path_segment(path: str) -> bool:
+    return any(segment in {"", ".", ".."} for segment in PurePosixPath(path).parts)

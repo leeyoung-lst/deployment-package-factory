@@ -158,6 +158,7 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
     deployments = (root / "k8s" / "deployments.yaml").read_text(encoding="utf-8")
     overlay_values = json.loads((root / "overlays" / "mes-lite" / "values.json").read_text(encoding="utf-8"))
+    overlay_sql = root / "overlays" / "mes-lite" / "files" / "init" / "dm" / "010_mes_lite_schema.sql"
 
     assert result.manifest["projectKey"] == "mes-lite"
     assert result.manifest["projectProfile"]["overlays"] == ["lite"]
@@ -172,6 +173,7 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     assert overlay_values["projectKey"] == "mes-lite"
     assert overlay_values["imageTag"] == "2026.06-lite"
     assert overlay_values["overlays"] == ["lite"]
+    assert overlay_sql.exists()
 
 
 def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -> None:

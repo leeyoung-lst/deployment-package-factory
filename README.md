@@ -118,6 +118,14 @@ Docker Compose 产物位于 `docker-compose/`：
 
 项目模板中的 `imageTag` 会作为无显式 tag 镜像的默认版本；`overlays` 会写入 overlay values 和 Kustomize labels，便于后续叠加项目级 SQL、BPMN、对象存储策略和 YAML patch。
 
+项目专属模板文件可放在 `templates/overlays/<projectKey>/`，导包时会复制到 `overlays/<projectKey>/files/`。推荐目录包括：
+
+- `init/postgres/` 或 `init/dm/`
+- `init/minio/`
+- `init/qdrant/`
+- `init/camunda/`
+- `k8s/patches/`
+
 ## 部署包质量门禁
 
 安装前建议先执行预检：

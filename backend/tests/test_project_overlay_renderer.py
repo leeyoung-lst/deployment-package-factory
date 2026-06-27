@@ -21,6 +21,29 @@ def test_render_project_overlay_files_exports_project_values() -> None:
     assert "local-ai/overlay-lite" in by_path["overlays/mes-lite/kustomization.yaml"]
 
 
+def test_render_project_overlay_files_copies_project_templates(tmp_path) -> None:
+    project_dir = tmp_path / "mes-lite"
+    (project_dir / "init" / "dm").mkdir(parents=True)
+    (project_dir / "scripts").mkdir()
+    (project_dir / "init" / "dm" / "010_project.sql").write_text("-- project sql\n", encoding="utf-8")
+    (project_dir / "scripts" / "bootstrap.sh").write_text("#!/usr/bin/env bash\necho bootstrap\n", encoding="utf-8")
+
+    files = render_project_overlay_files(_manifest(), template_dir=tmp_path)
+    by_path = {item.path.as_posix(): item for item in files}
+
+    assert by_path["overlays/mes-lite/files/init/dm/010_project.sql"].content == "-- project sql\n"
+    assert by_path["overlays/mes-lite/files/scripts/bootstrap.sh"].executable is True
+
+
+def test_default_overlay_template_dir_contains_mes_lite_files() -> None:
+    files = render_project_overlay_files(_manifest())
+    paths = {item.path.as_posix() for item in files}
+
+    assert "overlays/mes-lite/files/init/dm/010_mes_lite_schema.sql" in paths
+    assert "overlays/mes-lite/files/init/qdrant/collections.json" in paths
+    assert "overlays/mes-lite/files/k8s/patches/mes-lite-resources.yaml" in paths
+
+
 def _manifest() -> dict:
     return {
         "projectKey": "mes-lite",

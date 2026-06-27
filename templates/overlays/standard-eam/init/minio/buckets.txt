@@ -1,0 +1,3 @@
+platform-documents
+eam-attachments
+eam-reports
