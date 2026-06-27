@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
 from deployment_package_factory.api import deployment_packages
+from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 
 def _client() -> TestClient:
@@ -57,7 +60,8 @@ def test_deployment_package_preview_rejects_unknown_database() -> None:
 
 def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     original_builder = deployment_packages.build_deployment_package
-    monkeypatch.setattr(deployment_packages, "_TASKS", {})
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
     monkeypatch.setattr(
         deployment_packages,
         "build_deployment_package",
@@ -76,19 +80,28 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
     )
 
     assert created.status_code == 200, created.text
-    package_id = created.json()["packageId"]
+    task_id = created.json()["taskId"]
+    task = _wait_for_task(client, task_id)
+    assert task["status"] == "completed"
+    assert task["result"]
+    package_id = task["result"]["packageId"]
 
     fetched = client.get(f"/api/deployment-packages/{package_id}")
     assert fetched.status_code == 200, fetched.text
     assert fetched.json()["packageId"] == package_id
+
+    fetched_by_task = client.get(f"/api/deployment-packages/{task_id}")
+    assert fetched_by_task.status_code == 200, fetched_by_task.text
+    assert fetched_by_task.json()["packageId"] == package_id
 
     downloaded = client.get(f"/api/deployment-packages/{package_id}/download")
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.headers["content-type"] == "application/gzip"
 
 
-def test_create_deployment_package_returns_400_when_image_export_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(deployment_packages, "_TASKS", {})
+def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
     monkeypatch.setattr(
         deployment_packages,
         "build_deployment_package",
@@ -106,5 +119,29 @@ def test_create_deployment_package_returns_400_when_image_export_fails(monkeypat
         },
     )
 
-    assert response.status_code == 400
-    assert "Docker CLI is not available" in response.text
+    assert response.status_code == 200
+    task = _wait_for_task(_client(), response.json()["taskId"])
+    assert task["status"] == "failed"
+    assert "Docker CLI is not available" in task["error"]
+
+
+def test_list_deployment_package_tasks(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    repo.create(deployment_packages.PackageBuildRequest())
+
+    response = _client().get("/api/deployment-packages/tasks")
+
+    assert response.status_code == 200, response.text
+    assert response.json()
+
+
+def _wait_for_task(client: TestClient, task_id: str) -> dict:
+    for _ in range(50):
+        response = client.get(f"/api/deployment-packages/tasks/{task_id}")
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        if payload["status"] in {"completed", "failed"}:
+            return payload
+        time.sleep(0.05)
+    raise AssertionError(f"Task {task_id} did not finish")

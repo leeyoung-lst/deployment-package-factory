@@ -83,6 +83,21 @@ export interface PackageBuildResult {
   manifest: Record<string, unknown>;
 }
 
+export type PackageTaskStatus = "pending" | "running" | "completed" | "failed";
+
+export interface PackageTask {
+  taskId: string;
+  status: PackageTaskStatus;
+  progress: number;
+  message: string;
+  request: Record<string, unknown>;
+  result: PackageBuildResult | null;
+  error: string;
+  logs: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export function getDeploymentPackageOptions() {
   return request<DeploymentPackageOptions>("/api/deployment-packages/options");
 }
@@ -95,10 +110,14 @@ export function previewDeploymentPackage(payload: PackagePreviewRequest) {
 }
 
 export function createDeploymentPackage(payload: PackageBuildRequest) {
-  return request<PackageBuildResult>("/api/deployment-packages", {
+  return request<PackageTask>("/api/deployment-packages", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function getDeploymentPackageTask(taskId: string) {
+  return request<PackageTask>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}`);
 }
 
 export function deploymentPackageDownloadUrl(packageId: string) {

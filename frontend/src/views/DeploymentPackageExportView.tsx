@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { App, Button, Checkbox, Divider, Empty, Form, Input, Radio, Select, Space, Spin, Tag } from "antd";
+import { App, Button, Checkbox, Divider, Empty, Form, Input, Progress, Radio, Select, Space, Spin, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
   createDeploymentPackage,
   deploymentPackageDownloadUrl,
   getDeploymentPackageOptions,
+  getDeploymentPackageTask,
   previewDeploymentPackage,
   type BusinessSelection,
   type DeployMode,
   type DeploymentPackageOptions,
-  type PackageBuildResult,
   type PackagePreview,
   type PackagePreviewRequest,
+  type PackageTask,
   type SourceEnv,
 } from "../api/deploymentPackages";
 import styles from "./DeploymentPackageExportView.module.css";
@@ -35,7 +36,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [businessServices, setBusinessServices] = useState<string[]>(["eam"]);
   const [database, setDatabase] = useState("postgres");
   const [preview, setPreview] = useState<PackagePreview | null>(null);
-  const [result, setResult] = useState<PackageBuildResult | null>(null);
+  const [task, setTask] = useState<PackageTask | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -133,14 +134,28 @@ export const DeploymentPackageExportView: React.FC = () => {
           exportImages: values.imageMode === "image-archive",
         },
       });
-      setResult(payload);
-      message.success("部署包生成完成");
+      setTask(payload);
+      message.success("部署任务已创建");
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
     } finally {
       setBuilding(false);
     }
   };
+
+  useEffect(() => {
+    if (!task || task.status === "completed" || task.status === "failed") return;
+    const timer = window.setInterval(() => {
+      void getDeploymentPackageTask(task.taskId)
+        .then((payload) => {
+          setTask(payload);
+          if (payload.status === "completed") message.success("部署包生成完成");
+          if (payload.status === "failed") message.error(payload.error || "部署包生成失败");
+        })
+        .catch((error) => message.error(error instanceof Error ? error.message : "任务状态刷新失败"));
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [message, task]);
 
   return (
     <section className={`panel ${styles.page}`}>
@@ -270,23 +285,58 @@ export const DeploymentPackageExportView: React.FC = () => {
             {preview ? <PreviewSummary preview={preview} /> : <Empty description="请选择导出范围后预览" />}
           </div>
 
-          {result ? (
+          {task ? (
             <div className={styles.resultPanel}>
-              <h3 className={styles.sectionTitle}>生成结果</h3>
+              <h3 className={styles.sectionTitle}>任务状态</h3>
               <div className={styles.resultRow}>
-                <span className={styles.muted}>包 ID</span>
-                <span className={styles.mono}>{result.packageId}</span>
+                <span className={styles.muted}>任务 ID</span>
+                <span className={styles.mono}>{task.taskId}</span>
               </div>
               <div className={styles.resultRow}>
-                <span className={styles.muted}>SHA256</span>
-                <span className={styles.mono}>{result.sha256}</span>
+                <span className={styles.muted}>状态</span>
+                <Space>
+                  <Tag color={taskStatusColor(task.status)}>{task.status}</Tag>
+                  <span>{task.message}</span>
+                </Space>
               </div>
+              <Progress percent={task.progress} status={task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"} />
+              {task.result ? (
+                <>
+                  <div className={styles.resultRow}>
+                    <span className={styles.muted}>包 ID</span>
+                    <span className={styles.mono}>{task.result.packageId}</span>
+                  </div>
+                  <div className={styles.resultRow}>
+                    <span className={styles.muted}>SHA256</span>
+                    <span className={styles.mono}>{task.result.sha256}</span>
+                  </div>
+                  <div className={styles.resultRow}>
+                    <span className={styles.muted}>产物路径</span>
+                    <span className={styles.mono}>{task.result.artifactPath}</span>
+                  </div>
+                </>
+              ) : null}
+              {task.error ? (
+                <div className={styles.resultRow}>
+                  <span className={styles.muted}>错误</span>
+                  <span className={styles.mono}>{task.error}</span>
+                </div>
+              ) : null}
               <div className={styles.resultRow}>
-                <span className={styles.muted}>产物路径</span>
-                <span className={styles.mono}>{result.artifactPath}</span>
+                <span className={styles.muted}>日志</span>
+                <div className={styles.logBox}>
+                  {task.logs.map((item, index) => (
+                    <div key={`${index}-${item}`} className={styles.mono}>{item}</div>
+                  ))}
+                </div>
               </div>
               <div className={styles.actions}>
-                <Button type="primary" icon={<i className="ri-download-line" />} href={deploymentPackageDownloadUrl(result.packageId)}>
+                <Button
+                  type="primary"
+                  icon={<i className="ri-download-line" />}
+                  href={task.result ? deploymentPackageDownloadUrl(task.result.packageId) : undefined}
+                  disabled={!task.result}
+                >
                   下载部署包
                 </Button>
               </div>
@@ -334,6 +384,13 @@ function PreviewSummary({ preview }: { preview: PackagePreview }) {
       </div>
     </div>
   );
+}
+
+function taskStatusColor(status: PackageTask["status"]) {
+  if (status === "completed") return "success";
+  if (status === "failed") return "error";
+  if (status === "running") return "processing";
+  return "default";
 }
 
 function DependencyBlock({ title, items, color }: { title: string; items: PackagePreview["middleware"]; color: string }) {

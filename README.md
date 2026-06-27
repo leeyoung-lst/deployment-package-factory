@@ -50,6 +50,7 @@ docker compose up --build
 - 镜像归档模式会调用本机 Docker CLI 执行 `docker pull` 和 `docker save`，将镜像 tar 写入 `images/archives/` 并记录 SHA256。
 - K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装和卸载脚本。
 - Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装和卸载脚本。
+- 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 SQLite。
 
 ## 镜像导出模式
 
@@ -90,8 +91,29 @@ Docker Compose 产物位于 `docker-compose/`：
 - `install.sh`
 - `uninstall.sh`
 
+## 任务接口
+
+创建导包任务：
+
+```http
+POST /api/deployment-packages
+```
+
+查询任务：
+
+```http
+GET /api/deployment-packages/tasks/{taskId}
+GET /api/deployment-packages/tasks
+```
+
+下载部署包：
+
+```http
+GET /api/deployment-packages/{packageId}/download
+```
+
 ## 后续硬化
 
-- 将内存任务记录替换为 SQLite/PostgreSQL 任务表。
+- 增加任务取消、重试和并发队列限制。
 - 按项目模板扩展 Helm/Kustomize overlay。
 - 增加离线安装校验和初始化 SQL 分层。

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -101,3 +103,21 @@ class PackageBuildResult(BaseModel):
     artifact_path: str = Field(alias="artifactPath")
     sha256: str
     manifest: dict
+
+
+TaskStatus = Literal["pending", "running", "completed", "failed"]
+
+
+class PackageTask(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: str = Field(alias="taskId")
+    status: TaskStatus
+    progress: int = 0
+    message: str = ""
+    request: dict
+    result: PackageBuildResult | None = None
+    error: str = ""
+    logs: list[str] = Field(default_factory=list)
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
