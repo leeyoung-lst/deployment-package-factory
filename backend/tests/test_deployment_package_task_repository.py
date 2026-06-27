@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from deployment_package_factory.services.deployment_packages.models import (
     BusinessSelection,
     PackageBuildRequest,
@@ -135,3 +137,22 @@ def test_task_repository_claims_oldest_pending_task(tmp_path) -> None:
     remaining = repo.get(second.task_id)
     assert remaining is not None
     assert remaining.status == "pending"
+
+
+def test_task_repository_marks_stale_running_tasks_failed(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+    repo.mark_running(task.task_id)
+    stale_at = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
+    with repo._connect() as conn:
+        conn.execute(
+            "update package_tasks set updated_at = ? where task_id = ?",
+            (stale_at, task.task_id),
+        )
+
+    updated = repo.mark_stale_running_failed(timeout_minutes=30)
+
+    assert len(updated) == 1
+    assert updated[0].task_id == task.task_id
+    assert updated[0].status == "failed"
+    assert "timed out" in updated[0].error

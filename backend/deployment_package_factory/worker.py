@@ -22,6 +22,9 @@ async def run_worker(*, once: bool = False) -> None:
     )
     LOGGER.info("Deployment package worker started with poll interval %ss", settings.worker_poll_interval_seconds)
     while True:
+        stale_tasks = repo.mark_stale_running_failed(settings.running_task_timeout_minutes)
+        for stale_task in stale_tasks:
+            LOGGER.warning("Marked stale deployment package task %s as failed", stale_task.task_id)
         task = repo.claim_next_pending()
         if task is None:
             if once:

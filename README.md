@@ -49,6 +49,7 @@ docker compose up --build
 | `DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS` | `1` | 单进程内同时执行的导包任务数 |
 | `DEPLOYMENT_PACKAGE_EXECUTION_MODE` | `background` | `background` 由 API 后台任务执行，`worker` 由独立 worker 领取执行 |
 | `DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS` | `3` | worker 轮询 pending 任务的间隔 |
+| `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES` | `120` | worker 将超时 running 任务标记失败的阈值 |
 | `DEPLOYMENT_PACKAGE_RETENTION_DAYS` | `30` | 清理任务保留最近多少天的部署包产物 |
 | `DEPLOYMENT_PACKAGE_MAX_TOTAL_GB` | `500` | 清理任务保留的部署包产物总容量上限 |
 

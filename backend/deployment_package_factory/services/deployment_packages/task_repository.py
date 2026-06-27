@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -90,6 +90,31 @@ class PackageTaskRepository:
             claimed = conn.execute("select * from package_tasks where task_id = ?", (row["task_id"],)).fetchone()
             conn.commit()
         return _task_from_row(claimed) if claimed else None
+
+    def mark_stale_running_failed(self, timeout_minutes: int) -> list[PackageTask]:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, timeout_minutes))
+        now = _now_iso()
+        updated: list[PackageTask] = []
+        with self._connect() as conn:
+            rows = conn.execute("select * from package_tasks where status = 'running'").fetchall()
+            for row in rows:
+                updated_at = _parse_iso(row["updated_at"])
+                if updated_at >= cutoff:
+                    continue
+                error = f"Worker task timed out after {timeout_minutes} minutes."
+                logs = [*json.loads(row["logs_json"]), f"部署包生成失败：{error}"]
+                conn.execute(
+                    """
+                    update package_tasks
+                    set status = ?, progress = ?, message = ?, error = ?, logs_json = ?, updated_at = ?
+                    where task_id = ?
+                    """,
+                    ("failed", 100, "部署包生成失败", error, json.dumps(logs, ensure_ascii=False), now, row["task_id"]),
+                )
+                updated_row = conn.execute("select * from package_tasks where task_id = ?", (row["task_id"],)).fetchone()
+                if updated_row:
+                    updated.append(_task_from_row(updated_row))
+        return updated
 
     def mark_running(self, task_id: str, message: str = "正在生成部署包") -> PackageTask:
         return self.update(task_id, status="running", progress=10, message=message, log=message)
@@ -268,6 +293,15 @@ def _artifact_available(result_raw: str | None) -> bool:
         return False
     result = PackageBuildResult.model_validate_json(result_raw)
     return Path(result.artifact_path).is_file()
+
+
+def _parse_iso(value: str) -> datetime:
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _now_iso() -> str:

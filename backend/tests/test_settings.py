@@ -10,6 +10,7 @@ def test_load_settings_uses_deployment_package_environment(monkeypatch, tmp_path
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS", "3")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_EXECUTION_MODE", "worker")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS", "5")
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES", "30")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_RETENTION_DAYS", "7")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_MAX_TOTAL_GB", "20")
 
@@ -21,6 +22,7 @@ def test_load_settings_uses_deployment_package_environment(monkeypatch, tmp_path
     assert settings.max_concurrent_builds == 3
     assert settings.execution_mode == "worker"
     assert settings.worker_poll_interval_seconds == 5
+    assert settings.running_task_timeout_minutes == 30
     assert settings.retention_days == 7
     assert settings.max_total_gb == 20
 
