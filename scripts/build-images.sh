@@ -52,6 +52,7 @@ image_name() {
 }
 
 BACKEND_IMAGE="$(image_name deployment-package-factory-backend)"
+WORKER_IMAGE="$(image_name deployment-package-factory-worker)"
 FRONTEND_IMAGE="$(image_name deployment-package-factory-frontend)"
 BUILD_ARGS=()
 if [ "${NO_CACHE}" = "1" ]; then
@@ -61,9 +62,13 @@ fi
 echo "Building ${BACKEND_IMAGE}"
 docker build "${BUILD_ARGS[@]}" -f "${REPO_ROOT}/backend/Dockerfile" -t "${BACKEND_IMAGE}" "${REPO_ROOT}"
 
+echo "Building ${WORKER_IMAGE}"
+docker build "${BUILD_ARGS[@]}" -f "${REPO_ROOT}/backend/Dockerfile.worker" -t "${WORKER_IMAGE}" "${REPO_ROOT}"
+
 echo "Building ${FRONTEND_IMAGE}"
 docker build "${BUILD_ARGS[@]}" -f "${REPO_ROOT}/frontend/Dockerfile" -t "${FRONTEND_IMAGE}" "${REPO_ROOT}"
 
 echo "Built images:"
 echo "  ${BACKEND_IMAGE}"
+echo "  ${WORKER_IMAGE}"
 echo "  ${FRONTEND_IMAGE}"

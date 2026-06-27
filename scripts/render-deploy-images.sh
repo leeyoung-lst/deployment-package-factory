@@ -58,10 +58,12 @@ if [ -n "${REPOSITORY}" ]; then
 fi
 
 BACKEND_IMAGE="${PREFIX}/deployment-package-factory-backend:${TAG}"
+WORKER_IMAGE="${PREFIX}/deployment-package-factory-worker:${TAG}"
 FRONTEND_IMAGE="${PREFIX}/deployment-package-factory-frontend:${TAG}"
 
 cat > "${TARGET_DIR}/factory.env" <<EOF
 DPF_BACKEND_IMAGE=${BACKEND_IMAGE}
+DPF_WORKER_IMAGE=${WORKER_IMAGE}
 DPF_FRONTEND_IMAGE=${FRONTEND_IMAGE}
 DPF_HTTP_PORT=${HTTP_PORT}
 EOF
@@ -74,6 +76,9 @@ resources:
 images:
   - name: deployment-package-factory-backend
     newName: ${PREFIX}/deployment-package-factory-backend
+    newTag: ${TAG}
+  - name: deployment-package-factory-worker
+    newName: ${PREFIX}/deployment-package-factory-worker
     newTag: ${TAG}
   - name: deployment-package-factory-frontend
     newName: ${PREFIX}/deployment-package-factory-frontend

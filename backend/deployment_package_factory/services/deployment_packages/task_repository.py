@@ -63,6 +63,34 @@ class PackageTaskRepository:
             ).fetchall()
         return [_task_from_row(row) for row in rows]
 
+    def claim_next_pending(self) -> PackageTask | None:
+        now = _now_iso()
+        with self._connect() as conn:
+            conn.execute("begin immediate")
+            row = conn.execute(
+                """
+                select * from package_tasks
+                where status = 'pending'
+                order by created_at asc
+                limit 1
+                """
+            ).fetchone()
+            if row is None:
+                conn.commit()
+                return None
+            logs = [*json.loads(row["logs_json"]), "Worker 已领取任务"]
+            conn.execute(
+                """
+                update package_tasks
+                set status = ?, progress = ?, message = ?, logs_json = ?, updated_at = ?
+                where task_id = ?
+                """,
+                ("running", 8, "Worker 已领取任务，等待执行", json.dumps(logs, ensure_ascii=False), now, row["task_id"]),
+            )
+            claimed = conn.execute("select * from package_tasks where task_id = ?", (row["task_id"],)).fetchone()
+            conn.commit()
+        return _task_from_row(claimed) if claimed else None
+
     def mark_running(self, task_id: str, message: str = "正在生成部署包") -> PackageTask:
         return self.update(task_id, status="running", progress=10, message=message, log=message)
 

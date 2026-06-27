@@ -7,6 +7,7 @@ services:
       DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
       DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages
       DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS: ${DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS:-1}
+      DEPLOYMENT_PACKAGE_EXECUTION_MODE: worker
       DEPLOYMENT_PACKAGE_RETENTION_DAYS: ${DEPLOYMENT_PACKAGE_RETENTION_DAYS:-30}
       DEPLOYMENT_PACKAGE_MAX_TOTAL_GB: ${DEPLOYMENT_PACKAGE_MAX_TOTAL_GB:-500}
     volumes:
@@ -16,6 +17,22 @@ services:
       interval: 10s
       timeout: 3s
       retries: 6
+    networks:
+      - deployment-package-factory
+
+  deployment-package-factory-worker:
+    image: ${DPF_WORKER_IMAGE:-deployment-package-factory-worker:latest}
+    restart: unless-stopped
+    environment:
+      DEPLOYMENT_PACKAGE_DATA_DIR: /app/data
+      DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
+      DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages
+      DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS: ${DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS:-1}
+      DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS: ${DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS:-3}
+      DEPLOYMENT_PACKAGE_RETENTION_DAYS: ${DEPLOYMENT_PACKAGE_RETENTION_DAYS:-30}
+      DEPLOYMENT_PACKAGE_MAX_TOTAL_GB: ${DEPLOYMENT_PACKAGE_MAX_TOTAL_GB:-500}
+    volumes:
+      - deployment-package-data:/app/data
     networks:
       - deployment-package-factory
 

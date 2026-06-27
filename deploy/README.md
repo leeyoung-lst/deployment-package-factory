@@ -8,6 +8,7 @@
 
 ```text
 deployment-package-factory-backend:latest
+deployment-package-factory-worker:latest
 deployment-package-factory-frontend:latest
 ```
 
@@ -68,9 +69,11 @@ docker compose --env-file deploy/generated/factory.env -f deploy/docker-compose.
 
 ```bash
 export DPF_BACKEND_IMAGE=registry.example.com/platform/deployment-package-factory-backend:2026.06
+export DPF_WORKER_IMAGE=registry.example.com/platform/deployment-package-factory-worker:2026.06
 export DPF_FRONTEND_IMAGE=registry.example.com/platform/deployment-package-factory-frontend:2026.06
 export DPF_HTTP_PORT=5186
 export DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS=1
+export DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS=3
 export DEPLOYMENT_PACKAGE_RETENTION_DAYS=30
 export DEPLOYMENT_PACKAGE_MAX_TOTAL_GB=500
 ```
@@ -110,6 +113,8 @@ deployment-package-factory.example.com
 - `scripts/render-deploy-images.*` 生成的镜像地址。
 - `deploy/k8s/pvc.yaml` 中的存储大小和 StorageClass。
 - `deploy/k8s/configmap.yaml` 中的并发数、保留天数和容量上限。
+
+默认 K8s/生产 Compose 部署采用 worker 模式：API 只创建任务，`deployment-package-factory-worker` 负责领取和执行任务。本地开发 `docker-compose.yml` 仍保留后台任务模式，便于单进程调试。
 
 ## 数据与权限
 

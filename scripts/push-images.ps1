@@ -16,6 +16,7 @@ if ($Repository) {
 
 $Images = @(
   "$Prefix/deployment-package-factory-backend`:$Tag",
+  "$Prefix/deployment-package-factory-worker`:$Tag",
   "$Prefix/deployment-package-factory-frontend`:$Tag"
 )
 

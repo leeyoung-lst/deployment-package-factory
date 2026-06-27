@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -100,6 +101,27 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
     downloaded = client.get(f"/api/deployment-packages/{package_id}/download")
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.headers["content-type"] == "application/gzip"
+
+
+def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    _set_repo(monkeypatch, repo, tmp_path)
+    monkeypatch.setattr(deployment_packages, "_SETTINGS", replace(deployment_packages._SETTINGS, execution_mode="worker"))
+
+    response = _client().post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam"}],
+            "database": "postgres",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    task = repo.get(response.json()["taskId"])
+    assert task is not None
+    assert task.status == "pending"
 
 
 def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

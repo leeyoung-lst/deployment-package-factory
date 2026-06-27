@@ -40,6 +40,7 @@ fi
 
 IMAGES=(
   "${PREFIX}/deployment-package-factory-backend:${TAG}"
+  "${PREFIX}/deployment-package-factory-worker:${TAG}"
   "${PREFIX}/deployment-package-factory-frontend:${TAG}"
 )
 

@@ -39,6 +39,10 @@ def get_task_executor() -> PackageTaskExecutor:
     return _TASK_EXECUTOR
 
 
+def should_run_background_tasks() -> bool:
+    return _SETTINGS.execution_mode == "background"
+
+
 @router.get("/options")
 async def deployment_package_options() -> dict:
     catalog = load_catalog()
@@ -99,7 +103,8 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
 async def create_deployment_package(payload: PackageBuildRequest, background_tasks: BackgroundTasks) -> PackageTask:
     repo = get_task_repository()
     task = repo.create(payload)
-    background_tasks.add_task(get_task_executor().run, task.task_id, payload)
+    if should_run_background_tasks():
+        background_tasks.add_task(get_task_executor().run, task.task_id, payload)
     return task
 
 
@@ -147,7 +152,8 @@ async def retry_deployment_package_task(task_id: str, background_tasks: Backgrou
         raise HTTPException(status_code=404, detail="Deployment package task not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    background_tasks.add_task(get_task_executor().run, retry_task.task_id, PackageBuildRequest.model_validate(retry_task.request))
+    if should_run_background_tasks():
+        background_tasks.add_task(get_task_executor().run, retry_task.task_id, PackageBuildRequest.model_validate(retry_task.request))
     return retry_task
 
 

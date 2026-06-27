@@ -24,10 +24,12 @@ if ($Repository) {
 }
 
 $BackendImage = "$Prefix/deployment-package-factory-backend:$Tag"
+$WorkerImage = "$Prefix/deployment-package-factory-worker:$Tag"
 $FrontendImage = "$Prefix/deployment-package-factory-frontend:$Tag"
 
 $ComposeEnv = @"
 DPF_BACKEND_IMAGE=$BackendImage
+DPF_WORKER_IMAGE=$WorkerImage
 DPF_FRONTEND_IMAGE=$FrontendImage
 DPF_HTTP_PORT=$HttpPort
 "@
@@ -41,6 +43,9 @@ resources:
 images:
   - name: deployment-package-factory-backend
     newName: $Prefix/deployment-package-factory-backend
+    newTag: $Tag
+  - name: deployment-package-factory-worker
+    newName: $Prefix/deployment-package-factory-worker
     newTag: $Tag
   - name: deployment-package-factory-frontend
     newName: $Prefix/deployment-package-factory-frontend

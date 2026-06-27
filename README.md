@@ -47,10 +47,12 @@ docker compose up --build
 | `DEPLOYMENT_PACKAGE_TASK_DB` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-package-tasks.sqlite3` | 导包任务 SQLite 路径 |
 | `DEPLOYMENT_PACKAGE_OUTPUT_DIR` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-packages` | 工作目录和 tar.gz 产物输出目录 |
 | `DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS` | `1` | 单进程内同时执行的导包任务数 |
+| `DEPLOYMENT_PACKAGE_EXECUTION_MODE` | `background` | `background` 由 API 后台任务执行，`worker` 由独立 worker 领取执行 |
+| `DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS` | `3` | worker 轮询 pending 任务的间隔 |
 | `DEPLOYMENT_PACKAGE_RETENTION_DAYS` | `30` | 清理任务保留最近多少天的部署包产物 |
 | `DEPLOYMENT_PACKAGE_MAX_TOTAL_GB` | `500` | 清理任务保留的部署包产物总容量上限 |
 
-当前版本仍使用 FastAPI 后台任务执行导包，但执行逻辑已经抽到 `PackageTaskExecutor`。后续拆成独立 worker 进程时，可以复用同一套任务仓储、并发控制和输出目录配置。
+本地默认使用 FastAPI 后台任务执行导包。生产部署可设置 `DEPLOYMENT_PACKAGE_EXECUTION_MODE=worker`，由 `python -m deployment_package_factory.worker` 独立领取和执行任务。
 
 ## 部署部署包工厂
 

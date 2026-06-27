@@ -27,7 +27,8 @@ class PackageTaskExecutor:
             task = self.repo.get(task_id)
             if task is None or task.status == "canceled":
                 return
-            self.repo.update(task_id, status="pending", progress=5, message="等待导包执行槽位", log="等待导包执行槽位")
+            if task.status == "pending":
+                self.repo.update(task_id, status="pending", progress=5, message="等待导包执行槽位", log="等待导包执行槽位")
             async with self._semaphore:
                 task = self.repo.get(task_id)
                 if task is None or task.status == "canceled":

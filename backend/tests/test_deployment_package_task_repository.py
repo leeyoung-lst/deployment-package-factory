@@ -119,3 +119,19 @@ def test_task_repository_retries_failed_task_with_original_request(tmp_path) -> 
     assert retry.request["database"] == "postgres"
     assert retry.request["businessServices"] == [{"name": "mes", "profile": ""}]
     assert any(task.task_id in item for item in retry.logs)
+
+
+def test_task_repository_claims_oldest_pending_task(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    first = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+    second = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="mes")]))
+
+    claimed = repo.claim_next_pending()
+
+    assert claimed is not None
+    assert claimed.task_id == first.task_id
+    assert claimed.status == "running"
+    assert "Worker 已领取任务" in claimed.logs
+    remaining = repo.get(second.task_id)
+    assert remaining is not None
+    assert remaining.status == "pending"

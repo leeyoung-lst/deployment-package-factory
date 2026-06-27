@@ -23,6 +23,7 @@ function Image-Name([string]$Name) {
 }
 
 $BackendImage = Image-Name "deployment-package-factory-backend"
+$WorkerImage = Image-Name "deployment-package-factory-worker"
 $FrontendImage = Image-Name "deployment-package-factory-frontend"
 $BuildArgs = @()
 if ($NoCache) {
@@ -32,9 +33,13 @@ if ($NoCache) {
 Write-Host "Building $BackendImage"
 docker build @BuildArgs -f "$RepoRoot/backend/Dockerfile" -t $BackendImage $RepoRoot
 
+Write-Host "Building $WorkerImage"
+docker build @BuildArgs -f "$RepoRoot/backend/Dockerfile.worker" -t $WorkerImage $RepoRoot
+
 Write-Host "Building $FrontendImage"
 docker build @BuildArgs -f "$RepoRoot/frontend/Dockerfile" -t $FrontendImage $RepoRoot
 
 Write-Host "Built images:"
 Write-Host "  $BackendImage"
+Write-Host "  $WorkerImage"
 Write-Host "  $FrontendImage"

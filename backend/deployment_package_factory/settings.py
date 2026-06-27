@@ -14,6 +14,8 @@ class DeploymentPackageSettings:
     task_db_path: Path
     output_dir: Path
     max_concurrent_builds: int
+    execution_mode: str
+    worker_poll_interval_seconds: int
     retention_days: int
     max_total_gb: int
 
@@ -29,6 +31,8 @@ def load_settings() -> DeploymentPackageSettings:
         task_db_path=task_db_path,
         output_dir=output_dir,
         max_concurrent_builds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS"), default=1),
+        execution_mode=_execution_mode(os.getenv("DEPLOYMENT_PACKAGE_EXECUTION_MODE")),
+        worker_poll_interval_seconds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS"), default=3),
         retention_days=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_RETENTION_DAYS"), default=30),
         max_total_gb=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_TOTAL_GB"), default=500),
     )
@@ -42,3 +46,8 @@ def _positive_int(raw: str | None, *, default: int) -> int:
     except ValueError:
         return default
     return max(1, value)
+
+
+def _execution_mode(raw: str | None) -> str:
+    value = (raw or "background").strip().lower()
+    return value if value in {"background", "worker"} else "background"
