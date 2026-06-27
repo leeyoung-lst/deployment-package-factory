@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from deployment_package_factory.services.deployment_packages.builder import build_deployment_package
+from deployment_package_factory.services.deployment_packages.builder import PackageBuildError, build_deployment_package
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError, load_catalog
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
     resolve_package_preview,
@@ -69,7 +69,7 @@ async def deployment_package_options() -> dict:
 async def deployment_package_preview(payload: PackagePreviewRequest) -> PackagePreview:
     try:
         return resolve_package_preview(payload, load_catalog())
-    except CatalogError as exc:
+    except (CatalogError, PackageBuildError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -77,7 +77,7 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
 async def create_deployment_package(payload: PackageBuildRequest) -> PackageBuildResult:
     try:
         result = build_deployment_package(payload)
-    except CatalogError as exc:
+    except (CatalogError, PackageBuildError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _TASKS[result.package_id] = result
     return result

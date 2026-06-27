@@ -85,3 +85,26 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
     downloaded = client.get(f"/api/deployment-packages/{package_id}/download")
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.headers["content-type"] == "application/gzip"
+
+
+def test_create_deployment_package_returns_400_when_image_export_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(deployment_packages, "_TASKS", {})
+    monkeypatch.setattr(
+        deployment_packages,
+        "build_deployment_package",
+        lambda payload: (_ for _ in ()).throw(deployment_packages.PackageBuildError("Docker CLI is not available.")),
+    )
+
+    response = _client().post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam"}],
+            "database": "postgres",
+            "imageMode": "image-archive",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Docker CLI is not available" in response.text

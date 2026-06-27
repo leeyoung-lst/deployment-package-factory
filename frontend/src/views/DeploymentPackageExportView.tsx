@@ -228,8 +228,8 @@ export const DeploymentPackageExportView: React.FC = () => {
                 <Form.Item label="镜像模式" name="imageMode">
                   <Select
                     options={[
-                      { value: "image-manifest", label: "镜像清单" },
-                      { value: "image-archive", label: "镜像归档" },
+                      { value: "image-manifest", label: "镜像清单：生成 pull/save/load 脚本" },
+                      { value: "image-archive", label: "镜像归档：执行 docker pull/save 并打包 tar" },
                     ]}
                   />
                 </Form.Item>
