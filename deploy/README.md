@@ -14,11 +14,30 @@ deployment-package-factory-frontend:latest
 构建示例：
 
 ```bash
-docker build -f backend/Dockerfile -t deployment-package-factory-backend:latest .
-docker build -f frontend/Dockerfile -t deployment-package-factory-frontend:latest .
+scripts/build-images.sh --tag latest
 ```
 
-推送到镜像仓库后，替换 `deploy/k8s/backend.yaml` 和 `deploy/k8s/frontend.yaml` 中的 `image`。
+Windows PowerShell：
+
+```powershell
+.\scripts\build-images.ps1 -Tag latest
+```
+
+构建并推送到镜像仓库：
+
+```bash
+scripts/build-images.sh --registry registry.example.com --repository platform --tag 2026.06
+scripts/push-images.sh --registry registry.example.com --repository platform --tag 2026.06
+```
+
+Windows PowerShell：
+
+```powershell
+.\scripts\build-images.ps1 -Registry registry.example.com -Repository platform -Tag 2026.06
+.\scripts\push-images.ps1 -Registry registry.example.com -Repository platform -Tag 2026.06
+```
+
+推送后，替换 `deploy/k8s/backend.yaml` 和 `deploy/k8s/frontend.yaml` 中的 `image`，或在 Docker Compose 中设置 `DPF_BACKEND_IMAGE` 和 `DPF_FRONTEND_IMAGE`。
 
 ## Docker Compose
 
