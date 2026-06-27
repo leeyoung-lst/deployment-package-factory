@@ -1,0 +1,8 @@
+defaults:
+  platform:
+    - iam
+    - gateway-frontend
+database:
+  allowed:
+    - dm
+    - postgres

@@ -1,0 +1,59 @@
+business:
+  eam:
+    name: EAM
+    namespaceGroup: business-eam
+    profile: 4x60
+    images:
+      - local-ai-eam-service
+      - sub-app-eam
+      - local-ai-collection-service
+    dependsOn:
+      - iam
+      - gateway-frontend
+      - file-documents
+      - workflow-camunda
+      - audit
+    middleware:
+      - database
+      - redis
+      - minio
+      - camunda
+      - iotdb
+  mes:
+    name: MES
+    namespaceGroup: business-mes
+    profile: 4x3
+    images:
+      - local-ai-mes-service
+      - sub-app-mes
+    dependsOn:
+      - iam
+      - gateway-frontend
+      - audit
+    middleware:
+      - database
+      - redis
+  erp:
+    name: ERP
+    namespaceGroup: business-erp
+    images:
+      - local-ai-erp-service
+    dependsOn:
+      - iam
+      - gateway-frontend
+      - audit
+    middleware:
+      - database
+      - redis
+  aps:
+    name: APS
+    namespaceGroup: business-aps
+    images:
+      - local-ai-aps-service
+    dependsOn:
+      - iam
+      - gateway-frontend
+      - audit
+    middleware:
+      - database
+      - redis

@@ -1,0 +1,30 @@
+databaseOptions:
+  dm:
+    name: 达梦 DM
+    domestic: true
+    image: dm8:latest
+    initPath: init/dm
+  postgres:
+    name: PostgreSQL
+    domestic: false
+    image: postgres:16
+    initPath: init/postgres
+middleware:
+  redis:
+    name: Redis
+    image: redis:7
+  minio:
+    name: MinIO
+    image: minio/minio:latest
+  qdrant:
+    name: Qdrant
+    image: qdrant/qdrant:latest
+  camunda:
+    name: Camunda
+    image: camunda/camunda:latest
+  iotdb:
+    name: IoTDB
+    image: apache/iotdb:latest
+  monitoring:
+    name: Prometheus / Grafana
+    image: prometheus:latest

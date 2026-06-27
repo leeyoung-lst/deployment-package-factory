@@ -1,0 +1,106 @@
+import { BASE, request } from "./client";
+
+export type DeployMode = "k8s" | "docker-compose";
+export type SourceEnv = "dev" | "test";
+
+export interface DeploymentServiceOption {
+  key: string;
+  name: string;
+  required?: boolean;
+  profile?: string;
+  namespaceGroup?: string;
+}
+
+export interface DatabaseOption {
+  key: string;
+  name: string;
+  domestic: boolean;
+  image: string;
+}
+
+export interface MiddlewareOption {
+  key: string;
+  name: string;
+  image: string;
+}
+
+export interface DeploymentPackageOptions {
+  sourceEnvs: SourceEnv[];
+  deployModes: DeployMode[];
+  platformServices: DeploymentServiceOption[];
+  businessServices: DeploymentServiceOption[];
+  databaseOptions: DatabaseOption[];
+  middleware: MiddlewareOption[];
+}
+
+export interface BusinessSelection {
+  name: string;
+  profile?: string;
+}
+
+export interface PackagePreviewRequest {
+  sourceEnv: SourceEnv;
+  deployModes: DeployMode[];
+  platformServices: string[];
+  businessServices: BusinessSelection[];
+  database: string;
+}
+
+export interface PackageBuildRequest extends PackagePreviewRequest {
+  imageMode: "image-manifest" | "image-archive";
+  targetProfile: {
+    env: string;
+    domain: string;
+    registry: string;
+    namespacePrefix: string;
+    storageClass: string;
+    exportImages: boolean;
+  };
+}
+
+export interface ResolvedDependency {
+  key: string;
+  name: string;
+  locked: boolean;
+  requiredBy: string[];
+  reason: string;
+}
+
+export interface PackagePreview {
+  platformServices: ResolvedDependency[];
+  businessServices: ResolvedDependency[];
+  middleware: ResolvedDependency[];
+  database: DatabaseOption;
+  images: Record<string, string[]>;
+  warnings: string[];
+}
+
+export interface PackageBuildResult {
+  packageId: string;
+  workDir: string;
+  artifactPath: string;
+  sha256: string;
+  manifest: Record<string, unknown>;
+}
+
+export function getDeploymentPackageOptions() {
+  return request<DeploymentPackageOptions>("/api/deployment-packages/options");
+}
+
+export function previewDeploymentPackage(payload: PackagePreviewRequest) {
+  return request<PackagePreview>("/api/deployment-packages/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createDeploymentPackage(payload: PackageBuildRequest) {
+  return request<PackageBuildResult>("/api/deployment-packages", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deploymentPackageDownloadUrl(packageId: string) {
+  return `${BASE}/api/deployment-packages/${encodeURIComponent(packageId)}/download`;
+}

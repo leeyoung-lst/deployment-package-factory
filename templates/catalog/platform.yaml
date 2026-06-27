@@ -1,0 +1,57 @@
+platform:
+  iam:
+    name: IAM
+    required: true
+    namespaceGroup: base-public
+    images:
+      - local-ai-iam-service
+    middleware:
+      - database
+      - redis
+  ai-agent:
+    name: AI / Agent
+    namespaceGroup: base-public
+    images:
+      - local-ai-backend
+    dependsOn:
+      - iam
+      - audit
+    middleware:
+      - database
+      - redis
+      - qdrant
+  file-documents:
+    name: File / Documents
+    namespaceGroup: base-public
+    images:
+      - local-ai-backend
+    dependsOn:
+      - iam
+    middleware:
+      - database
+      - minio
+  workflow-camunda:
+    name: Workflow / Camunda
+    namespaceGroup: base-public
+    images:
+      - local-ai-backend
+    dependsOn:
+      - iam
+      - audit
+    middleware:
+      - database
+      - camunda
+  audit:
+    name: Audit
+    namespaceGroup: base-public
+    images:
+      - local-ai-backend
+    middleware:
+      - database
+  gateway-frontend:
+    name: Gateway / Frontend Shell
+    required: true
+    namespaceGroup: base-public
+    images:
+      - local-ai-frontend
+    middleware: []
