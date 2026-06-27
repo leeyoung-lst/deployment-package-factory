@@ -156,6 +156,18 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   }, [message]);
 
+  const refreshSelectedTask = useCallback(async (taskId: string) => {
+    try {
+      const payload = await getDeploymentPackageTask(taskId);
+      setTask(payload);
+      setTasks((current) => mergeTaskIntoList(current, payload));
+      return payload;
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "任务状态刷新失败");
+      return null;
+    }
+  }, [message]);
+
   useEffect(() => {
     queueMicrotask(() => void loadOptions());
   }, [loadOptions]);
@@ -241,6 +253,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       const payload = await cleanupDeploymentPackages(dryRun);
       setCleanupResult(payload);
       void refreshTasks();
+      if (task) void refreshSelectedTask(task.taskId);
       message.success(dryRun ? "清理预演完成" : "清理完成");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "部署包清理失败");
@@ -252,22 +265,26 @@ export const DeploymentPackageExportView: React.FC = () => {
   useEffect(() => {
     if (!task || task.status === "completed" || task.status === "failed" || task.status === "canceled") return;
     const timer = window.setInterval(() => {
-      void getDeploymentPackageTask(task.taskId)
+      void refreshSelectedTask(task.taskId)
         .then((payload) => {
-          setTask(payload);
-          setTasks((current) => current.map((item) => (item.taskId === payload.taskId ? payload : item)));
+          if (!payload) return;
           if (payload.status === "completed") message.success("部署包生成完成");
           if (payload.status === "failed") message.error(payload.error || "部署包生成失败");
           if (payload.status === "canceled") message.info("部署包任务已取消");
-        })
-        .catch((error) => message.error(error instanceof Error ? error.message : "任务状态刷新失败"));
+        });
     }, 1200);
     return () => window.clearInterval(timer);
-  }, [message, task]);
+  }, [message, refreshSelectedTask, task]);
 
   useEffect(() => {
     void refreshTasks();
   }, [refreshTasks]);
+
+  useEffect(() => {
+    if (!tasks.some((item) => item.status === "pending" || item.status === "running")) return;
+    const timer = window.setInterval(() => void refreshTasks(), 3000);
+    return () => window.clearInterval(timer);
+  }, [refreshTasks, tasks]);
 
   return (
     <section className={`panel ${styles.page}`}>
@@ -741,6 +758,13 @@ function formatBytes(value: number) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MiB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GiB`;
+}
+
+function mergeTaskIntoList(tasks: PackageTask[], task: PackageTask) {
+  if (tasks.some((item) => item.taskId === task.taskId)) {
+    return tasks.map((item) => (item.taskId === task.taskId ? task : item));
+  }
+  return [task, ...tasks].slice(0, 20);
 }
 
 function DependencyBlock({ title, items, color }: { title: string; items: PackagePreview["middleware"]; color: string }) {
