@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import tarfile
 from pathlib import Path
 from typing import Sequence
@@ -144,6 +146,9 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
     index = json.loads((root / "package-index.json").read_text(encoding="utf-8"))
     sha_sums = (root / "security" / "SHA256SUMS").read_text(encoding="utf-8")
+    actual_files = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
+    indexed_files = [item["path"] for section in index["sections"].values() for item in section]
+    signed_files = {line.split("  ", 1)[1] for line in sha_sums.splitlines() if line}
 
     assert index["schemaVersion"] == "deployment-package-index/v1"
     assert index["packageId"] == result.package_id
@@ -181,6 +186,37 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert "package-index.json" in sha_sums
     assert "quality-gate.sh" in sha_sums
     assert "docs/quality-report.md" in sha_sums
+    assert signed_files == actual_files - {"security/SHA256SUMS"}
+    assert set(indexed_files) == actual_files - {"package-index.json", "security/SHA256SUMS"}
+    assert len(indexed_files) == len(set(indexed_files))
+
+
+def test_generated_powershell_verifier_rejects_unsigned_package_files(tmp_path) -> None:
+    if shutil.which("powershell") is None and shutil.which("pwsh") is None:
+        return
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    result = build_deployment_package(
+        PackageBuildRequest(projectKey="mes-lite"),
+        output_dir=tmp_path,
+    )
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+
+    clean = subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(root / "verify.ps1")],
+        capture_output=True,
+        text=True,
+    )
+    assert clean.returncode == 0, clean.stderr + clean.stdout
+
+    (root / "unexpected.txt").write_text("not signed\n", encoding="utf-8")
+    tampered = subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(root / "verify.ps1")],
+        capture_output=True,
+        text=True,
+    )
+
+    assert tampered.returncode != 0
+    assert "SHA256SUMS file set mismatch" in tampered.stderr + tampered.stdout
 
 
 def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_path) -> None:

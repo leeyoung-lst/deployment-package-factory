@@ -18,8 +18,12 @@ def test_render_package_verify_files_exports_shell_and_powershell_entries() -> N
     assert "docs/quality-report.md" in by_path["verify.sh"].content
     assert "image-digest-lock.json" in by_path["verify.sh"].content
     assert "image archive is not locked" in by_path["verify.sh"].content
+    assert "SHA256SUMS file set mismatch" in by_path["verify.sh"].content
+    assert "package-index file set mismatch" in by_path["verify.sh"].content
     assert "$VerifierVersion = '1.0.0'" in by_path["verify.ps1"].content
     assert "Get-FileHash -Algorithm SHA256" in by_path["verify.ps1"].content
     assert "[System.Security.Cryptography.SHA256]::Create()" in by_path["verify.ps1"].content
     assert "ConvertFrom-Json" in by_path["verify.ps1"].content
     assert "quality-gate.ps1" in by_path["verify.ps1"].content
+    assert "SHA256SUMS file set mismatch" in by_path["verify.ps1"].content
+    assert "package-index file set mismatch" in by_path["verify.ps1"].content
