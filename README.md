@@ -46,11 +46,11 @@ docker compose up --build
 - 项目模板支持默认产品版本、业务组合、数据库、镜像仓库、命名空间前缀、域名、StorageClass 和 overlay 标识。
 - 数据库在达梦 DM 与 PostgreSQL 中二选一。
 - 中间件依赖按所选基础能力和业务产品自动解析。
-- 生成包包含 manifest、安装文档、K8s namespace、Docker Compose 样例、初始化脚本占位和安全摘要。
+- 生成包包含 manifest、安装文档、K8s namespace、Docker Compose 样例、初始化脚本占位、质量门禁脚本和安全摘要。
 - 镜像清单模式会生成 `images/images.txt`、`scripts/pull-images.sh`、`scripts/save-images.sh`、`scripts/load-images.sh`。
 - 镜像归档模式会调用本机 Docker CLI 执行 `docker pull` 和 `docker save`，将镜像 tar 写入 `images/archives/` 并记录 SHA256。
-- K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装和卸载脚本。
-- Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装和卸载脚本。
+- K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装、卸载和 dry-run 脚本。
+- Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装、卸载和 dry-run 脚本。
 - 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 SQLite。
 
 ## 镜像导出模式
@@ -84,6 +84,7 @@ K8s 产物位于 `k8s/`：
 - `jobs/init-db.yaml`
 - `install.sh`
 - `uninstall.sh`
+- `dry-run.sh`
 
 Docker Compose 产物位于 `docker-compose/`：
 
@@ -91,6 +92,38 @@ Docker Compose 产物位于 `docker-compose/`：
 - `.env.template`
 - `install.sh`
 - `uninstall.sh`
+- `dry-run.sh`
+
+通用脚本位于 `scripts/`：
+
+- `check-prerequisites.sh`
+- `secret-check.sh`
+- `health-check.sh`
+
+## 部署包质量门禁
+
+安装前建议先执行预检：
+
+```bash
+scripts/check-prerequisites.sh k8s
+k8s/dry-run.sh
+```
+
+或 Docker Compose：
+
+```bash
+scripts/check-prerequisites.sh docker-compose
+docker-compose/dry-run.sh
+```
+
+`k8s/install.sh` 和 `docker-compose/install.sh` 会自动调用 `scripts/secret-check.sh`。K8s 模式会优先检查 `k8s/secrets.yaml`，不存在时检查 `k8s/secrets.template.yaml`；Docker Compose 模式会优先检查 `docker-compose/.env`，不存在时检查 `.env.template`。如果目标文件中仍存在 `__REPLACE_WITH_` 占位符，安装会直接失败，避免把未替换的生产密钥配置带入目标环境。
+
+部署后可执行：
+
+```bash
+scripts/health-check.sh k8s
+scripts/health-check.sh docker-compose
+```
 
 ## 任务接口
 

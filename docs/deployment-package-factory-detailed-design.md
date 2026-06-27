@@ -1,10 +1,35 @@
 # 平台化环境隔离与生产部署包导出中心详细设计
 
-版本：V1.0  
-日期：2026-06-27  
-适用项目：local-ai-assistant  
-目标形态：基础平台能力 + 核心业务产品 + 中间件服务，支持 dev/test 环境隔离，并一键导出 K8s / Docker Compose 生产部署包。
+版本：V1.0
+日期：2026-06-27
+适用项目：deployment-package-factory 独立仓库，面向 local-ai-assistant 及后续业务平台导包
+目标形态：独立部署包工厂（独立 Git 仓库、独立 FastAPI 后端、独立 React 前端）+ 基础平台能力 + 核心业务产品 + 中间件服务，支持 dev/test 环境隔离，并一键导出 K8s / Docker Compose 生产部署包。
 
+
+## 0. 架构决策更新：独立 Git 仓库
+
+经实施确认，部署包工厂不作为 `local-ai-assistant` 当前业务前后端的内嵌模块交付，而是作为独立 Git 仓库交付：
+
+```text
+D:\project\work\li-yong\deployment-package-factory
+```
+
+独立仓库边界：
+
+- `backend/`：独立 FastAPI API，负责能力目录、依赖预览、任务化导包、包下载。
+- `frontend/`：独立 Vite + React 页面，负责项目选择、依赖预览、任务进度和下载。
+- `templates/catalog/`：能力目录、项目模板、中间件和依赖规则。
+- `data/`：运行时任务数据库和导包产物目录，默认不提交。
+
+原文中出现的 `backend/app/...`、`frontend/src/views/ops/...`、`templates/...` 是早期“嵌入业务仓库”的路径草案；实际落地路径以本独立仓库为准：
+
+```text
+backend/deployment_package_factory/...
+frontend/src/...
+templates/catalog/...
+```
+
+当前业务仓库 `local-ai-assistant` 仅作为被导出的业务平台来源，不承载导包页面和导包 API。
 ## 1. 背景
 
 当前项目已经具备基础的平台化雏形：
@@ -279,9 +304,9 @@ class NacosConfigProvider(ConfigProvider):
 ### 7.1 后端新增模块
 
 ```text
-backend/app/api/routers/deployment_packages.py
+backend/deployment_package_factory/api/deployment_packages.py
 
-backend/app/services/deployment_packages/
+backend/deployment_package_factory/services/deployment_packages/
   __init__.py
   catalog.py
   dependency_resolver.py
@@ -316,7 +341,7 @@ backend/app/services/deployment_packages/
 
 ```text
 frontend/src/api/deploymentPackages.ts
-frontend/src/views/ops/DeploymentPackageExportView.tsx
+frontend/src/views/DeploymentPackageExportView.tsx
 ```
 
 新增菜单权限：
@@ -332,7 +357,7 @@ platform.deploymentPackage.imageExport
 ### 7.3 模板目录
 
 ```text
-deploy-package-templates/
+templates/
   catalog/
     platform.yaml
     business.yaml
@@ -1917,4 +1942,4 @@ Helm 渲染失败：通常不可重试，需修模板或 values。
   -> 打成可生产交付的部署包
 ```
 
-第一阶段应优先完成环境隔离和导包配置生成，不建议一开始引入 Nacos，也不建议立即把所有平台能力拆成独立仓库。先完成可用、可审计、可交付的闭环，再逐步服务细拆和国产化增强。
+第一阶段应优先完成环境隔离和导包配置生成，不建议一开始引入 Nacos，也不建议立即把所有平台业务能力拆成多个业务仓库。部署包工厂自身已独立成仓，后续再逐步服务细拆和国产化增强。

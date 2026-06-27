@@ -66,18 +66,22 @@ def build_deployment_package(
     _write_text(package_root / "k8s" / "services.yaml", _k8s_services(manifest))
     _write_text(package_root / "k8s" / "ingress.yaml", _k8s_ingress(manifest))
     _write_text(package_root / "k8s" / "jobs" / "init-db.yaml", _k8s_init_job(manifest))
-    _write_text(package_root / "k8s" / "install.sh", _k8s_install_script())
-    _write_text(package_root / "k8s" / "uninstall.sh", _k8s_uninstall_script())
+    _write_script(package_root / "k8s" / "install.sh", _k8s_install_script())
+    _write_script(package_root / "k8s" / "uninstall.sh", _k8s_uninstall_script())
+    _write_script(package_root / "k8s" / "dry-run.sh", _k8s_dry_run_script())
     _write_text(package_root / "docker-compose" / "docker-compose.yml", _compose_yaml(manifest))
     _write_text(package_root / "docker-compose" / ".env.template", _env_template(manifest))
-    _write_text(package_root / "docker-compose" / "install.sh", _compose_install_script())
-    _write_text(package_root / "docker-compose" / "uninstall.sh", _compose_uninstall_script())
-    _write_text(package_root / "scripts" / "check-prerequisites.sh", "#!/usr/bin/env bash\nset -euo pipefail\necho \"check prerequisites\"\n")
+    _write_script(package_root / "docker-compose" / "install.sh", _compose_install_script())
+    _write_script(package_root / "docker-compose" / "uninstall.sh", _compose_uninstall_script())
+    _write_script(package_root / "docker-compose" / "dry-run.sh", _compose_dry_run_script())
+    _write_script(package_root / "scripts" / "check-prerequisites.sh", _check_prerequisites_script())
+    _write_script(package_root / "scripts" / "secret-check.sh", _secret_check_script())
+    _write_script(package_root / "scripts" / "health-check.sh", _health_check_script(manifest))
     _write_text(package_root / "images" / "images.txt", _images_txt(image_entries))
     _write_text(package_root / "images" / "archives" / ".gitkeep", "")
-    _write_text(package_root / "scripts" / "pull-images.sh", _pull_images_script(image_entries))
-    _write_text(package_root / "scripts" / "save-images.sh", _save_images_script(image_entries))
-    _write_text(package_root / "scripts" / "load-images.sh", _load_images_script(image_entries))
+    _write_script(package_root / "scripts" / "pull-images.sh", _pull_images_script(image_entries))
+    _write_script(package_root / "scripts" / "save-images.sh", _save_images_script(image_entries))
+    _write_script(package_root / "scripts" / "load-images.sh", _load_images_script(image_entries))
     image_lock = {"images": image_entries, "archives": _archive_lock(package_root)}
     _write_text(package_root / "security" / "image-digest-lock.json", json.dumps(image_lock, ensure_ascii=False, indent=2) + "\n")
 
@@ -93,7 +97,7 @@ def build_deployment_package(
 
     artifact_path = artifact_dir / f"{package_root.name}.tar.gz"
     with tarfile.open(artifact_path, "w:gz") as tar:
-        tar.add(package_root, arcname=package_root.name)
+        tar.add(package_root, arcname=package_root.name, filter=_tar_metadata_filter)
     digest = _file_sha256(artifact_path)
 
     return PackageBuildResult(
@@ -388,6 +392,33 @@ def _k8s_init_job(manifest: dict) -> str:
 
 def _k8s_install_script() -> str:
     files = [
+        "configmaps.yaml",
+        "pvcs.yaml",
+        "deployments.yaml",
+        "services.yaml",
+        "ingress.yaml",
+        "jobs/init-db.yaml",
+    ]
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"',
+        '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" k8s',
+        '"${PACKAGE_ROOT}/scripts/secret-check.sh" k8s',
+        'SECRETS_FILE="${SCRIPT_DIR}/secrets.yaml"',
+        'if [ ! -f "${SECRETS_FILE}" ]; then',
+        '  SECRETS_FILE="${SCRIPT_DIR}/secrets.template.yaml"',
+        "fi",
+        'kubectl apply -f "${SCRIPT_DIR}/namespaces.yaml"',
+    ]
+    lines.append('kubectl apply -f "${SECRETS_FILE}"')
+    lines.extend(f'kubectl apply -f "${{SCRIPT_DIR}}/{item}"' for item in files)
+    return "\n".join(lines) + "\n"
+
+
+def _k8s_dry_run_script() -> str:
+    files = [
         "namespaces.yaml",
         "secrets.template.yaml",
         "configmaps.yaml",
@@ -397,8 +428,14 @@ def _k8s_install_script() -> str:
         "ingress.yaml",
         "jobs/init-db.yaml",
     ]
-    lines = ["#!/usr/bin/env bash", "set -euo pipefail", 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"']
-    lines.extend(f'kubectl apply -f "${{SCRIPT_DIR}}/{item}"' for item in files)
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"',
+        '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" k8s',
+    ]
+    lines.extend(f'kubectl apply --dry-run=client -f "${{SCRIPT_DIR}}/{item}"' for item in files)
     return "\n".join(lines) + "\n"
 
 
@@ -465,11 +502,160 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
 
 
 def _compose_install_script() -> str:
-    return "#!/usr/bin/env bash\nset -euo pipefail\ndocker compose --env-file .env -f docker-compose.yml up -d\n"
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"\n'
+        '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" docker-compose\n'
+        '"${PACKAGE_ROOT}/scripts/secret-check.sh" docker-compose\n'
+        'docker compose --env-file "${SCRIPT_DIR}/.env" -f "${SCRIPT_DIR}/docker-compose.yml" up -d\n'
+    )
 
 
 def _compose_uninstall_script() -> str:
-    return "#!/usr/bin/env bash\nset -euo pipefail\ndocker compose --env-file .env -f docker-compose.yml down\n"
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        'ENV_FILE="${SCRIPT_DIR}/.env"\n'
+        'if [ ! -f "${ENV_FILE}" ]; then\n'
+        '  ENV_FILE="${SCRIPT_DIR}/.env.template"\n'
+        "fi\n"
+        'docker compose --env-file "${ENV_FILE}" -f "${SCRIPT_DIR}/docker-compose.yml" down\n'
+    )
+
+
+def _compose_dry_run_script() -> str:
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"\n'
+        'ENV_FILE="${SCRIPT_DIR}/.env"\n'
+        'if [ ! -f "${ENV_FILE}" ]; then\n'
+        '  ENV_FILE="${SCRIPT_DIR}/.env.template"\n'
+        "fi\n"
+        '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" docker-compose\n'
+        'docker compose --env-file "${ENV_FILE}" -f "${SCRIPT_DIR}/docker-compose.yml" config\n'
+    )
+
+
+def _check_prerequisites_script() -> str:
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'MODE="${1:-all}"\n'
+        "\n"
+        "require_command() {\n"
+        '  if ! command -v "$1" >/dev/null 2>&1; then\n'
+        '    echo "Missing required command: $1" >&2\n'
+        "    exit 1\n"
+        "  fi\n"
+        "}\n"
+        "\n"
+        'case "${MODE}" in\n'
+        "  all)\n"
+        "    require_command docker\n"
+        "    require_command kubectl\n"
+        "    ;;\n"
+        "  k8s)\n"
+        "    require_command kubectl\n"
+        "    ;;\n"
+        "  docker-compose)\n"
+        "    require_command docker\n"
+        "    docker compose version >/dev/null\n"
+        "    ;;\n"
+        "  *)\n"
+        '    echo "Unknown prerequisite mode: ${MODE}" >&2\n'
+        "    exit 1\n"
+        "    ;;\n"
+        "esac\n"
+        "\n"
+        'echo "Prerequisite check passed for ${MODE}."\n'
+    )
+
+
+def _secret_check_script() -> str:
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'MODE="${1:-all}"\n'
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"\n'
+        "\n"
+        "files=()\n"
+        'if [ "${MODE}" = "all" ] || [ "${MODE}" = "k8s" ]; then\n'
+        '  if [ -f "${PACKAGE_ROOT}/k8s/secrets.yaml" ]; then\n'
+        '    files+=("${PACKAGE_ROOT}/k8s/secrets.yaml")\n'
+        '  elif [ -f "${PACKAGE_ROOT}/k8s/secrets.template.yaml" ]; then\n'
+        '    files+=("${PACKAGE_ROOT}/k8s/secrets.template.yaml")\n'
+        "  fi\n"
+        "fi\n"
+        "\n"
+        'if [ "${MODE}" = "all" ] || [ "${MODE}" = "docker-compose" ]; then\n'
+        '  if [ -f "${PACKAGE_ROOT}/docker-compose/.env" ]; then\n'
+        '    files+=("${PACKAGE_ROOT}/docker-compose/.env")\n'
+        '  elif [ -f "${PACKAGE_ROOT}/docker-compose/.env.template" ]; then\n'
+        '    files+=("${PACKAGE_ROOT}/docker-compose/.env.template")\n'
+        "  fi\n"
+        "fi\n"
+        "\n"
+        'if [ "${MODE}" != "all" ] && [ "${MODE}" != "k8s" ] && [ "${MODE}" != "docker-compose" ]; then\n'
+        '  echo "Unknown secret check mode: ${MODE}" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        "\n"
+        'if [ "${#files[@]}" -eq 0 ]; then\n'
+        '  echo "No secret files found to validate." >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        "\n"
+        'if grep -H "__REPLACE_WITH_" "${files[@]}" >/tmp/deployment-package-secret-placeholders.txt; then\n'
+        '  echo "Secret placeholders remain. Replace them before installation:" >&2\n'
+        "  cat /tmp/deployment-package-secret-placeholders.txt >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "\n"
+        'echo "Secret placeholder check passed."\n'
+    )
+
+
+def _health_check_script(manifest: dict) -> str:
+    namespaces = sorted({_base_namespace(manifest), _middleware_namespace(manifest)} | {_business_namespace(manifest, item) for item in manifest["businessServices"]})
+    namespace_args = " ".join(namespaces)
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'MODE="${1:-k8s}"\n'
+        f'NAMESPACES="{namespace_args}"\n'
+        "\n"
+        'case "${MODE}" in\n'
+        "  k8s)\n"
+        "    if ! command -v kubectl >/dev/null 2>&1; then\n"
+        '      echo "kubectl is required for k8s health checks." >&2\n'
+        "      exit 1\n"
+        "    fi\n"
+        "    for namespace in ${NAMESPACES}; do\n"
+        '      echo "Checking namespace ${namespace}"\n'
+        '      kubectl get pods -n "${namespace}"\n'
+        "    done\n"
+        "    ;;\n"
+        "  docker-compose)\n"
+        "    if ! command -v docker >/dev/null 2>&1; then\n"
+        '      echo "docker is required for docker-compose health checks." >&2\n'
+        "      exit 1\n"
+        "    fi\n"
+        '    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        '    PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"\n'
+        '    docker compose --env-file "${PACKAGE_ROOT}/docker-compose/.env" -f "${PACKAGE_ROOT}/docker-compose/docker-compose.yml" ps\n'
+        "    ;;\n"
+        "  *)\n"
+        '    echo "Unknown health check mode: ${MODE}" >&2\n'
+        "    exit 1\n"
+        "    ;;\n"
+        "esac\n"
+    )
 
 
 def _env_template(manifest: dict) -> str:
@@ -714,6 +900,17 @@ def _archive_lock(package_root: Path) -> list[dict]:
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _write_script(path: Path, content: str) -> None:
+    _write_text(path, content)
+    path.chmod(0o755)
+
+
+def _tar_metadata_filter(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    if info.isfile() and info.name.endswith(".sh"):
+        info.mode = 0o755
+    return info
 
 
 def _sha256s(root: Path) -> str:

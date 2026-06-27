@@ -1,12 +1,31 @@
 # 部署包工厂与环境隔离实施计划
 
-版本：V1.0  
-日期：2026-06-27  
+版本：V1.0
+日期：2026-06-27
 来源设计：[平台化环境隔离与生产部署包导出中心详细设计](./deployment-package-factory-detailed-design.md)
 
+
+## 0. 当前落地仓库与路径映射
+
+本实施计划的最终落地形态已调整为独立 Git 仓库：
+
+```text
+D:\project\work\li-yong\deployment-package-factory
+```
+
+路径映射如下：
+
+| 早期计划路径 | 独立仓库实际路径 |
+| --- | --- |
+| `backend/deployment_package_factory/api/deployment_packages.py` | `backend/deployment_package_factory/api/deployment_packages.py` |
+| `backend/deployment_package_factory/services/deployment_packages/` | `backend/deployment_package_factory/services/deployment_packages/` |
+| `frontend/src/views/DeploymentPackageExportView.tsx` | `frontend/src/views/DeploymentPackageExportView.tsx` |
+| `templates/catalog/` | `templates/catalog/` |
+
+`local-ai-assistant` 主业务仓库不注册导包 API、不挂载导包菜单。导包工厂通过能力目录和项目模板描述要导出的基础平台与业务产品。
 ## 1. 实施目标
 
-基于当前 `local-ai-assistant` 项目，分阶段实现：
+基于独立 Git 仓库 `deployment-package-factory`，面向 `local-ai-assistant` 及后续业务平台分阶段实现：
 
 ```text
 dev/test 环境隔离
@@ -151,7 +170,7 @@ infra/helm/values/test/
 1. 新增目录：
 
 ```text
-deploy-package-templates/catalog/
+templates/catalog/
   platform.yaml
   business.yaml
   middleware.yaml
@@ -187,8 +206,8 @@ deploy-package-templates/catalog/
 1. 新增：
 
 ```text
-backend/app/services/deployment_packages/catalog.py
-backend/app/services/deployment_packages/models.py
+backend/deployment_package_factory/services/deployment_packages/catalog.py
+backend/deployment_package_factory/services/deployment_packages/models.py
 ```
 
 2. 使用 Pydantic 定义：
@@ -212,7 +231,7 @@ backend/app/services/deployment_packages/models.py
 1. 新增：
 
 ```text
-backend/app/services/deployment_packages/dependency_resolver.py
+backend/deployment_package_factory/services/deployment_packages/dependency_resolver.py
 ```
 
 2. 实现：
@@ -240,7 +259,7 @@ backend/app/services/deployment_packages/dependency_resolver.py
 1. 新增：
 
 ```text
-backend/app/api/routers/deployment_packages.py
+backend/deployment_package_factory/api/deployment_packages.py
 ```
 
 2. 实现接口：
@@ -273,7 +292,7 @@ DELETE /api/deployment-packages/{id}
 1. 新增 task repo：
 
 ```text
-backend/app/services/deployment_packages/task_repo.py
+backend/deployment_package_factory/services/deployment_packages/task_repo.py
 ```
 
 2. 支持状态：
@@ -311,8 +330,8 @@ canceled
 1. 新增：
 
 ```text
-backend/app/services/deployment_packages/builder.py
-backend/app/services/deployment_packages/archive.py
+backend/deployment_package_factory/services/deployment_packages/builder.py
+backend/deployment_package_factory/services/deployment_packages/archive.py
 ```
 
 2. Builder 阶段：
@@ -339,7 +358,7 @@ backend/app/services/deployment_packages/archive.py
 1. 新增：
 
 ```text
-backend/app/services/deployment_packages/helm_renderer.py
+backend/deployment_package_factory/services/deployment_packages/helm_renderer.py
 ```
 
 2. 根据导包请求生成：
@@ -364,7 +383,7 @@ backend/app/services/deployment_packages/helm_renderer.py
 1. 新增：
 
 ```text
-backend/app/services/deployment_packages/compose_renderer.py
+backend/deployment_package_factory/services/deployment_packages/compose_renderer.py
 ```
 
 2. 生成：
@@ -489,7 +508,7 @@ init/dm/
 1. 新增：
 
 ```text
-backend/app/services/deployment_packages/image_exporter.py
+backend/deployment_package_factory/services/deployment_packages/image_exporter.py
 ```
 
 2. 支持 docker 和 containerd 两种运行模式。
@@ -557,7 +576,7 @@ frontend/src/api/deploymentPackages.ts
 1. 新增：
 
 ```text
-frontend/src/views/ops/DeploymentPackageExportView.tsx
+frontend/src/views/DeploymentPackageExportView.tsx
 ```
 
 2. 页面包含：
@@ -632,7 +651,7 @@ frontend/src/views/ops/DeploymentPackageExportView.tsx
 1. 新增 worker 入口：
 
 ```text
-backend/app/deployment_package_worker.py
+backend/deployment_package_factory/worker.py
 backend/Dockerfile.deployment-package-worker
 ```
 

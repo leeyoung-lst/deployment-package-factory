@@ -28,6 +28,11 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
 
     with tarfile.open(artifact, "r:gz") as tar:
         names = set(tar.getnames())
+        script_modes = {
+            item.name: item.mode
+            for item in tar.getmembers()
+            if item.isfile() and item.name.endswith(".sh")
+        }
 
     root = f"local-ai-prod-package-{result.package_id}"
     assert f"{root}/manifest.json" in names
@@ -40,17 +45,59 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/k8s/services.yaml" in names
     assert f"{root}/k8s/ingress.yaml" in names
     assert f"{root}/k8s/jobs/init-db.yaml" in names
+    assert f"{root}/k8s/install.sh" in names
     assert f"{root}/k8s/uninstall.sh" in names
+    assert f"{root}/k8s/dry-run.sh" in names
     assert f"{root}/docker-compose/docker-compose.yml" in names
     assert f"{root}/docker-compose/install.sh" in names
     assert f"{root}/docker-compose/uninstall.sh" in names
+    assert f"{root}/docker-compose/dry-run.sh" in names
     assert f"{root}/images/images.txt" in names
+    assert f"{root}/scripts/check-prerequisites.sh" in names
+    assert f"{root}/scripts/secret-check.sh" in names
+    assert f"{root}/scripts/health-check.sh" in names
     assert f"{root}/scripts/pull-images.sh" in names
     assert f"{root}/scripts/save-images.sh" in names
     assert f"{root}/scripts/load-images.sh" in names
     assert f"{root}/images/archives/.gitkeep" in names
     assert f"{root}/security/image-digest-lock.json" in names
     assert f"{root}/security/SHA256SUMS" in names
+    assert script_modes
+    assert all(mode & 0o111 for mode in script_modes.values())
+
+
+def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s", "docker-compose"],
+            businessServices=[BusinessSelection(name="eam", profile="4x60")],
+            database="postgres",
+        ),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    k8s_install = (root / "k8s" / "install.sh").read_text(encoding="utf-8")
+    k8s_dry_run = (root / "k8s" / "dry-run.sh").read_text(encoding="utf-8")
+    compose_install = (root / "docker-compose" / "install.sh").read_text(encoding="utf-8")
+    compose_dry_run = (root / "docker-compose" / "dry-run.sh").read_text(encoding="utf-8")
+    secret_check = (root / "scripts" / "secret-check.sh").read_text(encoding="utf-8")
+    prereq_check = (root / "scripts" / "check-prerequisites.sh").read_text(encoding="utf-8")
+    health_check = (root / "scripts" / "health-check.sh").read_text(encoding="utf-8")
+
+    assert "scripts/secret-check.sh" in k8s_install
+    assert "scripts/secret-check.sh" in compose_install
+    assert "SECRETS_FILE" in k8s_install
+    assert "kubectl apply --dry-run=client" in k8s_dry_run
+    assert "docker compose --env-file" in compose_dry_run
+    assert "docker-compose.yml\" config" in compose_dry_run
+    assert "__REPLACE_WITH_" in secret_check
+    assert "Secret placeholders remain" in secret_check
+    assert "require_command kubectl" in prereq_check
+    assert "docker compose version" in prereq_check
+    assert "kubectl get pods" in health_check
+    assert "docker compose" in health_check
 
 
 def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_path) -> None:
