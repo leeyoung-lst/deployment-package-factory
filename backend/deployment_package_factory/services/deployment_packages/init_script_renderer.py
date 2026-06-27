@@ -165,6 +165,8 @@ def _minio_init_script(manifest: dict) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'PROJECT_INIT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/project"',
         'MINIO_ALIAS="${MINIO_ALIAS:-local-ai}"',
         'if ! command -v mc >/dev/null 2>&1; then',
         '  echo "MinIO client mc is not available; print bucket initialization commands only."',
@@ -173,9 +175,35 @@ def _minio_init_script(manifest: dict) -> str:
         "  DRY_RUN=0",
         "fi",
         "",
+        "create_bucket() {",
+        '  local bucket="$1"',
+        '  if [ -z "${bucket}" ] || [[ "${bucket}" = \\#* ]]; then',
+        "    return 0",
+        "  fi",
+        '  if [ "${DRY_RUN}" = "1" ]; then',
+        '    echo "mc mb --ignore-existing ${MINIO_ALIAS}/${bucket}"',
+        "  else",
+        '    mc mb --ignore-existing "${MINIO_ALIAS}/${bucket}"',
+        "  fi",
+        "}",
+        "",
     ]
     for bucket in buckets:
-        lines.append(f'if [ "${{DRY_RUN}}" = "1" ]; then echo "mc mb --ignore-existing ${{MINIO_ALIAS}}/{bucket}"; else mc mb --ignore-existing "${{MINIO_ALIAS}}/{bucket}"; fi')
+        lines.append(f'create_bucket "{bucket}"')
+    lines.extend(
+        [
+            "",
+            'if [ -d "${PROJECT_INIT_DIR}" ]; then',
+            '  while IFS= read -r -d "" bucket_file; do',
+            '    echo "Reading project MinIO buckets: ${bucket_file}"',
+            '    while IFS= read -r bucket || [ -n "${bucket}" ]; do',
+            '      bucket="$(printf "%s" "${bucket}" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//")"',
+            '      create_bucket "${bucket}"',
+            '    done < "${bucket_file}"',
+            '  done < <(find "${PROJECT_INIT_DIR}" -type f -path "*/minio/buckets.txt" -print0 | sort -z)',
+            "fi",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -184,21 +212,53 @@ def _qdrant_init_script(manifest: dict) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'PROJECT_INIT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/project"',
         'QDRANT_URL="${QDRANT_URL:-http://qdrant:6333}"',
         'if ! command -v curl >/dev/null 2>&1; then',
         '  echo "curl is not available; skip Qdrant collection initialization."',
         "  exit 0",
         "fi",
         "",
+        "create_collection() {",
+        '  local name="$1"',
+        '  local size="${2:-1536}"',
+        '  local distance="${3:-Cosine}"',
+        '  curl -fsS -X PUT "${QDRANT_URL}/collections/${name}" \\',
+        "    -H 'Content-Type: application/json' \\",
+        '    -d "{\\"vectors\\":{\\"size\\":${size},\\"distance\\":\\"${distance}\\"}}"',
+        "}",
+        "",
     ]
     for collection in collections:
-        lines.extend(
-            [
-                f'curl -fsS -X PUT "${{QDRANT_URL}}/collections/{collection}" \\',
-                "  -H 'Content-Type: application/json' \\",
-                "  -d '{\"vectors\":{\"size\":1536,\"distance\":\"Cosine\"}}'",
-            ]
-        )
+        lines.append(f'create_collection "{collection}" "1536" "Cosine"')
+    lines.extend(
+        [
+            "",
+            'if [ -d "${PROJECT_INIT_DIR}" ]; then',
+            '  while IFS= read -r -d "" collections_file; do',
+            '    echo "Reading project Qdrant collections: ${collections_file}"',
+            '    if command -v python3 >/dev/null 2>&1; then',
+            '      python3 - "${collections_file}" <<\'PY\' | while IFS= read -r spec; do',
+            "import json",
+            "import sys",
+            "from pathlib import Path",
+            "payload = json.loads(Path(sys.argv[1]).read_text(encoding=\"utf-8\"))",
+            "for item in payload.get(\"collections\", []):",
+            "    print(\"\\t\".join([str(item.get(\"name\", \"\")), str(item.get(\"vectorSize\", 1536)), str(item.get(\"distance\", \"Cosine\"))]))",
+            "PY",
+            '        IFS="$(printf \'\\t\')" read -r name size distance <<EOF',
+            "${spec}",
+            "EOF",
+            '        [ -n "${name}" ] && create_collection "${name}" "${size}" "${distance}"',
+            "      done",
+            "    else",
+            '      echo "python3 is not available; project Qdrant asset pending: ${collections_file}"',
+            "    fi",
+            '  done < <(find "${PROJECT_INIT_DIR}" -type f -path "*/qdrant/collections.json" -print0 | sort -z)',
+            "fi",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 

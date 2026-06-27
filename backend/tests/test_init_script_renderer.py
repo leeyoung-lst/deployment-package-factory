@@ -25,7 +25,7 @@ def test_render_init_files_contains_idempotent_placeholders() -> None:
 
     assert "CREATE SCHEMA IF NOT EXISTS local_ai_platform" in by_path["init/postgres/001_schema.sql"]
     assert "mc mb --ignore-existing" in by_path["init/minio/create-buckets.sh"]
-    assert "PUT \"${QDRANT_URL}/collections/agent_memory\"" in by_path["init/qdrant/create-collections.sh"]
+    assert 'create_collection "agent_memory" "1536" "Cosine"' in by_path["init/qdrant/create-collections.sh"]
     assert "Bootstrap Camunda tenants" in by_path["init/camunda/bootstrap-admin.sh"]
     assert "run_sql \"postgres\"" in by_path["init/run-init.sh"]
     assert "PROJECT_INIT_DIR" in by_path["init/run-init.sh"]
@@ -47,6 +47,9 @@ def test_render_init_files_merges_project_init_templates(tmp_path) -> None:
     assert by_path["init/project/mes-lite/minio/bootstrap.sh"].executable is True
     assert by_path["init/project/mes-lite/qdrant/collections.json"].content == "{}\n"
     assert 'find "${PROJECT_INIT_DIR}" -type f \\( -path "*/postgres/*.sql" -o -path "*/dm/*.sql" \\)' in by_path["init/run-init.sh"].content
+    assert 'find "${PROJECT_INIT_DIR}" -type f -path "*/minio/buckets.txt"' in by_path["init/minio/create-buckets.sh"].content
+    assert 'find "${PROJECT_INIT_DIR}" -type f -path "*/qdrant/collections.json"' in by_path["init/qdrant/create-collections.sh"].content
+    assert 'payload.get("collections", [])' in by_path["init/qdrant/create-collections.sh"].content
 
 
 def test_default_project_init_templates_are_merged_for_mes_lite() -> None:
@@ -55,6 +58,15 @@ def test_default_project_init_templates_are_merged_for_mes_lite() -> None:
 
     assert "init/project/mes-lite/dm/010_mes_lite_schema.sql" in paths
     assert "init/project/mes-lite/qdrant/collections.json" in paths
+
+
+def test_default_project_minio_bucket_template_is_consumed_for_standard_eam() -> None:
+    files = render_init_files(_standard_eam_manifest())
+    by_path = {item.path.as_posix(): item for item in files}
+
+    assert "init/project/standard-eam/minio/buckets.txt" in by_path
+    assert "eam-attachments" in by_path["init/project/standard-eam/minio/buckets.txt"].content
+    assert 'find "${PROJECT_INIT_DIR}" -type f -path "*/minio/buckets.txt"' in by_path["init/minio/create-buckets.sh"].content
 
 
 def _manifest() -> dict:
@@ -74,5 +86,16 @@ def _project_manifest() -> dict:
         "database": "dm",
         "platformServices": ["iam"],
         "businessServices": ["mes"],
-        "middleware": ["dm", "redis", "qdrant"],
+        "middleware": ["dm", "redis", "minio", "qdrant"],
+    }
+
+
+def _standard_eam_manifest() -> dict:
+    return {
+        "packageId": "pkg-test",
+        "projectKey": "standard-eam",
+        "database": "postgres",
+        "platformServices": ["iam"],
+        "businessServices": ["eam"],
+        "middleware": ["postgres", "redis", "minio"],
     }
