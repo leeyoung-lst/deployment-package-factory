@@ -125,6 +125,24 @@ deployment-package-factory.example.com
 默认 K8s/生产 Compose 部署采用 worker 模式：API 只创建任务，`deployment-package-factory-worker` 负责领取和执行任务。本地开发 `docker-compose.yml` 仍保留后台任务模式，便于单进程调试。
 如果 worker 进程崩溃，后续 worker 会根据任务的 `heartbeatAt` 判断是否超过 `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES`，超时的 running 任务会被标记为 failed，用户可在页面上重试。执行中的 worker 会按 `DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS` 周期刷新心跳。
 
+## 监控指标
+
+后端服务提供 Prometheus 文本指标：
+
+```text
+GET /metrics
+```
+
+`deploy/k8s/backend.yaml` 中的 Service 已配置：
+
+```yaml
+prometheus.io/scrape: "true"
+prometheus.io/path: /metrics
+prometheus.io/port: "8096"
+```
+
+如果集群使用 Prometheus Operator，建议后续按平台规范补充 `ServiceMonitor`；当前 annotation 可兼容基础的 Prometheus 自动发现配置。
+
 ## 数据与权限
 
 后端需要持久化以下内容：

@@ -6,6 +6,10 @@ metadata:
   labels:
     app.kubernetes.io/name: deployment-package-factory
     app.kubernetes.io/component: backend
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8096"
 spec:
   replicas: 1
   selector:

@@ -33,3 +33,16 @@ def test_audit_repository_limits_events(tmp_path) -> None:
     events = repo.list(limit=1)
 
     assert len(events) == 1
+
+
+def test_audit_repository_metrics_summary_counts_actions(tmp_path) -> None:
+    repo = AuditEventRepository(tmp_path / "audit.sqlite3")
+    repo.record(action="package.create", status="accepted")
+    repo.record(action="package.create", status="accepted")
+    repo.record(action="package.download", status="completed")
+
+    summary = repo.metrics_summary()
+
+    assert summary["total"] == 3
+    assert summary["byAction"]["package.create"] == 2
+    assert summary["byAction"]["package.download"] == 1

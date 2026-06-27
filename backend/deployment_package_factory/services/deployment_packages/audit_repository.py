@@ -62,6 +62,17 @@ class AuditEventRepository:
             ).fetchall()
         return [_event_from_row(row) for row in rows]
 
+    def metrics_summary(self) -> dict:
+        with self._connect() as conn:
+            total = conn.execute("select count(*) as count from audit_events").fetchone()["count"]
+            action_rows = conn.execute(
+                "select action, count(*) as count from audit_events group by action"
+            ).fetchall()
+        return {
+            "total": total,
+            "byAction": {row["action"]: row["count"] for row in action_rows},
+        }
+
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             conn.execute(

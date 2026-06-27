@@ -63,6 +63,33 @@ class PackageTaskRepository:
             ).fetchall()
         return [_task_from_row(row) for row in rows]
 
+    def metrics_summary(self) -> dict:
+        with self._connect() as conn:
+            status_rows = conn.execute(
+                "select status, count(*) as count from package_tasks group by status"
+            ).fetchall()
+            total = conn.execute("select count(*) as count from package_tasks").fetchone()["count"]
+            artifact_rows = conn.execute(
+                """
+                select result_json from package_tasks
+                where status = 'completed' and result_json is not null
+                """
+            ).fetchall()
+        artifact_bytes = 0
+        available_artifacts = 0
+        for row in artifact_rows:
+            result = PackageBuildResult.model_validate_json(row["result_json"])
+            artifact = Path(result.artifact_path)
+            if artifact.is_file():
+                available_artifacts += 1
+                artifact_bytes += artifact.stat().st_size
+        return {
+            "total": total,
+            "byStatus": {row["status"]: row["count"] for row in status_rows},
+            "availableArtifacts": available_artifacts,
+            "artifactBytes": artifact_bytes,
+        }
+
     def claim_next_pending(self, worker_id: str = "") -> PackageTask | None:
         now = _now_iso()
         with self._connect() as conn:

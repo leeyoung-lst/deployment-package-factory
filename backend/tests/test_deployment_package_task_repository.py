@@ -73,6 +73,33 @@ def test_task_repository_reports_artifact_availability(tmp_path) -> None:
     assert unavailable.artifact_available is False
 
 
+def test_task_repository_metrics_summary_counts_status_and_artifacts(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    artifact = tmp_path / "pkg.tar.gz"
+    artifact.write_bytes(b"package")
+    completed = repo.create(PackageBuildRequest())
+    failed = repo.create(PackageBuildRequest())
+    repo.mark_completed(
+        completed.task_id,
+        PackageBuildResult(
+            packageId="pkg-1",
+            workDir=str(tmp_path / "work"),
+            artifactPath=str(artifact),
+            sha256="abc",
+            manifest={},
+        ),
+    )
+    repo.mark_failed(failed.task_id, "failed")
+
+    summary = repo.metrics_summary()
+
+    assert summary["total"] == 2
+    assert summary["byStatus"]["completed"] == 1
+    assert summary["byStatus"]["failed"] == 1
+    assert summary["availableArtifacts"] == 1
+    assert summary["artifactBytes"] == len(b"package")
+
+
 def test_task_repository_records_failure(tmp_path) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="mes")]))

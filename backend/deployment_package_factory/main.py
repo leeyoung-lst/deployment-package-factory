@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
-from deployment_package_factory.api.deployment_packages import router as deployment_packages_router
+from deployment_package_factory.api.deployment_packages import get_audit_repository, get_task_repository, router as deployment_packages_router
+from deployment_package_factory.metrics import render_metrics
 
 
 def create_app() -> FastAPI:
@@ -24,6 +26,13 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "app": "deployment-package-factory"}
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics() -> PlainTextResponse:
+        return PlainTextResponse(
+            render_metrics(get_task_repository(), get_audit_repository()),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     return app
 

@@ -70,6 +70,16 @@ docker compose up --build
 
 详细步骤见 `deploy/README.md`。
 
+## 可观测性
+
+后端暴露 Prometheus 文本格式指标：
+
+```http
+GET /metrics
+```
+
+当前指标覆盖导包任务总数、按状态分组的任务数量、可下载产物数量与总字节数、审计事件总数以及按操作类型分组的审计事件数量。K8s 部署清单中的后端 Service 已带有 Prometheus scrape annotation，具备 annotation 发现能力的 Prometheus 可直接采集。
+
 ## 当前能力
 
 - 支持 `dev`、`test` 来源环境。
