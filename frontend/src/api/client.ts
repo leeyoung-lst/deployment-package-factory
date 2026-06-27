@@ -1,11 +1,28 @@
 type RuntimeEnv = Record<string, string | undefined>;
+interface RuntimeConfig {
+  apiBaseUrl?: string;
+  apiToken?: string;
+}
+
+declare global {
+  interface Window {
+    __DEPLOYMENT_PACKAGE_FACTORY_CONFIG__?: RuntimeConfig;
+  }
+}
 
 function readRuntimeEnv(): RuntimeEnv {
   return (import.meta as ImportMeta & { env?: RuntimeEnv }).env ?? {};
 }
 
-export const BASE = readRuntimeEnv().VITE_API_BASE_URL ?? "";
-const API_TOKEN = readRuntimeEnv().VITE_DEPLOYMENT_PACKAGE_API_TOKEN ?? "";
+function readRuntimeConfig(): RuntimeConfig {
+  return window.__DEPLOYMENT_PACKAGE_FACTORY_CONFIG__ ?? {};
+}
+
+const runtimeConfig = readRuntimeConfig();
+const buildEnv = readRuntimeEnv();
+
+export const BASE = runtimeConfig.apiBaseUrl ?? buildEnv.VITE_API_BASE_URL ?? "";
+const API_TOKEN = runtimeConfig.apiToken ?? buildEnv.VITE_DEPLOYMENT_PACKAGE_API_TOKEN ?? "";
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {

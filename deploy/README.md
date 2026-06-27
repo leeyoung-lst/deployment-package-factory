@@ -73,6 +73,8 @@ export DPF_WORKER_IMAGE=registry.example.com/platform/deployment-package-factory
 export DPF_FRONTEND_IMAGE=registry.example.com/platform/deployment-package-factory-frontend:2026.06
 export DPF_HTTP_PORT=5186
 export DEPLOYMENT_PACKAGE_API_TOKEN=replace-with-strong-random-token
+export DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL=
+export DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN=replace-with-strong-random-token
 export DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS=1
 export DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS=3
 export DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS=15
@@ -116,9 +118,9 @@ deployment-package-factory.example.com
 - `scripts/render-deploy-images.*` 生成的镜像地址。
 - `deploy/k8s/pvc.yaml` 中的存储大小和 StorageClass。
 - `deploy/k8s/configmap.yaml` 中的并发数、保留天数和容量上限。
-- 如需保护导包 API，复制 `deploy/k8s/secret.template.yaml` 为 `deploy/k8s/secret.yaml`，替换 `DEPLOYMENT_PACKAGE_API_TOKEN` 后执行 `kubectl apply -f deploy/k8s/secret.yaml`。后端 Deployment 已配置 optional secretRef，Secret 不存在时默认不启用 API token。
+- 如需保护导包 API，复制 `deploy/k8s/secret.template.yaml` 为 `deploy/k8s/secret.yaml`，替换 `DEPLOYMENT_PACKAGE_API_TOKEN` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN` 后执行 `kubectl apply -f deploy/k8s/secret.yaml`。后端 Deployment 已配置 optional secretRef，Secret 不存在时默认不启用 API token。
 
-受保护环境的前端请求需要在构建镜像时注入 `VITE_DEPLOYMENT_PACKAGE_API_TOKEN`，或后续接入 IAM/OIDC 后改为登录态令牌。
+前端镜像启动时会根据 `DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN` 生成 `/runtime-config.js`，因此同一个前端镜像可以复用于 dev、test、prod；受保护环境下前端 token 应与后端 API token 保持一致。后续接入 IAM/OIDC 后可改为登录态令牌。
 
 默认 K8s/生产 Compose 部署采用 worker 模式：API 只创建任务，`deployment-package-factory-worker` 负责领取和执行任务。本地开发 `docker-compose.yml` 仍保留后台任务模式，便于单进程调试。
 如果 worker 进程崩溃，后续 worker 会根据任务的 `heartbeatAt` 判断是否超过 `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES`，超时的 running 任务会被标记为 failed，用户可在页面上重试。执行中的 worker 会按 `DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS` 周期刷新心跳。

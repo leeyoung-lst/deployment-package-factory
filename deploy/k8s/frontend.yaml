@@ -25,6 +25,15 @@ spec:
           ports:
             - name: http
               containerPort: 80
+          env:
+            - name: DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL
+              value: ""
+            - name: DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: deployment-package-factory-secret
+                  key: DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

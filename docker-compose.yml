@@ -25,6 +25,9 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+    environment:
+      DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL: ${DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL:-}
+      DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN: ${DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN:-}
     depends_on:
       deployment-package-factory-backend:
         condition: service_healthy
