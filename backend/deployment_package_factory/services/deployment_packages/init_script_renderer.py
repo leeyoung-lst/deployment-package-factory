@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from pathlib import PurePosixPath
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_OVERLAY_TEMPLATE_DIR = PROJECT_ROOT / "templates" / "overlays"
 
 
 DATABASE_INIT_PATHS = {
@@ -22,7 +27,7 @@ class RenderedInitFile:
     executable: bool = False
 
 
-def render_init_files(manifest: dict) -> list[RenderedInitFile]:
+def render_init_files(manifest: dict, template_dir: Path | None = None) -> list[RenderedInitFile]:
     files = [
         RenderedInitFile(PurePosixPath("init/run-init.sh"), _run_init_script(manifest), executable=True),
         RenderedInitFile(PurePosixPath("init/README.md"), _init_readme(manifest)),
@@ -42,6 +47,7 @@ def render_init_files(manifest: dict) -> list[RenderedInitFile]:
     if "camunda" in middleware:
         files.append(RenderedInitFile(PurePosixPath(MIDDLEWARE_INIT_PATHS["camunda"]), _camunda_init_script(manifest), executable=True))
 
+    files.extend(_project_init_files(manifest, template_dir or DEFAULT_OVERLAY_TEMPLATE_DIR))
     return files
 
 
@@ -94,6 +100,31 @@ def _run_init_script(manifest: dict) -> str:
         lines.append('if [ "${MODE}" = "all" ] || [ "${MODE}" = "middleware" ]; then')
         lines.append('  "${SCRIPT_DIR}/camunda/bootstrap-admin.sh"')
         lines.append("fi")
+    lines.extend(
+        [
+            "",
+            'PROJECT_INIT_DIR="${SCRIPT_DIR}/project"',
+            'if [ -d "${PROJECT_INIT_DIR}" ] && { [ "${MODE}" = "all" ] || [ "${MODE}" = "database" ]; }; then',
+            '  while IFS= read -r -d "" sql_file; do',
+            '    dialect="$(basename "$(dirname "${sql_file}")")"',
+            '    run_sql "${dialect}" "${sql_file}"',
+            '  done < <(find "${PROJECT_INIT_DIR}" -type f \\( -path "*/postgres/*.sql" -o -path "*/dm/*.sql" \\) -print0 | sort -z)',
+            "fi",
+            "",
+            'if [ -d "${PROJECT_INIT_DIR}" ] && { [ "${MODE}" = "all" ] || [ "${MODE}" = "middleware" ]; }; then',
+            '  while IFS= read -r -d "" script_file; do',
+            '    echo "Running project init script: ${script_file}"',
+            '    "${script_file}"',
+            '  done < <(find "${PROJECT_INIT_DIR}" -type f -name "*.sh" -print0 | sort -z)',
+            "fi",
+            "",
+            'if [ -d "${PROJECT_INIT_DIR}" ] && { [ "${MODE}" = "all" ] || [ "${MODE}" = "middleware" ]; }; then',
+            '  while IFS= read -r -d "" data_file; do',
+            '    echo "Project init data asset: ${data_file}"',
+            '  done < <(find "${PROJECT_INIT_DIR}" -type f \\( -name "*.json" -o -name "*.bpmn" -o -name "*.bpmn20.xml" -o -name "*.txt" \\) -print0 | sort -z)',
+            "fi",
+        ]
+    )
     lines.append('echo "Init script dispatch completed."')
     return "\n".join(lines) + "\n"
 
@@ -104,7 +135,8 @@ def _init_readme(manifest: dict) -> str:
         "# 初始化脚本\n\n"
         f"数据库：`{manifest['database']}`\n\n"
         f"中间件：{middleware}\n\n"
-        "`run-init.sh` 是统一入口。脚本默认保持幂等设计，当前生成的是生产实施可补全的安全占位模板。\n"
+        "`run-init.sh` 是统一入口。脚本默认保持幂等设计，当前生成的是生产实施可补全的安全占位模板。\n\n"
+        "项目级初始化资产会从 `templates/overlays/<project>/init/` 合并到 `init/project/<project>/`，并由统一入口按 database/middleware 模式调度。\n"
     )
 
 
@@ -178,3 +210,35 @@ def _camunda_init_script(manifest: dict) -> str:
         f'echo "Bootstrap Camunda tenants and admin groups for {manifest["packageId"]} at ${{CAMUNDA_URL}}."\n'
         "echo \"TODO: import BPMN models and seed operator groups with Camunda REST API.\"\n"
     )
+
+
+def _project_init_files(manifest: dict, template_dir: Path) -> list[RenderedInitFile]:
+    project_key = manifest.get("projectKey")
+    if not project_key:
+        return []
+    project_init_dir = (template_dir / project_key / "init").resolve()
+    template_root = template_dir.resolve()
+    if not project_init_dir.exists():
+        return []
+    if not project_init_dir.is_dir():
+        raise ValueError(f"Project init template path must be a directory: {project_init_dir}")
+    if not project_init_dir.is_relative_to(template_root):
+        raise ValueError(f"Project init template path escapes template root: {project_init_dir}")
+
+    files: list[RenderedInitFile] = []
+    for path in sorted(item for item in project_init_dir.rglob("*") if item.is_file()):
+        relative = path.relative_to(project_init_dir).as_posix()
+        if _has_unsafe_path_segment(relative):
+            raise ValueError(f"Unsafe project init template path: {relative}")
+        files.append(
+            RenderedInitFile(
+                PurePosixPath("init") / "project" / project_key / PurePosixPath(relative),
+                path.read_text(encoding="utf-8"),
+                executable=path.suffix == ".sh",
+            )
+        )
+    return files
+
+
+def _has_unsafe_path_segment(path: str) -> bool:
+    return any(segment in {"", ".", ".."} for segment in PurePosixPath(path).parts)

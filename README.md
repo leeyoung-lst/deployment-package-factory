@@ -174,6 +174,12 @@ Docker Compose 产物位于 `docker-compose/`：
 - `init/camunda/`
 - `k8s/patches/`
 
+其中 `templates/overlays/<projectKey>/init/` 下的项目级初始化资产会额外合并到标准执行目录 `init/project/<projectKey>/`：
+
+- `init/postgres/*.sql`、`init/dm/*.sql` 会被 `init/run-init.sh database` 发现并按顺序调度。
+- `init/**/*.sh` 会被 `init/run-init.sh middleware` 发现并执行。
+- `init/**/*.json`、`init/**/*.bpmn`、`init/**/*.bpmn20.xml`、`init/**/*.txt` 会作为项目初始化数据资产登记并在运行时打印路径，便于现场脚本或后续适配器消费。
+
 ## 部署包质量门禁
 
 安装前建议先执行预检：
