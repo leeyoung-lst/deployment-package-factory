@@ -36,6 +36,7 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
 
     root = f"local-ai-prod-package-{result.package_id}"
     assert f"{root}/manifest.json" in names
+    assert f"{root}/package-index.json" in names
     assert f"{root}/README.md" in names
     assert f"{root}/k8s/namespaces.yaml" in names
     assert f"{root}/k8s/configmaps.yaml" in names
@@ -106,6 +107,32 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "kubectl get pods" in health_check
     assert "docker compose" in health_check
     assert "run_sql \"postgres\"" in init_runner
+
+
+def test_build_deployment_package_writes_package_index(tmp_path) -> None:
+    result = build_deployment_package(
+        PackageBuildRequest(projectKey="mes-lite"),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    index = json.loads((root / "package-index.json").read_text(encoding="utf-8"))
+    sha_sums = (root / "security" / "SHA256SUMS").read_text(encoding="utf-8")
+
+    assert index["schemaVersion"] == "deployment-package-index/v1"
+    assert index["packageId"] == result.package_id
+    assert index["projectKey"] == "mes-lite"
+    assert index["summary"]["fileCount"] > 0
+    assert index["sections"]["k8s"]
+    assert index["sections"]["dockerCompose"]
+    assert index["sections"]["init"]
+    assert index["sections"]["overlays"]
+    assert index["sections"]["images"]
+    assert index["sections"]["scripts"]
+    assert index["sections"]["security"]
+    assert any(item["path"] == "overlays/mes-lite/values.json" for item in index["sections"]["overlays"])
+    assert any(item["path"] == "scripts/load-images.sh" and item["executable"] for item in index["sections"]["scripts"])
+    assert "package-index.json" in sha_sums
 
 
 def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_path) -> None:

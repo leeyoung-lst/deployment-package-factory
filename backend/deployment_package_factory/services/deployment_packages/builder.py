@@ -75,6 +75,7 @@ def build_deployment_package(
             json.dumps({"images": image_entries, "archives": _archive_lock(package_root)}, ensure_ascii=False, indent=2) + "\n",
         )
 
+    _write_text(package_root / "package-index.json", json.dumps(_package_index(package_root, manifest), ensure_ascii=False, indent=2) + "\n")
     sha_file = package_root / "security" / "SHA256SUMS"
     _write_text(sha_file, _sha256s(package_root))
 
@@ -297,6 +298,53 @@ def _archive_lock(package_root: Path) -> list[dict]:
     for path in sorted(item for item in archive_dir.iterdir() if item.is_file() and item.name != ".gitkeep"):
         result.append({"file": path.name, "sha256": _file_sha256(path), "size": path.stat().st_size})
     return result
+
+
+def _package_index(package_root: Path, manifest: dict) -> dict:
+    files = [_file_index_entry(path, package_root) for path in sorted(item for item in package_root.rglob("*") if item.is_file())]
+    return {
+        "schemaVersion": "deployment-package-index/v1",
+        "packageId": manifest["packageId"],
+        "projectKey": manifest.get("projectKey") or "custom",
+        "productVersion": manifest.get("productVersion") or "",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "fileCount": len(files),
+            "totalBytes": sum(item["size"] for item in files),
+            "deployModes": manifest["deployModes"],
+            "imageMode": manifest["imageMode"],
+            "database": manifest["database"],
+        },
+        "sections": {
+            "root": _section(files, {"README.md", "manifest.json"}),
+            "docs": _section_prefix(files, "docs/"),
+            "k8s": _section_prefix(files, "k8s/"),
+            "dockerCompose": _section_prefix(files, "docker-compose/"),
+            "init": _section_prefix(files, "init/"),
+            "overlays": _section_prefix(files, "overlays/"),
+            "images": _section_prefix(files, "images/"),
+            "scripts": _section_prefix(files, "scripts/"),
+            "security": _section_prefix(files, "security/"),
+        },
+    }
+
+
+def _file_index_entry(path: Path, package_root: Path) -> dict:
+    rel = path.relative_to(package_root).as_posix()
+    return {
+        "path": rel,
+        "size": path.stat().st_size,
+        "sha256": _file_sha256(path),
+        "executable": path.suffix == ".sh",
+    }
+
+
+def _section(files: list[dict], paths: set[str]) -> list[dict]:
+    return [item for item in files if item["path"] in paths]
+
+
+def _section_prefix(files: list[dict], prefix: str) -> list[dict]:
+    return [item for item in files if item["path"].startswith(prefix)]
 
 
 def _write_text(path: Path, content: str) -> None:

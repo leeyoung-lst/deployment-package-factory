@@ -52,6 +52,7 @@ docker compose up --build
 - K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装、卸载和 dry-run 脚本。
 - Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装、卸载和 dry-run 脚本。
 - 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 SQLite。
+- 生成包会写入 `package-index.json`，按 root/docs/k8s/docker-compose/init/overlays/images/scripts/security 分区登记文件、大小、SHA256 和可执行标记。
 
 ## 镜像导出模式
 
@@ -85,6 +86,12 @@ K8s 产物位于 `k8s/`：
 - `install.sh`
 - `uninstall.sh`
 - `dry-run.sh`
+
+根目录索引：
+
+- `manifest.json`
+- `package-index.json`
+- `README.md`
 
 Docker Compose 产物位于 `docker-compose/`：
 
