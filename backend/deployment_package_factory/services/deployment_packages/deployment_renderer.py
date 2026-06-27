@@ -246,6 +246,17 @@ def _k8s_ingress(manifest: dict) -> str:
 
 def _k8s_init_job(manifest: dict) -> str:
     return (
+        "apiVersion: v1\n"
+        "kind: ConfigMap\n"
+        "metadata:\n"
+        "  name: init-scripts\n"
+        f"  namespace: {_middleware_namespace(manifest)}\n"
+        "data:\n"
+        "  run-init.sh: |\n"
+        "    #!/usr/bin/env bash\n"
+        "    set -euo pipefail\n"
+        f"    echo init {manifest['database']} schema and middleware scripts\n"
+        "---\n"
         "apiVersion: batch/v1\n"
         "kind: Job\n"
         "metadata:\n"
@@ -258,8 +269,15 @@ def _k8s_init_job(manifest: dict) -> str:
         "      containers:\n"
         "        - name: init-database\n"
         f"          image: {_middleware_image(manifest['database'], manifest)}\n"
-        "          command: [\"/bin/sh\", \"-c\"]\n"
-        f"          args: [\"echo init {manifest['database']} schema\"]\n"
+        "          command: [\"/bin/sh\", \"/init/run-init.sh\"]\n"
+        "          volumeMounts:\n"
+        "            - name: init-scripts\n"
+        "              mountPath: /init\n"
+        "      volumes:\n"
+        "        - name: init-scripts\n"
+        "          configMap:\n"
+        "            name: init-scripts\n"
+        "            defaultMode: 0755\n"
     )
 
 
@@ -383,6 +401,7 @@ def _compose_install_script() -> str:
         '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" docker-compose\n'
         '"${PACKAGE_ROOT}/scripts/secret-check.sh" docker-compose\n'
         'docker compose --env-file "${SCRIPT_DIR}/.env" -f "${SCRIPT_DIR}/docker-compose.yml" up -d\n'
+        '"${PACKAGE_ROOT}/init/run-init.sh" all\n'
     )
 
 

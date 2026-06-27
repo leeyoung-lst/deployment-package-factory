@@ -100,6 +100,16 @@ Docker Compose 产物位于 `docker-compose/`：
 - `secret-check.sh`
 - `health-check.sh`
 
+初始化脚本位于 `init/`：
+
+- `run-init.sh`
+- `postgres/001_schema.sql` 或 `dm/001_schema.sql`
+- `minio/create-buckets.sh`
+- `qdrant/create-collections.sh`
+- `camunda/bootstrap-admin.sh`
+
+`run-init.sh` 是统一入口。Docker Compose 安装脚本会在服务启动后调用它；K8s 包会生成 `jobs/init-db.yaml`，用于在目标集群中执行初始化入口。当前初始化内容为可审计、可重复执行的生产占位模板，现场交付时可按项目补齐真实 SQL、bucket、collection 和 Camunda 模型导入。
+
 ## 部署包质量门禁
 
 安装前建议先执行预检：
@@ -170,4 +180,5 @@ GET /api/deployment-packages/{packageId}/download
 
 - 增加任务取消、重试和并发队列限制。
 - 按项目模板扩展 Helm/Kustomize overlay。
-- 增加离线安装校验和初始化 SQL 分层。
+- 增加离线安装校验。
+- 将初始化占位模板升级为项目级真实 SQL、BPMN 和对象存储策略。

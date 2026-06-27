@@ -52,6 +52,11 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/docker-compose/install.sh" in names
     assert f"{root}/docker-compose/uninstall.sh" in names
     assert f"{root}/docker-compose/dry-run.sh" in names
+    assert f"{root}/init/run-init.sh" in names
+    assert f"{root}/init/README.md" in names
+    assert f"{root}/init/postgres/001_schema.sql" in names
+    assert f"{root}/init/minio/create-buckets.sh" in names
+    assert f"{root}/init/camunda/bootstrap-admin.sh" in names
     assert f"{root}/images/images.txt" in names
     assert f"{root}/scripts/check-prerequisites.sh" in names
     assert f"{root}/scripts/secret-check.sh" in names
@@ -85,9 +90,11 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     secret_check = (root / "scripts" / "secret-check.sh").read_text(encoding="utf-8")
     prereq_check = (root / "scripts" / "check-prerequisites.sh").read_text(encoding="utf-8")
     health_check = (root / "scripts" / "health-check.sh").read_text(encoding="utf-8")
+    init_runner = (root / "init" / "run-init.sh").read_text(encoding="utf-8")
 
     assert "scripts/secret-check.sh" in k8s_install
     assert "scripts/secret-check.sh" in compose_install
+    assert "init/run-init.sh" in compose_install
     assert "SECRETS_FILE" in k8s_install
     assert "kubectl apply --dry-run=client" in k8s_dry_run
     assert "docker compose --env-file" in compose_dry_run
@@ -98,6 +105,7 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "docker compose version" in prereq_check
     assert "kubectl get pods" in health_check
     assert "docker compose" in health_check
+    assert "run_sql \"postgres\"" in init_runner
 
 
 def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_path) -> None:
@@ -135,7 +143,8 @@ def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_p
     assert "storageClassName: fast-ssd" in pvcs
     assert "host: mes.example.com" in ingress
     assert "name: local-ai-mes-service" in services
-    assert "echo init dm schema" in init_job
+    assert "name: init-scripts" in init_job
+    assert "echo init dm schema and middleware scripts" in init_job
     assert "business-mes:" in compose
     assert "dm:" in compose
     assert "postgres:" not in compose

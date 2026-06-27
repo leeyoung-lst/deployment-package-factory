@@ -27,8 +27,11 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "name: prod-business-eam" in by_path["k8s/namespaces.yaml"]
     assert "harbor.example.com/prod/local-ai-eam-service:prod" in by_path["k8s/deployments.yaml"]
     assert "harbor.example.com/prod/postgres:16" in by_path["docker-compose/docker-compose.yml"]
+    assert "name: init-scripts" in by_path["k8s/jobs/init-db.yaml"]
+    assert "command: [\"/bin/sh\", \"/init/run-init.sh\"]" in by_path["k8s/jobs/init-db.yaml"]
     assert '"${PACKAGE_ROOT}/scripts/secret-check.sh" k8s' in by_path["k8s/install.sh"]
     assert '"${PACKAGE_ROOT}/scripts/secret-check.sh" docker-compose' in by_path["docker-compose/install.sh"]
+    assert '"${PACKAGE_ROOT}/init/run-init.sh" all' in by_path["docker-compose/install.sh"]
 
 
 def _manifest() -> dict:

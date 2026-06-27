@@ -13,6 +13,7 @@ from uuid import uuid4
 from deployment_package_factory.services.deployment_packages.catalog import load_catalog
 from deployment_package_factory.services.deployment_packages.dependency_resolver import resolve_package_preview
 from deployment_package_factory.services.deployment_packages.deployment_renderer import render_deployment_files
+from deployment_package_factory.services.deployment_packages.init_script_renderer import render_init_files
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult
 
 
@@ -49,6 +50,9 @@ def build_deployment_package(
     _write_text(package_root / "docs" / "install-k8s.md", "# K8s 安装说明\n\n替换 `k8s/secrets.template.yaml` 后执行 `k8s/install.sh`。\n")
     _write_text(package_root / "docs" / "install-docker-compose.md", "# Docker Compose 安装说明\n\n根据 `.env.template` 创建 `.env` 后执行 `docker-compose/install.sh`。\n")
     for rendered_file in render_deployment_files(manifest):
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
+    for rendered_file in render_init_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     _write_text(package_root / "images" / "images.txt", _images_txt(image_entries))
