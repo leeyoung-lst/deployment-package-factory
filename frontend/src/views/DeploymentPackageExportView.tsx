@@ -13,6 +13,7 @@ import {
   type PackagePreview,
   type PackagePreviewRequest,
   type PackageTask,
+  type ProjectProfile,
   type SourceEnv,
 } from "../api/deploymentPackages";
 import styles from "./DeploymentPackageExportView.module.css";
@@ -25,6 +26,7 @@ const DEFAULT_TARGET = {
   storageClass: "",
   exportImages: false,
 };
+type TargetDraft = typeof DEFAULT_TARGET & { imageMode?: "image-manifest" | "image-archive" };
 
 export const DeploymentPackageExportView: React.FC = () => {
   const { message } = App.useApp();
@@ -42,10 +44,15 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: "image-manifest" });
 
   const requiredPlatformKeys = useMemo(
     () => options?.platformServices.filter((item) => item.required).map((item) => item.key) ?? [],
     [options],
+  );
+  const selectedProject = useMemo(
+    () => options?.projects.find((item) => item.key === projectKey) ?? null,
+    [options?.projects, projectKey],
   );
 
   const makePreviewPayload = useCallback((): PackagePreviewRequest => {
@@ -80,6 +87,13 @@ export const DeploymentPackageExportView: React.FC = () => {
       namespacePrefix: project.namespacePrefix,
       storageClass: project.storageClass,
     });
+    setTargetDraft((current) => ({
+      ...current,
+      domain: project.domain,
+      registry: project.registry,
+      namespacePrefix: project.namespacePrefix,
+      storageClass: project.storageClass,
+    }));
   }, [form, options]);
 
   const loadOptions = useCallback(async () => {
@@ -198,7 +212,12 @@ export const DeploymentPackageExportView: React.FC = () => {
       <div className={`panel-body ${styles.content}`}>
         <Spin spinning={loadingOptions}>
           <div className={styles.formPanel}>
-            <Form form={form} layout="vertical" initialValues={{ ...DEFAULT_TARGET, imageMode: "image-manifest" }}>
+            <Form
+              form={form}
+              layout="vertical"
+              initialValues={{ ...DEFAULT_TARGET, imageMode: "image-manifest" }}
+              onValuesChange={(_, values) => setTargetDraft((current) => ({ ...current, ...values }))}
+            >
               <h3 className={styles.sectionTitle}>导出范围</h3>
               <div className={styles.split}>
                 <Form.Item label="项目">
@@ -218,6 +237,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                   />
                 </Form.Item>
               </div>
+              <ProjectSummary project={selectedProject} />
               <div className={styles.split}>
                 <Form.Item label="来源环境">
                   <Radio.Group value={sourceEnv} onChange={(event) => setSourceEnv(event.target.value)}>
@@ -325,7 +345,7 @@ export const DeploymentPackageExportView: React.FC = () => {
               </div>
               <Button icon={<i className="ri-eye-line" />} loading={previewing} onClick={() => void refreshPreview()}>预览</Button>
             </div>
-            {preview ? <PreviewSummary preview={preview} /> : <Empty description="请选择导出范围后预览" />}
+            {preview ? <PreviewSummary preview={preview} project={selectedProject} targetProfile={targetDraft} /> : <Empty description="请选择导出范围后预览" />}
           </div>
 
           {task ? (
@@ -391,7 +411,37 @@ export const DeploymentPackageExportView: React.FC = () => {
   );
 };
 
-function PreviewSummary({ preview }: { preview: PackagePreview }) {
+function ProjectSummary({ project }: { project: ProjectProfile | null }) {
+  if (!project) {
+    return (
+      <div className={styles.projectSummary}>
+        <span className={styles.muted}>未选择项目模板</span>
+      </div>
+    );
+  }
+  return (
+    <div className={styles.projectSummary}>
+      <div className={styles.summaryRow}>
+        <span className={styles.muted}>镜像 Tag</span>
+        <Tag color="geekblue">{project.imageTag || "prod"}</Tag>
+      </div>
+      <div className={styles.summaryRow}>
+        <span className={styles.muted}>Overlay</span>
+        <div className={styles.tagList}>
+          {project.overlays.length ? project.overlays.map((item) => <Tag key={item}>{item}</Tag>) : <Tag>默认</Tag>}
+        </div>
+      </div>
+      <div className={styles.summaryRow}>
+        <span className={styles.muted}>目标配置</span>
+        <span className={styles.mono}>{project.namespacePrefix} / {project.domain} / {project.storageClass || "default-storage"}</span>
+      </div>
+    </div>
+  );
+}
+
+function PreviewSummary({ preview, project, targetProfile }: { preview: PackagePreview; project: ProjectProfile | null; targetProfile: TargetDraft }) {
+  const imageTag = project?.imageTag || "prod";
+  const registry = `${targetProfile.registry || project?.registry || ""}`.replace(/\/+$/, "");
   return (
     <div className={styles.page}>
       <div className={styles.previewGrid}>
@@ -418,15 +468,50 @@ function PreviewSummary({ preview }: { preview: PackagePreview }) {
           {Object.entries(preview.images).map(([group, images]) => (
             <div className={styles.imageGroup} key={group}>
               <strong>{group}</strong>
-              <div className={styles.tagList}>
-                {images.map((image) => <Tag key={`${group}-${image}`}>{image}</Tag>)}
+              <div className={styles.imageMapList}>
+                {images.map((image) => (
+                  <div className={styles.imageMapRow} key={`${group}-${image}`}>
+                    <span className={styles.mono}>{image}</span>
+                    <i className="ri-arrow-right-line" />
+                    <span className={styles.mono}>{toTargetImage(image, registry, imageTag)}</span>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
         </div>
       </div>
+      <div className={styles.previewBlock}>
+        <h3>项目 Overlay</h3>
+        <div className={styles.summaryRow}>
+          <span className={styles.muted}>输出目录</span>
+          <span className={styles.mono}>overlays/{project?.key || "custom"}</span>
+        </div>
+        <div className={styles.summaryRow}>
+          <span className={styles.muted}>产物</span>
+          <span className={styles.mono}>values.json / kustomization.yaml / README.md</span>
+        </div>
+      </div>
     </div>
   );
+}
+
+function toTargetImage(image: string, registry: string, imageTag: string) {
+  const source = withDefaultTag(image, imageTag);
+  if (!registry) return source;
+  const imagePath = hasRegistry(source) ? source.split("/").slice(1).join("/") : source;
+  return `${registry}/${imagePath}`;
+}
+
+function withDefaultTag(image: string, imageTag: string) {
+  const lastPart = image.split("/").at(-1) || image;
+  if (lastPart.includes(":") || lastPart.includes("@")) return image;
+  return `${image}:${imageTag || "prod"}`;
+}
+
+function hasRegistry(image: string) {
+  const first = image.split("/")[0];
+  return image.includes("/") && (first.includes(".") || first.includes(":") || first === "localhost");
 }
 
 function taskStatusColor(status: PackageTask["status"]) {
