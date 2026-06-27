@@ -180,7 +180,8 @@ Docker Compose 产物位于 `docker-compose/`：
 - `init/**/*.sh` 会被 `init/run-init.sh middleware` 发现并执行。
 - `init/minio/buckets.txt` 会被 `init/minio/create-buckets.sh` 消费，逐行创建项目 bucket。
 - `init/qdrant/collections.json` 会被 `init/qdrant/create-collections.sh` 消费，按 `collections[].name/vectorSize/distance` 创建项目 collection。
-- 其他 `init/**/*.json`、`init/**/*.bpmn`、`init/**/*.bpmn20.xml`、`init/**/*.txt` 会作为项目初始化数据资产登记并在运行时打印路径，便于现场脚本或后续适配器消费。
+- `init/camunda/*.bpmn`、`init/camunda/*.bpmn20.xml`、`init/camunda/*.dmn` 会被 `init/camunda/bootstrap-admin.sh` 消费，通过 Camunda REST 部署项目流程模型。
+- 其他 `init/**/*.json`、`init/**/*.txt` 会作为项目初始化数据资产登记并在运行时打印路径，便于现场脚本或后续适配器消费。
 
 ## 部署包质量门禁
 

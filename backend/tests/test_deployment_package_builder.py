@@ -257,6 +257,21 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     assert "PROJECT_INIT_DIR" in init_runner
 
 
+def test_standard_eam_project_camunda_assets_are_merged(tmp_path) -> None:
+    result = build_deployment_package(
+        PackageBuildRequest(projectKey="standard-eam"),
+        output_dir=tmp_path,
+    )
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    model = root / "init" / "project" / "standard-eam" / "camunda" / "eam-repair.bpmn"
+    bootstrap = (root / "init" / "camunda" / "bootstrap-admin.sh").read_text(encoding="utf-8")
+
+    assert model.exists()
+    assert "eam_repair" in model.read_text(encoding="utf-8")
+    assert "deployment/create" in bootstrap
+    assert "deploy_process_model" in bootstrap
+
+
 def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -> None:
     commands: list[list[str]] = []
 

@@ -266,9 +266,31 @@ def _camunda_init_script(manifest: dict) -> str:
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        'PROJECT_INIT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/project"\n'
         'CAMUNDA_URL="${CAMUNDA_URL:-http://camunda:8080}"\n'
         f'echo "Bootstrap Camunda tenants and admin groups for {manifest["packageId"]} at ${{CAMUNDA_URL}}."\n'
-        "echo \"TODO: import BPMN models and seed operator groups with Camunda REST API.\"\n"
+        "deploy_process_model() {\n"
+        '  local model_file="$1"\n'
+        '  local deployment_name="$(basename "${model_file}")"\n'
+        '  if ! command -v curl >/dev/null 2>&1; then\n'
+        '    echo "curl is not available; pending Camunda deployment: ${model_file}"\n'
+        "    return 0\n"
+        "  fi\n"
+        '  curl -fsS -X POST "${CAMUNDA_URL}/engine-rest/deployment/create" \\\n'
+        '    -F "deployment-name=${deployment_name}" \\\n'
+        '    -F "enable-duplicate-filtering=true" \\\n'
+        '    -F "deploy-changed-only=true" \\\n'
+        '    -F "data=@${model_file}"\n'
+        "}\n"
+        "\n"
+        'if [ -d "${PROJECT_INIT_DIR}" ]; then\n'
+        '  while IFS= read -r -d "" model_file; do\n'
+        '    echo "Deploying project Camunda model: ${model_file}"\n'
+        '    deploy_process_model "${model_file}"\n'
+        '  done < <(find "${PROJECT_INIT_DIR}" -type f \\( -path "*/camunda/*.bpmn" -o -path "*/camunda/*.bpmn20.xml" -o -path "*/camunda/*.dmn" \\) -print0 | sort -z)\n'
+        "fi\n"
+        "echo \"TODO: seed operator groups with Camunda REST API.\"\n"
     )
 
 

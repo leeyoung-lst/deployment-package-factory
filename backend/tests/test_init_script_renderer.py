@@ -27,6 +27,7 @@ def test_render_init_files_contains_idempotent_placeholders() -> None:
     assert "mc mb --ignore-existing" in by_path["init/minio/create-buckets.sh"]
     assert 'create_collection "agent_memory" "1536" "Cosine"' in by_path["init/qdrant/create-collections.sh"]
     assert "Bootstrap Camunda tenants" in by_path["init/camunda/bootstrap-admin.sh"]
+    assert "deployment/create" in by_path["init/camunda/bootstrap-admin.sh"]
     assert "run_sql \"postgres\"" in by_path["init/run-init.sh"]
     assert "PROJECT_INIT_DIR" in by_path["init/run-init.sh"]
 
@@ -65,8 +66,11 @@ def test_default_project_minio_bucket_template_is_consumed_for_standard_eam() ->
     by_path = {item.path.as_posix(): item for item in files}
 
     assert "init/project/standard-eam/minio/buckets.txt" in by_path
+    assert "init/project/standard-eam/camunda/eam-repair.bpmn" in by_path
     assert "eam-attachments" in by_path["init/project/standard-eam/minio/buckets.txt"].content
     assert 'find "${PROJECT_INIT_DIR}" -type f -path "*/minio/buckets.txt"' in by_path["init/minio/create-buckets.sh"].content
+    assert 'find "${PROJECT_INIT_DIR}" -type f \\( -path "*/camunda/*.bpmn"' in by_path["init/camunda/bootstrap-admin.sh"].content
+    assert "deploy_process_model" in by_path["init/camunda/bootstrap-admin.sh"].content
 
 
 def _manifest() -> dict:
@@ -97,5 +101,5 @@ def _standard_eam_manifest() -> dict:
         "database": "postgres",
         "platformServices": ["iam"],
         "businessServices": ["eam"],
-        "middleware": ["postgres", "redis", "minio"],
+        "middleware": ["postgres", "redis", "minio", "camunda"],
     }
