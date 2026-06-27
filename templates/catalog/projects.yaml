@@ -48,6 +48,6 @@ projects:
     namespacePrefix: mes-prod
     domain: mes.example.com
     storageClass: fast-ssd
-    imageTag: prod
+    imageTag: "2026.06-lite"
     overlays:
       - lite

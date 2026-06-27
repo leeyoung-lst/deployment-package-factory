@@ -155,14 +155,23 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
         PackageBuildRequest(projectKey="mes-lite"),
         output_dir=tmp_path,
     )
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    deployments = (root / "k8s" / "deployments.yaml").read_text(encoding="utf-8")
+    overlay_values = json.loads((root / "overlays" / "mes-lite" / "values.json").read_text(encoding="utf-8"))
 
     assert result.manifest["projectKey"] == "mes-lite"
+    assert result.manifest["projectProfile"]["overlays"] == ["lite"]
     assert result.manifest["productVersion"] == "2026.06"
+    assert result.manifest["imageTag"] == "2026.06-lite"
     assert result.manifest["businessServices"] == ["mes"]
     assert result.manifest["database"] == "dm"
     assert result.manifest["targetProfile"]["registry"] == "harbor.example.com/mes"
     assert result.manifest["targetProfile"]["namespacePrefix"] == "mes-prod"
     assert result.manifest["targetProfile"]["domain"] == "mes.example.com"
+    assert "harbor.example.com/mes/local-ai-mes-service:2026.06-lite" in deployments
+    assert overlay_values["projectKey"] == "mes-lite"
+    assert overlay_values["imageTag"] == "2026.06-lite"
+    assert overlay_values["overlays"] == ["lite"]
 
 
 def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -> None:

@@ -110,6 +110,14 @@ Docker Compose 产物位于 `docker-compose/`：
 
 `run-init.sh` 是统一入口。Docker Compose 安装脚本会在服务启动后调用它；K8s 包会生成 `jobs/init-db.yaml`，用于在目标集群中执行初始化入口。当前初始化内容为可审计、可重复执行的生产占位模板，现场交付时可按项目补齐真实 SQL、bucket、collection 和 Camunda 模型导入。
 
+项目级 overlay 位于 `overlays/<projectKey>/`：
+
+- `values.json`
+- `kustomization.yaml`
+- `README.md`
+
+项目模板中的 `imageTag` 会作为无显式 tag 镜像的默认版本；`overlays` 会写入 overlay values 和 Kustomize labels，便于后续叠加项目级 SQL、BPMN、对象存储策略和 YAML patch。
+
 ## 部署包质量门禁
 
 安装前建议先执行预检：

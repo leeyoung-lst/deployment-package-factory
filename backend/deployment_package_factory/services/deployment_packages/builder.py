@@ -14,7 +14,8 @@ from deployment_package_factory.services.deployment_packages.catalog import load
 from deployment_package_factory.services.deployment_packages.dependency_resolver import resolve_package_preview
 from deployment_package_factory.services.deployment_packages.deployment_renderer import render_deployment_files
 from deployment_package_factory.services.deployment_packages.init_script_renderer import render_init_files
-from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult
+from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult, ProjectProfile
+from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "deployment-packages"
@@ -40,10 +41,11 @@ def build_deployment_package(
     package_root.mkdir(parents=True, exist_ok=True)
 
     catalog = load_catalog()
-    request = _apply_project_build_defaults(request, catalog)
+    request, project = _apply_project_build_defaults(request, catalog)
     preview = resolve_package_preview(request, catalog)
-    image_entries = _image_entries(preview.images, request)
-    manifest = _manifest(package_id, request, preview, image_entries)
+    image_tag = project.image_tag if project else "prod"
+    image_entries = _image_entries(preview.images, request, image_tag)
+    manifest = _manifest(package_id, request, preview, image_entries, project, image_tag)
 
     _write_text(package_root / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     _write_text(package_root / "README.md", _readme(manifest))
@@ -53,6 +55,9 @@ def build_deployment_package(
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_init_files(manifest):
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
+    for rendered_file in render_project_overlay_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     _write_text(package_root / "images" / "images.txt", _images_txt(image_entries))
@@ -87,17 +92,26 @@ def build_deployment_package(
     )
 
 
-def _manifest(package_id: str, request: PackageBuildRequest, preview, image_entries: list[dict]) -> dict:
+def _manifest(
+    package_id: str,
+    request: PackageBuildRequest,
+    preview,
+    image_entries: list[dict],
+    project: ProjectProfile | None,
+    image_tag: str,
+) -> dict:
     return {
         "packageId": package_id,
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "projectKey": request.project_key,
+        "projectProfile": project.model_dump(by_alias=True) if project else None,
         "productVersion": request.product_version,
         "sourceEnv": request.source_env,
         "targetEnv": request.target_profile.env,
         "deployModes": request.deploy_modes,
         "database": preview.database.key,
         "databaseImage": preview.database.image,
+        "imageTag": image_tag,
         "imageMode": request.image_mode,
         "platformServices": [item.key for item in preview.platform_services],
         "businessServices": [item.key for item in preview.business_services],
@@ -108,9 +122,9 @@ def _manifest(package_id: str, request: PackageBuildRequest, preview, image_entr
     }
 
 
-def _apply_project_build_defaults(request: PackageBuildRequest, catalog) -> PackageBuildRequest:
+def _apply_project_build_defaults(request: PackageBuildRequest, catalog) -> tuple[PackageBuildRequest, ProjectProfile | None]:
     if not request.project_key:
-        return request
+        return request, None
     project = catalog.projects.get(request.project_key)
     if project is None:
         raise PackageBuildError(f"Unknown project {request.project_key!r}.")
@@ -135,7 +149,7 @@ def _apply_project_build_defaults(request: PackageBuildRequest, catalog) -> Pack
             "product_version": request.product_version or project.default_version,
             "target_profile": target,
         }
-    )
+    ), project
 
 
 def _readme(manifest: dict) -> str:
@@ -154,13 +168,13 @@ def _readme(manifest: dict) -> str:
 """
 
 
-def _image_entries(images: dict[str, list[str]], request: PackageBuildRequest) -> list[dict]:
+def _image_entries(images: dict[str, list[str]], request: PackageBuildRequest, default_tag: str) -> list[dict]:
     entries: list[dict] = []
     seen: set[str] = set()
     registry = request.target_profile.registry.strip().rstrip("/")
     for group, values in images.items():
         for raw in values:
-            source_ref = _with_default_tag(raw)
+            source_ref = _with_default_tag(raw, default_tag)
             target_ref = _target_image_ref(source_ref, registry)
             if target_ref in seen:
                 continue
@@ -176,14 +190,14 @@ def _image_entries(images: dict[str, list[str]], request: PackageBuildRequest) -
     return sorted(entries, key=lambda item: (item["group"], item["targetRef"]))
 
 
-def _with_default_tag(image: str) -> str:
+def _with_default_tag(image: str, default_tag: str) -> str:
     image = image.strip()
     if not image:
         raise PackageBuildError("Image reference cannot be empty.")
     last_part = image.rsplit("/", 1)[-1]
     if ":" in last_part or "@" in last_part:
         return image
-    return f"{image}:prod"
+    return f"{image}:{default_tag}"
 
 
 def _target_image_ref(source_ref: str, registry: str) -> str:

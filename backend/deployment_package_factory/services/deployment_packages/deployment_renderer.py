@@ -571,7 +571,7 @@ def _service_specs(manifest: dict) -> list[dict]:
     counters = {"platform": 0, "business": 0}
     for group in ("platform", "business"):
         for image in manifest["images"].get(group, []):
-            source_ref = _with_default_tag(image)
+            source_ref = _with_default_tag(image, manifest)
             entry = _image_entry_for_source(manifest, source_ref)
             name = _service_name_from_image(image)
             namespace = _base_namespace(manifest) if group == "platform" else _business_namespace(manifest, name)
@@ -597,7 +597,7 @@ def _image_entry_for_source(manifest: dict, source_ref: str) -> dict:
 
 
 def _middleware_image(key: str, manifest: dict) -> str:
-    source_ref = _with_default_tag(manifest["databaseImage"]) if key == manifest["database"] else _middleware_source_ref(key, manifest)
+    source_ref = _with_default_tag(manifest["databaseImage"], manifest) if key == manifest["database"] else _middleware_source_ref(key, manifest)
     for item in manifest["imageEntries"]:
         if item["sourceRef"] == source_ref:
             return item["targetRef"]
@@ -658,14 +658,14 @@ def _storage_class_block(manifest: dict) -> str:
     return f"  storageClassName: {storage_class}\n"
 
 
-def _with_default_tag(image: str) -> str:
+def _with_default_tag(image: str, manifest: dict) -> str:
     image = image.strip()
     if not image:
         raise ValueError("Image reference cannot be empty.")
     last_part = image.rsplit("/", 1)[-1]
     if ":" in last_part or "@" in last_part:
         return image
-    return f"{image}:prod"
+    return f"{image}:{manifest.get('imageTag') or 'prod'}"
 
 
 def _target_image_ref(source_ref: str, registry: str) -> str:
