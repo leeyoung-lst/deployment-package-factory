@@ -42,6 +42,9 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/install.ps1" in names
     assert f"{root}/verify.sh" in names
     assert f"{root}/verify.ps1" in names
+    assert f"{root}/quality-gate.sh" in names
+    assert f"{root}/quality-gate.ps1" in names
+    assert f"{root}/docs/quality-report.md" in names
     assert f"{root}/k8s/namespaces.yaml" in names
     assert f"{root}/k8s/configmaps.yaml" in names
     assert f"{root}/k8s/secrets.template.yaml" in names
@@ -94,6 +97,8 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     compose_dry_run = (root / "docker-compose" / "dry-run.sh").read_text(encoding="utf-8")
     root_install = (root / "install.sh").read_text(encoding="utf-8")
     root_install_ps1 = (root / "install.ps1").read_text(encoding="utf-8")
+    quality_gate = (root / "quality-gate.sh").read_text(encoding="utf-8")
+    quality_report = (root / "docs" / "quality-report.md").read_text(encoding="utf-8")
     secret_check = (root / "scripts" / "secret-check.sh").read_text(encoding="utf-8")
     prereq_check = (root / "scripts" / "check-prerequisites.sh").read_text(encoding="utf-8")
     health_check = (root / "scripts" / "health-check.sh").read_text(encoding="utf-8")
@@ -115,6 +120,10 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "docker-compose/dry-run.sh" in root_install
     assert "scripts/health-check.sh" in root_install
     assert "verify.sh" in root_install
+    assert "verify.sh" in quality_gate
+    assert "k8s/dry-run.sh" in quality_gate
+    assert "docker-compose/dry-run.sh" in quality_gate
+    assert "Deployment Package Quality Report" in quality_report
     assert "ValidateSet('k8s', 'docker-compose')" in root_install_ps1
     assert "[switch]$SkipVerify" in root_install_ps1
     assert "__REPLACE_WITH_" in secret_check
@@ -148,6 +157,11 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert index["verifier"]["version"] == "1.0.0"
     assert index["verifier"]["entrypoints"] == ["verify.sh", "verify.ps1"]
     assert "sha256sums" in index["verifier"]["checks"]
+    assert index["qualityGate"]["version"] == "1.0.0"
+    assert index["qualityGate"]["entrypoints"] == ["quality-gate.sh", "quality-gate.ps1"]
+    assert "k8s-dry-run" in index["qualityGate"]["checks"]
+    assert index["qualityGate"]["report"] == "docs/quality-report.runtime.md"
+    assert index["qualityGate"]["template"] == "docs/quality-report.md"
     assert index["sections"]["k8s"]
     assert index["sections"]["dockerCompose"]
     assert index["sections"]["init"]
@@ -159,9 +173,14 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert any(item["path"] == "install.ps1" for item in index["sections"]["root"])
     assert any(item["path"] == "verify.sh" and item["executable"] for item in index["sections"]["root"])
     assert any(item["path"] == "verify.ps1" for item in index["sections"]["root"])
+    assert any(item["path"] == "quality-gate.sh" and item["executable"] for item in index["sections"]["root"])
+    assert any(item["path"] == "quality-gate.ps1" for item in index["sections"]["root"])
+    assert any(item["path"] == "docs/quality-report.md" for item in index["sections"]["docs"])
     assert any(item["path"] == "overlays/mes-lite/values.json" for item in index["sections"]["overlays"])
     assert any(item["path"] == "scripts/load-images.sh" and item["executable"] for item in index["sections"]["scripts"])
     assert "package-index.json" in sha_sums
+    assert "quality-gate.sh" in sha_sums
+    assert "docs/quality-report.md" in sha_sums
 
 
 def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_path) -> None:

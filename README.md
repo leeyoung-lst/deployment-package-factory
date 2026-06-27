@@ -89,6 +89,7 @@ docker compose up --build
 - 导包任务支持取消和失败重试，后端默认同一进程内仅允许 1 个构建任务同时执行，其他任务会排队等待执行槽位。独立 worker 模式会记录 `workerId`、领取时间和心跳时间，进程崩溃后的 running 任务会按心跳超时转为 failed 以便重试。
 - 生成包会写入 `package-index.json`，按 root/docs/k8s/docker-compose/init/overlays/images/scripts/security 分区登记文件、大小、SHA256 和可执行标记。
 - 生成包会写入 `verify.sh`、`verify.ps1` 和 `security/SHA256SUMS`，安装前默认校验文件完整性、包索引和镜像归档锁。
+- 生成包会写入 `quality-gate.sh`、`quality-gate.ps1` 和 `docs/quality-report.md`，统一执行完整性校验、K8s client dry-run 与 Docker Compose config 校验；运行结果写入 `docs/quality-report.runtime.md`。
 
 ## 镜像导出模式
 
@@ -179,6 +180,7 @@ Docker Compose 产物位于 `docker-compose/`：
 
 ```bash
 ./verify.sh
+./quality-gate.sh
 scripts/check-prerequisites.sh k8s
 k8s/dry-run.sh
 ```
@@ -196,6 +198,7 @@ Windows PowerShell：
 
 ```powershell
 .\verify.ps1
+.\quality-gate.ps1
 .\install.ps1 -Mode k8s
 .\install.ps1 -Mode docker-compose
 .\install.ps1 -Mode k8s -Yes -SkipDryRun -SkipHealthCheck

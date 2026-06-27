@@ -17,6 +17,7 @@ from deployment_package_factory.services.deployment_packages.init_script_rendere
 from deployment_package_factory.services.deployment_packages.install_renderer import INSTALLER_OPTIONS, INSTALLER_VERSION, render_root_install_files
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult, ProjectProfile
 from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
+from deployment_package_factory.services.deployment_packages.quality_renderer import QUALITY_GATE_CHECKS, QUALITY_GATE_VERSION, render_quality_gate_files
 from deployment_package_factory.services.deployment_packages.verify_renderer import VERIFIER_VERSION, render_package_verify_files
 
 
@@ -57,6 +58,9 @@ def build_deployment_package(
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_package_verify_files():
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
+    for rendered_file in render_quality_gate_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_deployment_files(manifest):
@@ -173,6 +177,14 @@ def _readme(manifest: dict) -> str:
 部署方式：{", ".join(manifest["deployModes"]) or "-"}
 
 数据库：`{manifest["database"]}`
+
+安装前质量门禁：
+
+```bash
+./quality-gate.sh
+```
+
+质量报告：`docs/quality-report.md`
 
 """
 
@@ -334,8 +346,28 @@ def _package_index(package_root: Path, manifest: dict) -> dict:
             "entrypoints": ["verify.sh", "verify.ps1"],
             "checks": ["required-files", "sha256sums", "package-index", "image-archive-lock"],
         },
+        "qualityGate": {
+            "version": QUALITY_GATE_VERSION,
+            "entrypoints": ["quality-gate.sh", "quality-gate.ps1"],
+            "checks": QUALITY_GATE_CHECKS,
+            "report": "docs/quality-report.runtime.md",
+            "template": "docs/quality-report.md",
+        },
         "sections": {
-            "root": _section(files, {"README.md", "manifest.json", "package-index.json", "install.sh", "install.ps1", "verify.sh", "verify.ps1"}),
+            "root": _section(
+                files,
+                {
+                    "README.md",
+                    "manifest.json",
+                    "package-index.json",
+                    "install.sh",
+                    "install.ps1",
+                    "verify.sh",
+                    "verify.ps1",
+                    "quality-gate.sh",
+                    "quality-gate.ps1",
+                },
+            ),
             "docs": _section_prefix(files, "docs/"),
             "k8s": _section_prefix(files, "k8s/"),
             "dockerCompose": _section_prefix(files, "docker-compose/"),
