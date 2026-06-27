@@ -40,6 +40,8 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/README.md" in names
     assert f"{root}/install.sh" in names
     assert f"{root}/install.ps1" in names
+    assert f"{root}/verify.sh" in names
+    assert f"{root}/verify.ps1" in names
     assert f"{root}/k8s/namespaces.yaml" in names
     assert f"{root}/k8s/configmaps.yaml" in names
     assert f"{root}/k8s/secrets.template.yaml" in names
@@ -105,13 +107,16 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "docker compose --env-file" in compose_dry_run
     assert "docker-compose.yml\" config" in compose_dry_run
     assert "package-index.json" in root_install
+    assert "--skip-verify" in root_install
     assert "--skip-dry-run" in root_install
     assert "--skip-health-check" in root_install
     assert "--yes" in root_install
     assert "k8s/dry-run.sh" in root_install
     assert "docker-compose/dry-run.sh" in root_install
     assert "scripts/health-check.sh" in root_install
+    assert "verify.sh" in root_install
     assert "ValidateSet('k8s', 'docker-compose')" in root_install_ps1
+    assert "[switch]$SkipVerify" in root_install_ps1
     assert "__REPLACE_WITH_" in secret_check
     assert "Secret placeholders remain" in secret_check
     assert "require_command kubectl" in prereq_check
@@ -135,10 +140,14 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert index["packageId"] == result.package_id
     assert index["projectKey"] == "mes-lite"
     assert index["summary"]["fileCount"] > 0
-    assert index["installer"]["version"] == "1.1.0"
+    assert index["installer"]["version"] == "1.2.0"
     assert index["installer"]["entrypoints"] == ["install.sh", "install.ps1"]
     assert index["installer"]["supportedModes"] == ["k8s", "docker-compose"]
+    assert "--skip-verify" in index["installer"]["options"]
     assert "--skip-dry-run" in index["installer"]["options"]
+    assert index["verifier"]["version"] == "1.0.0"
+    assert index["verifier"]["entrypoints"] == ["verify.sh", "verify.ps1"]
+    assert "sha256sums" in index["verifier"]["checks"]
     assert index["sections"]["k8s"]
     assert index["sections"]["dockerCompose"]
     assert index["sections"]["init"]
@@ -148,6 +157,8 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert index["sections"]["security"]
     assert any(item["path"] == "install.sh" and item["executable"] for item in index["sections"]["root"])
     assert any(item["path"] == "install.ps1" for item in index["sections"]["root"])
+    assert any(item["path"] == "verify.sh" and item["executable"] for item in index["sections"]["root"])
+    assert any(item["path"] == "verify.ps1" for item in index["sections"]["root"])
     assert any(item["path"] == "overlays/mes-lite/values.json" for item in index["sections"]["overlays"])
     assert any(item["path"] == "scripts/load-images.sh" and item["executable"] for item in index["sections"]["scripts"])
     assert "package-index.json" in sha_sums

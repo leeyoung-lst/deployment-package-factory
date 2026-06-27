@@ -53,6 +53,7 @@ docker compose up --build
 - Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装、卸载和 dry-run 脚本。
 - 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 SQLite。
 - 生成包会写入 `package-index.json`，按 root/docs/k8s/docker-compose/init/overlays/images/scripts/security 分区登记文件、大小、SHA256 和可执行标记。
+- 生成包会写入 `verify.sh`、`verify.ps1` 和 `security/SHA256SUMS`，安装前默认校验文件完整性、包索引和镜像归档锁。
 
 ## 镜像导出模式
 
@@ -94,6 +95,8 @@ K8s 产物位于 `k8s/`：
 - `README.md`
 - `install.sh`
 - `install.ps1`
+- `verify.sh`
+- `verify.ps1`
 
 Docker Compose 产物位于 `docker-compose/`：
 
@@ -140,6 +143,7 @@ Docker Compose 产物位于 `docker-compose/`：
 安装前建议先执行预检：
 
 ```bash
+./verify.sh
 scripts/check-prerequisites.sh k8s
 k8s/dry-run.sh
 ```
@@ -150,17 +154,20 @@ k8s/dry-run.sh
 ./install.sh k8s
 ./install.sh docker-compose
 ./install.sh k8s --yes --skip-dry-run --skip-health-check
+./install.sh k8s --yes --skip-verify
 ```
 
 Windows PowerShell：
 
 ```powershell
+.\verify.ps1
 .\install.ps1 -Mode k8s
 .\install.ps1 -Mode docker-compose
 .\install.ps1 -Mode k8s -Yes -SkipDryRun -SkipHealthCheck
+.\install.ps1 -Mode k8s -Yes -SkipVerify
 ```
 
-统一入口默认会要求确认。自动化执行时使用 `--yes` 或 `-Yes`，现场已完成预检时可跳过 dry-run 或健康检查。
+统一入口默认会先执行完整性校验并要求确认。自动化执行时使用 `--yes` 或 `-Yes`，现场已完成预检时可跳过完整性校验、dry-run 或健康检查。
 
 或 Docker Compose：
 

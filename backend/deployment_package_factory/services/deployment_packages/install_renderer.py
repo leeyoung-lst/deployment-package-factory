@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 
-INSTALLER_VERSION = "1.1.0"
-INSTALLER_OPTIONS = ["--skip-dry-run", "--skip-health-check", "--yes"]
+INSTALLER_VERSION = "1.2.0"
+INSTALLER_OPTIONS = ["--skip-verify", "--skip-dry-run", "--skip-health-check", "--yes"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,7 @@ def _install_sh() -> str:
         'MODE="${1:-k8s}"\n'
         "SKIP_DRY_RUN=0\n"
         "SKIP_HEALTH_CHECK=0\n"
+        "SKIP_VERIFY=0\n"
         "ASSUME_YES=0\n"
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
         'INDEX_FILE="${SCRIPT_DIR}/package-index.json"\n'
@@ -37,6 +38,9 @@ def _install_sh() -> str:
         "shift || true\n"
         'while [ "$#" -gt 0 ]; do\n'
         '  case "$1" in\n'
+        "    --skip-verify)\n"
+        "      SKIP_VERIFY=1\n"
+        "      ;;\n"
         "    --skip-dry-run)\n"
         "      SKIP_DRY_RUN=1\n"
         "      ;;\n"
@@ -48,7 +52,7 @@ def _install_sh() -> str:
         "      ;;\n"
         "    *)\n"
         '      echo "Unknown option: $1" >&2\n'
-        '      echo "Usage: ./install.sh [k8s|docker-compose] [--skip-dry-run] [--skip-health-check] [--yes]" >&2\n'
+        '      echo "Usage: ./install.sh [k8s|docker-compose] [--skip-verify] [--skip-dry-run] [--skip-health-check] [--yes]" >&2\n'
         "      exit 1\n"
         "      ;;\n"
         "  esac\n"
@@ -58,6 +62,10 @@ def _install_sh() -> str:
         'if [ ! -f "${INDEX_FILE}" ]; then\n'
         '  echo "package-index.json not found. Run this script from the deployment package root." >&2\n'
         "  exit 1\n"
+        "fi\n"
+        "\n"
+        'if [ "${SKIP_VERIFY}" != "1" ]; then\n'
+        '  "${SCRIPT_DIR}/verify.sh"\n'
         "fi\n"
         "\n"
         'if [ "${ASSUME_YES}" != "1" ]; then\n'
@@ -89,7 +97,7 @@ def _install_sh() -> str:
         "    fi\n"
         "    ;;\n"
         "  *)\n"
-        '    echo "Usage: ./install.sh [k8s|docker-compose] [--skip-dry-run] [--skip-health-check] [--yes]" >&2\n'
+        '    echo "Usage: ./install.sh [k8s|docker-compose] [--skip-verify] [--skip-dry-run] [--skip-health-check] [--yes]" >&2\n'
         "    exit 1\n"
         "    ;;\n"
         "esac\n"
@@ -101,6 +109,7 @@ def _install_ps1() -> str:
         "param(\n"
         "  [ValidateSet('k8s', 'docker-compose')]\n"
         "  [string]$Mode = 'k8s',\n"
+        "  [switch]$SkipVerify,\n"
         "  [switch]$SkipDryRun,\n"
         "  [switch]$SkipHealthCheck,\n"
         "  [switch]$Yes\n"
@@ -112,6 +121,10 @@ def _install_ps1() -> str:
         "\n"
         "if (-not (Test-Path -LiteralPath $IndexFile)) {\n"
         "  throw 'package-index.json not found. Run this script from the deployment package root.'\n"
+        "}\n"
+        "\n"
+        "if (-not $SkipVerify) {\n"
+        "  & (Join-Path $ScriptDir 'verify.ps1')\n"
         "}\n"
         "\n"
         "if (-not $Yes) {\n"

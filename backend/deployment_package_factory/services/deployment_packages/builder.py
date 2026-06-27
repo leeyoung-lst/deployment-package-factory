@@ -17,6 +17,7 @@ from deployment_package_factory.services.deployment_packages.init_script_rendere
 from deployment_package_factory.services.deployment_packages.install_renderer import INSTALLER_OPTIONS, INSTALLER_VERSION, render_root_install_files
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult, ProjectProfile
 from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
+from deployment_package_factory.services.deployment_packages.verify_renderer import VERIFIER_VERSION, render_package_verify_files
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "deployment-packages"
@@ -53,6 +54,9 @@ def build_deployment_package(
     _write_text(package_root / "docs" / "install-k8s.md", "# K8s 安装说明\n\n替换 `k8s/secrets.template.yaml` 后执行 `k8s/install.sh`。\n")
     _write_text(package_root / "docs" / "install-docker-compose.md", "# Docker Compose 安装说明\n\n根据 `.env.template` 创建 `.env` 后执行 `docker-compose/install.sh`。\n")
     for rendered_file in render_root_install_files():
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
+    for rendered_file in render_package_verify_files():
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_deployment_files(manifest):
@@ -325,8 +329,13 @@ def _package_index(package_root: Path, manifest: dict) -> dict:
             "supportedModes": ["k8s", "docker-compose"],
             "options": INSTALLER_OPTIONS,
         },
+        "verifier": {
+            "version": VERIFIER_VERSION,
+            "entrypoints": ["verify.sh", "verify.ps1"],
+            "checks": ["required-files", "sha256sums", "package-index", "image-archive-lock"],
+        },
         "sections": {
-            "root": _section(files, {"README.md", "manifest.json", "package-index.json", "install.sh", "install.ps1"}),
+            "root": _section(files, {"README.md", "manifest.json", "package-index.json", "install.sh", "install.ps1", "verify.sh", "verify.ps1"}),
             "docs": _section_prefix(files, "docs/"),
             "k8s": _section_prefix(files, "k8s/"),
             "dockerCompose": _section_prefix(files, "docker-compose/"),
