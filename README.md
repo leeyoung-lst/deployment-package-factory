@@ -92,6 +92,8 @@ K8s 产物位于 `k8s/`：
 - `manifest.json`
 - `package-index.json`
 - `README.md`
+- `install.sh`
+- `install.ps1`
 
 Docker Compose 产物位于 `docker-compose/`：
 
@@ -140,6 +142,20 @@ Docker Compose 产物位于 `docker-compose/`：
 ```bash
 scripts/check-prerequisites.sh k8s
 k8s/dry-run.sh
+```
+
+也可以使用根目录统一入口：
+
+```bash
+./install.sh k8s
+./install.sh docker-compose
+```
+
+Windows PowerShell：
+
+```powershell
+.\install.ps1 -Mode k8s
+.\install.ps1 -Mode docker-compose
 ```
 
 或 Docker Compose：

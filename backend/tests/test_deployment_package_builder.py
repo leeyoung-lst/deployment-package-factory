@@ -38,6 +38,8 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/manifest.json" in names
     assert f"{root}/package-index.json" in names
     assert f"{root}/README.md" in names
+    assert f"{root}/install.sh" in names
+    assert f"{root}/install.ps1" in names
     assert f"{root}/k8s/namespaces.yaml" in names
     assert f"{root}/k8s/configmaps.yaml" in names
     assert f"{root}/k8s/secrets.template.yaml" in names
@@ -88,6 +90,8 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     k8s_dry_run = (root / "k8s" / "dry-run.sh").read_text(encoding="utf-8")
     compose_install = (root / "docker-compose" / "install.sh").read_text(encoding="utf-8")
     compose_dry_run = (root / "docker-compose" / "dry-run.sh").read_text(encoding="utf-8")
+    root_install = (root / "install.sh").read_text(encoding="utf-8")
+    root_install_ps1 = (root / "install.ps1").read_text(encoding="utf-8")
     secret_check = (root / "scripts" / "secret-check.sh").read_text(encoding="utf-8")
     prereq_check = (root / "scripts" / "check-prerequisites.sh").read_text(encoding="utf-8")
     health_check = (root / "scripts" / "health-check.sh").read_text(encoding="utf-8")
@@ -100,6 +104,11 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "kubectl apply --dry-run=client" in k8s_dry_run
     assert "docker compose --env-file" in compose_dry_run
     assert "docker-compose.yml\" config" in compose_dry_run
+    assert "package-index.json" in root_install
+    assert "k8s/dry-run.sh" in root_install
+    assert "docker-compose/dry-run.sh" in root_install
+    assert "scripts/health-check.sh" in root_install
+    assert "ValidateSet('k8s', 'docker-compose')" in root_install_ps1
     assert "__REPLACE_WITH_" in secret_check
     assert "Secret placeholders remain" in secret_check
     assert "require_command kubectl" in prereq_check
@@ -130,6 +139,8 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert index["sections"]["images"]
     assert index["sections"]["scripts"]
     assert index["sections"]["security"]
+    assert any(item["path"] == "install.sh" and item["executable"] for item in index["sections"]["root"])
+    assert any(item["path"] == "install.ps1" for item in index["sections"]["root"])
     assert any(item["path"] == "overlays/mes-lite/values.json" for item in index["sections"]["overlays"])
     assert any(item["path"] == "scripts/load-images.sh" and item["executable"] for item in index["sections"]["scripts"])
     assert "package-index.json" in sha_sums
