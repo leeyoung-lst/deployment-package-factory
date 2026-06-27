@@ -40,7 +40,35 @@ def test_task_repository_persists_lifecycle(tmp_path) -> None:
     assert reloaded is not None
     assert reloaded.result is not None
     assert reloaded.result.package_id == "pkg-1"
+    assert reloaded.artifact_available is False
     assert "部署包生成完成" in reloaded.logs
+
+
+def test_task_repository_reports_artifact_availability(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    artifact = tmp_path / "pkg.tar.gz"
+    artifact.write_bytes(b"package")
+    task = repo.create(PackageBuildRequest())
+    repo.mark_completed(
+        task.task_id,
+        PackageBuildResult(
+            packageId="pkg-1",
+            workDir=str(tmp_path / "work"),
+            artifactPath=str(artifact),
+            sha256="abc",
+            manifest={},
+        ),
+    )
+
+    available = repo.get(task.task_id)
+    assert available is not None
+    assert available.artifact_available is True
+
+    artifact.unlink()
+
+    unavailable = repo.get(task.task_id)
+    assert unavailable is not None
+    assert unavailable.artifact_available is False
 
 
 def test_task_repository_records_failure(tmp_path) -> None:

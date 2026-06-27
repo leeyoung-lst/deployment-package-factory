@@ -114,6 +114,7 @@ export interface PackageTask {
   message: string;
   request: Record<string, unknown>;
   result: PackageBuildResult | null;
+  artifactAvailable: boolean;
   error: string;
   logs: string[];
   createdAt: string;

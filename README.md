@@ -231,6 +231,7 @@ POST /api/deployment-packages/cleanup
 ```
 
 清理只删除 `artifacts/` 下的 tar.gz 和 `work/` 下的临时目录，不删除任务数据库记录。被清理的包再次下载会返回产物不存在。
+任务响应会通过 `artifactAvailable` 标识产物是否仍可下载，前端会在产物已清理时禁用下载入口。
 
 下载部署包：
 

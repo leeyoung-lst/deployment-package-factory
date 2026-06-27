@@ -141,6 +141,7 @@ class PackageTask(BaseModel):
     message: str = ""
     request: dict
     result: PackageBuildResult | None = None
+    artifact_available: bool = Field(default=False, alias="artifactAvailable")
     error: str = ""
     logs: list[str] = Field(default_factory=list)
     created_at: str = Field(alias="createdAt")

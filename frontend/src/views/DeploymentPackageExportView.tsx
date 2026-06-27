@@ -449,7 +449,10 @@ export const DeploymentPackageExportView: React.FC = () => {
                   </div>
                   <div className={styles.resultRow}>
                     <span className={styles.muted}>产物路径</span>
-                    <span className={styles.mono}>{task.result.artifactPath}</span>
+                    <Space direction="vertical" size={4}>
+                      <span className={styles.mono}>{task.result.artifactPath}</span>
+                      <Tag color={task.artifactAvailable ? "green" : "default"}>{task.artifactAvailable ? "可下载" : "产物已清理"}</Tag>
+                    </Space>
                   </div>
                 </>
               ) : null}
@@ -487,10 +490,10 @@ export const DeploymentPackageExportView: React.FC = () => {
                 <Button
                   type="primary"
                   icon={<i className="ri-download-line" />}
-                  href={task.result ? deploymentPackageDownloadUrl(task.result.packageId) : undefined}
-                  disabled={!task.result}
+                  href={task.result && task.artifactAvailable ? deploymentPackageDownloadUrl(task.result.packageId) : undefined}
+                  disabled={!task.result || !task.artifactAvailable}
                 >
-                  下载部署包
+                  {task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}
                 </Button>
               </div>
             </div>
@@ -576,7 +579,10 @@ function TaskListPanel({
                 <span className={styles.mono}>{item.result?.packageId || item.taskId}</span>
                 <span className={styles.muted}>{item.message || item.updatedAt}</span>
               </span>
-              <Tag color={taskStatusColor(item.status)}>{item.status}</Tag>
+              <Space size={4}>
+                {item.result && !item.artifactAvailable ? <Tag>已清理</Tag> : null}
+                <Tag color={taskStatusColor(item.status)}>{item.status}</Tag>
+              </Space>
             </button>
           ))}
         </div>

@@ -32,6 +32,7 @@ class PackageTaskRepository:
             message="等待执行",
             request=request.model_dump(by_alias=True),
             result=None,
+            artifactAvailable=False,
             error="",
             logs=["任务已创建"],
             createdAt=now,
@@ -226,11 +227,19 @@ def _task_from_row(row: sqlite3.Row) -> PackageTask:
         message=row["message"],
         request=json.loads(row["request_json"]),
         result=PackageBuildResult.model_validate_json(result_raw) if result_raw else None,
+        artifactAvailable=_artifact_available(result_raw),
         error=row["error"],
         logs=json.loads(row["logs_json"]),
         createdAt=row["created_at"],
         updatedAt=row["updated_at"],
     )
+
+
+def _artifact_available(result_raw: str | None) -> bool:
+    if not result_raw:
+        return False
+    result = PackageBuildResult.model_validate_json(result_raw)
+    return Path(result.artifact_path).is_file()
 
 
 def _now_iso() -> str:
