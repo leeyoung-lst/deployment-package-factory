@@ -48,6 +48,8 @@ docker compose up --build
 - 生成包包含 manifest、安装文档、K8s namespace、Docker Compose 样例、初始化脚本占位和安全摘要。
 - 镜像清单模式会生成 `images/images.txt`、`scripts/pull-images.sh`、`scripts/save-images.sh`、`scripts/load-images.sh`。
 - 镜像归档模式会调用本机 Docker CLI 执行 `docker pull` 和 `docker save`，将镜像 tar 写入 `images/archives/` 并记录 SHA256。
+- K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装和卸载脚本。
+- Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装和卸载脚本。
 
 ## 镜像导出模式
 
@@ -66,8 +68,30 @@ scripts/save-images.sh
 scripts/load-images.sh
 ```
 
+## 部署模板产物
+
+K8s 产物位于 `k8s/`：
+
+- `namespaces.yaml`
+- `configmaps.yaml`
+- `secrets.template.yaml`
+- `pvcs.yaml`
+- `deployments.yaml`
+- `services.yaml`
+- `ingress.yaml`
+- `jobs/init-db.yaml`
+- `install.sh`
+- `uninstall.sh`
+
+Docker Compose 产物位于 `docker-compose/`：
+
+- `docker-compose.yml`
+- `.env.template`
+- `install.sh`
+- `uninstall.sh`
+
 ## 后续硬化
 
 - 将内存任务记录替换为 SQLite/PostgreSQL 任务表。
-- 按项目模板扩展 Helm/Kustomize 与 Compose 渲染器。
-- 增加离线安装校验、镜像 digest 锁定和初始化 SQL 分层。
+- 按项目模板扩展 Helm/Kustomize overlay。
+- 增加离线安装校验和初始化 SQL 分层。
