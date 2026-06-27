@@ -86,6 +86,57 @@ class PackageTaskRepository:
             log=f"部署包生成失败：{error}",
         )
 
+    def cancel(self, task_id: str) -> PackageTask:
+        task = self.get(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task.status in {"completed", "failed", "canceled"}:
+            raise ValueError(f"Task {task_id} cannot be canceled from status {task.status}.")
+        if task.status == "pending":
+            return self.update(
+                task_id,
+                status="canceled",
+                progress=100,
+                message="部署包任务已取消",
+                error="",
+                log="部署包任务已取消",
+            )
+        return self.update(
+            task_id,
+            message="部署包任务已请求取消，等待当前步骤结束",
+            log="部署包任务已请求取消",
+        )
+
+    def retry(self, task_id: str) -> PackageTask:
+        task = self.get(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task.status not in {"failed", "canceled"}:
+            raise ValueError(f"Task {task_id} cannot be retried from status {task.status}.")
+        request = PackageBuildRequest.model_validate(task.request)
+        retry_task = self.create(request)
+        return self.update(
+            retry_task.task_id,
+            message=f"由任务 {task_id} 重试创建",
+            log=f"由任务 {task_id} 重试创建",
+        )
+
+    def is_cancel_requested(self, task_id: str) -> bool:
+        task = self.get(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        return any("请求取消" in item for item in task.logs)
+
+    def mark_canceled(self, task_id: str, message: str = "部署包任务已取消") -> PackageTask:
+        return self.update(
+            task_id,
+            status="canceled",
+            progress=100,
+            message=message,
+            error="",
+            log=message,
+        )
+
     def update(
         self,
         task_id: str,

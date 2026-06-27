@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from deployment_package_factory.api import deployment_packages
+from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, PackageBuildResult
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 
@@ -126,6 +127,68 @@ def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path,
     assert "Docker CLI is not available" in task["error"]
 
 
+def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    task = repo.create(deployment_packages.PackageBuildRequest())
+
+    response = _client().post(f"/api/deployment-packages/tasks/{task.task_id}/cancel")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "canceled"
+
+
+def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    monkeypatch.setattr(
+        deployment_packages,
+        "build_deployment_package",
+        lambda payload: (_ for _ in ()).throw(deployment_packages.PackageBuildError("still failing")),
+    )
+    task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+    repo.mark_failed(task.task_id, "failed once")
+
+    response = _client().post(f"/api/deployment-packages/tasks/{task.task_id}/retry")
+
+    assert response.status_code == 200, response.text
+    retry_task_id = response.json()["taskId"]
+    assert retry_task_id != task.task_id
+    retry_task = _wait_for_task(_client(), retry_task_id)
+    assert retry_task["status"] == "failed"
+    assert "still failing" in retry_task["error"]
+
+
+def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    task = repo.create(PackageBuildRequest())
+    repo.mark_running(task.task_id)
+    repo.cancel(task.task_id)
+    result = PackageBuildResult(
+        packageId="pkg-canceled",
+        workDir="/tmp/work",
+        artifactPath="/tmp/pkg.tar.gz",
+        sha256="abc",
+        manifest={},
+    )
+    monkeypatch.setattr(deployment_packages, "build_deployment_package", lambda payload: result)
+
+    with TestClient(_app()) as client:
+        response = client.post(f"/api/deployment-packages/tasks/{task.task_id}/retry")
+
+    assert response.status_code == 409
+
+    import asyncio
+
+    asyncio.run(deployment_packages._run_package_task(task.task_id, PackageBuildRequest()))
+
+    reloaded = repo.get(task.task_id)
+    assert reloaded is not None
+    assert reloaded.status == "canceled"
+    assert reloaded.result is None
+
+
 def test_list_deployment_package_tasks(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
@@ -135,6 +198,12 @@ def test_list_deployment_package_tasks(tmp_path, monkeypatch: pytest.MonkeyPatch
 
     assert response.status_code == 200, response.text
     assert response.json()
+
+
+def _app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(deployment_packages.router)
+    return app
 
 
 def _wait_for_task(client: TestClient, task_id: str) -> dict:

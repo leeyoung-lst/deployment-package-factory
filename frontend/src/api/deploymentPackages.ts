@@ -105,7 +105,7 @@ export interface PackageBuildResult {
   manifest: Record<string, unknown>;
 }
 
-export type PackageTaskStatus = "pending" | "running" | "completed" | "failed";
+export type PackageTaskStatus = "pending" | "running" | "completed" | "failed" | "canceled";
 
 export interface PackageTask {
   taskId: string;
@@ -140,6 +140,18 @@ export function createDeploymentPackage(payload: PackageBuildRequest) {
 
 export function getDeploymentPackageTask(taskId: string) {
   return request<PackageTask>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export function cancelDeploymentPackageTask(taskId: string) {
+  return request<PackageTask>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function retryDeploymentPackageTask(taskId: string) {
+  return request<PackageTask>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}/retry`, {
+    method: "POST",
+  });
 }
 
 export function deploymentPackageDownloadUrl(packageId: string) {

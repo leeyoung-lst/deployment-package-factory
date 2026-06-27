@@ -53,3 +53,41 @@ def test_task_repository_records_failure(tmp_path) -> None:
     assert failed.error == "Docker CLI is not available."
     assert failed.progress == 100
     assert any("Docker CLI" in item for item in failed.logs)
+
+
+def test_task_repository_cancels_pending_task(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+
+    canceled = repo.cancel(task.task_id)
+
+    assert canceled.status == "canceled"
+    assert canceled.progress == 100
+    assert canceled.error == ""
+    assert any("已取消" in item for item in canceled.logs)
+
+
+def test_task_repository_marks_running_task_cancel_requested(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
+    repo.mark_running(task.task_id)
+
+    cancel_requested = repo.cancel(task.task_id)
+
+    assert cancel_requested.status == "running"
+    assert repo.is_cancel_requested(task.task_id) is True
+    assert "请求取消" in cancel_requested.message
+
+
+def test_task_repository_retries_failed_task_with_original_request(tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="mes")], database="postgres"))
+    repo.mark_failed(task.task_id, "failed once")
+
+    retry = repo.retry(task.task_id)
+
+    assert retry.task_id != task.task_id
+    assert retry.status == "pending"
+    assert retry.request["database"] == "postgres"
+    assert retry.request["businessServices"] == [{"name": "mes", "profile": ""}]
+    assert any(task.task_id in item for item in retry.logs)

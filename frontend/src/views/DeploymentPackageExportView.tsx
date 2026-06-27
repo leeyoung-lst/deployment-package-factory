@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { App, Button, Checkbox, Divider, Empty, Form, Input, Progress, Radio, Select, Space, Spin, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
+  cancelDeploymentPackageTask,
   createDeploymentPackage,
   deploymentPackageDownloadUrl,
   getDeploymentPackageOptions,
   getDeploymentPackageTask,
   previewDeploymentPackage,
+  retryDeploymentPackageTask,
   type BusinessSelection,
   type DeployMode,
   type DeploymentPackageOptions,
@@ -44,6 +46,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [taskActionLoading, setTaskActionLoading] = useState(false);
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: "image-manifest" });
 
   const requiredPlatformKeys = useMemo(
@@ -182,14 +185,43 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   };
 
+  const cancelTask = async () => {
+    if (!task) return;
+    setTaskActionLoading(true);
+    try {
+      const payload = await cancelDeploymentPackageTask(task.taskId);
+      setTask(payload);
+      message.success(payload.status === "canceled" ? "任务已取消" : "已请求取消任务");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "任务取消失败");
+    } finally {
+      setTaskActionLoading(false);
+    }
+  };
+
+  const retryTask = async () => {
+    if (!task) return;
+    setTaskActionLoading(true);
+    try {
+      const payload = await retryDeploymentPackageTask(task.taskId);
+      setTask(payload);
+      message.success("已创建重试任务");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "任务重试失败");
+    } finally {
+      setTaskActionLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (!task || task.status === "completed" || task.status === "failed") return;
+    if (!task || task.status === "completed" || task.status === "failed" || task.status === "canceled") return;
     const timer = window.setInterval(() => {
       void getDeploymentPackageTask(task.taskId)
         .then((payload) => {
           setTask(payload);
           if (payload.status === "completed") message.success("部署包生成完成");
           if (payload.status === "failed") message.error(payload.error || "部署包生成失败");
+          if (payload.status === "canceled") message.info("部署包任务已取消");
         })
         .catch((error) => message.error(error instanceof Error ? error.message : "任务状态刷新失败"));
     }, 1200);
@@ -395,6 +427,22 @@ export const DeploymentPackageExportView: React.FC = () => {
               </div>
               <div className={styles.actions}>
                 <Button
+                  icon={<i className="ri-close-circle-line" />}
+                  loading={taskActionLoading}
+                  disabled={task.status !== "pending" && task.status !== "running"}
+                  onClick={() => void cancelTask()}
+                >
+                  取消任务
+                </Button>
+                <Button
+                  icon={<i className="ri-restart-line" />}
+                  loading={taskActionLoading}
+                  disabled={task.status !== "failed" && task.status !== "canceled"}
+                  onClick={() => void retryTask()}
+                >
+                  重试任务
+                </Button>
+                <Button
                   type="primary"
                   icon={<i className="ri-download-line" />}
                   href={task.result ? deploymentPackageDownloadUrl(task.result.packageId) : undefined}
@@ -517,6 +565,7 @@ function hasRegistry(image: string) {
 function taskStatusColor(status: PackageTask["status"]) {
   if (status === "completed") return "success";
   if (status === "failed") return "error";
+  if (status === "canceled") return "default";
   if (status === "running") return "processing";
   return "default";
 }

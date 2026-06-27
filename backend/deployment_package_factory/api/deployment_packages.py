@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -21,6 +22,7 @@ from deployment_package_factory.services.deployment_packages.task_repository imp
 
 router = APIRouter(prefix="/api/deployment-packages", tags=["deployment-packages"])
 _TASK_REPO = PackageTaskRepository()
+_BUILD_SEMAPHORE = asyncio.Semaphore(1)
 
 
 def get_task_repository() -> PackageTaskRepository:
@@ -104,6 +106,29 @@ async def get_deployment_package_task(task_id: str) -> PackageTask:
     return task
 
 
+@router.post("/tasks/{task_id}/cancel", response_model=PackageTask)
+async def cancel_deployment_package_task(task_id: str) -> PackageTask:
+    try:
+        return get_task_repository().cancel(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Deployment package task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/tasks/{task_id}/retry", response_model=PackageTask)
+async def retry_deployment_package_task(task_id: str, background_tasks: BackgroundTasks) -> PackageTask:
+    repo = get_task_repository()
+    try:
+        retry_task = repo.retry(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Deployment package task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    background_tasks.add_task(_run_package_task, retry_task.task_id, PackageBuildRequest.model_validate(retry_task.request))
+    return retry_task
+
+
 @router.get("/{package_id}", response_model=PackageBuildResult)
 async def get_deployment_package(package_id: str) -> PackageBuildResult:
     task = _find_completed_task(package_id)
@@ -130,13 +155,29 @@ async def download_deployment_package(package_id: str) -> FileResponse:
 async def _run_package_task(task_id: str, payload: PackageBuildRequest) -> None:
     repo = get_task_repository()
     try:
-        repo.mark_running(task_id)
-        result = build_deployment_package(payload)
-        repo.mark_completed(task_id, result)
+        if repo.get(task_id) and repo.get(task_id).status == "canceled":
+            return
+        repo.update(task_id, status="pending", progress=5, message="等待导包执行槽位", log="等待导包执行槽位")
+        async with _BUILD_SEMAPHORE:
+            task = repo.get(task_id)
+            if task is None or task.status == "canceled":
+                return
+            repo.mark_running(task_id)
+            result = await asyncio.to_thread(build_deployment_package, payload)
+            if repo.is_cancel_requested(task_id):
+                repo.mark_canceled(task_id, "部署包任务已取消，已丢弃本次构建结果")
+            else:
+                repo.mark_completed(task_id, result)
     except (CatalogError, PackageBuildError) as exc:
-        repo.mark_failed(task_id, str(exc))
+        if repo.is_cancel_requested(task_id):
+            repo.mark_canceled(task_id)
+        else:
+            repo.mark_failed(task_id, str(exc))
     except Exception as exc:  # pragma: no cover - defensive boundary for background execution
-        repo.mark_failed(task_id, f"Unexpected deployment package error: {exc}")
+        if repo.is_cancel_requested(task_id):
+            repo.mark_canceled(task_id)
+        else:
+            repo.mark_failed(task_id, f"Unexpected deployment package error: {exc}")
 
 
 def _find_completed_task(package_or_task_id: str) -> PackageTask | None:

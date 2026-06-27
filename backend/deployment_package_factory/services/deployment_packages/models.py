@@ -129,7 +129,7 @@ class PackageBuildResult(BaseModel):
     manifest: dict
 
 
-TaskStatus = Literal["pending", "running", "completed", "failed"]
+TaskStatus = Literal["pending", "running", "completed", "failed", "canceled"]
 
 
 class PackageTask(BaseModel):
