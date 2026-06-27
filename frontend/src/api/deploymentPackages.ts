@@ -1,4 +1,4 @@
-import { BASE, request } from "./client";
+import { download, request } from "./client";
 
 export type DeployMode = "k8s" | "docker-compose";
 export type SourceEnv = "dev" | "test";
@@ -178,6 +178,6 @@ export function cleanupDeploymentPackages(dryRun: boolean) {
   });
 }
 
-export function deploymentPackageDownloadUrl(packageId: string) {
-  return `${BASE}/api/deployment-packages/${encodeURIComponent(packageId)}/download`;
+export function downloadDeploymentPackage(packageId: string) {
+  return download(`/api/deployment-packages/${encodeURIComponent(packageId)}/download`);
 }

@@ -28,6 +28,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: deployment-package-factory-config
+            - secretRef:
+                name: deployment-package-factory-secret
+                optional: true
           volumeMounts:
             - name: data
               mountPath: /app/data

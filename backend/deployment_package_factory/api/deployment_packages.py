@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from deployment_package_factory.auth import require_api_token
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.builder import PackageBuildError
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError, load_catalog
@@ -22,7 +23,11 @@ from deployment_package_factory.services.deployment_packages.models import (
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
-router = APIRouter(prefix="/api/deployment-packages", tags=["deployment-packages"])
+router = APIRouter(
+    prefix="/api/deployment-packages",
+    tags=["deployment-packages"],
+    dependencies=[Depends(require_api_token)],
+)
 _SETTINGS = load_settings()
 _TASK_REPO = PackageTaskRepository(_SETTINGS.task_db_path)
 _TASK_EXECUTOR = PackageTaskExecutor(

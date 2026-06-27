@@ -32,6 +32,36 @@ def test_deployment_package_options_returns_catalog() -> None:
     assert any(item["key"] == "standard-eam" for item in payload["projects"])
 
 
+def test_deployment_package_api_requires_token_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
+
+    response = _client().get("/api/deployment-packages/options")
+
+    assert response.status_code == 401
+
+
+def test_deployment_package_api_accepts_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
+
+    response = _client().get(
+        "/api/deployment-packages/options",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 200, response.text
+
+
+def test_deployment_package_api_accepts_header_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
+
+    response = _client().get(
+        "/api/deployment-packages/options",
+        headers={"X-Deployment-Package-Token": "secret-token"},
+    )
+
+    assert response.status_code == 200, response.text
+
+
 def test_deployment_package_preview_returns_resolved_dependencies() -> None:
     response = _client().post(
         "/api/deployment-packages/preview",

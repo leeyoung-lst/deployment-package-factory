@@ -5,7 +5,7 @@ import {
   cancelDeploymentPackageTask,
   cleanupDeploymentPackages,
   createDeploymentPackage,
-  deploymentPackageDownloadUrl,
+  downloadDeploymentPackage,
   getDeploymentPackageOptions,
   getDeploymentPackageTask,
   listDeploymentPackageTasks,
@@ -54,6 +54,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [taskActionLoading, setTaskActionLoading] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: "image-manifest" });
 
   const requiredPlatformKeys = useMemo(
@@ -259,6 +260,26 @@ export const DeploymentPackageExportView: React.FC = () => {
       message.error(error instanceof Error ? error.message : "部署包清理失败");
     } finally {
       setCleanupLoading(false);
+    }
+  };
+
+  const downloadTaskArtifact = async () => {
+    if (!task?.result || !task.artifactAvailable) return;
+    setDownloadLoading(true);
+    try {
+      const blob = await downloadDeploymentPackage(task.result.packageId);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${task.result.packageId}.tar.gz`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "部署包下载失败");
+    } finally {
+      setDownloadLoading(false);
     }
   };
 
@@ -507,7 +528,8 @@ export const DeploymentPackageExportView: React.FC = () => {
                 <Button
                   type="primary"
                   icon={<i className="ri-download-line" />}
-                  href={task.result && task.artifactAvailable ? deploymentPackageDownloadUrl(task.result.packageId) : undefined}
+                  loading={downloadLoading}
+                  onClick={() => void downloadTaskArtifact()}
                   disabled={!task.result || !task.artifactAvailable}
                 >
                   {task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}

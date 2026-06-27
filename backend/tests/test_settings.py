@@ -7,6 +7,7 @@ def test_load_settings_uses_deployment_package_environment(monkeypatch, tmp_path
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_TASK_DB", str(tmp_path / "tasks.sqlite3"))
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_OUTPUT_DIR", str(tmp_path / "packages"))
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS", "3")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_EXECUTION_MODE", "worker")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS", "5")
@@ -20,6 +21,7 @@ def test_load_settings_uses_deployment_package_environment(monkeypatch, tmp_path
     assert settings.data_dir == tmp_path / "data"
     assert settings.task_db_path == tmp_path / "tasks.sqlite3"
     assert settings.output_dir == tmp_path / "packages"
+    assert settings.api_token == "secret-token"
     assert settings.max_concurrent_builds == 3
     assert settings.execution_mode == "worker"
     assert settings.worker_poll_interval_seconds == 5

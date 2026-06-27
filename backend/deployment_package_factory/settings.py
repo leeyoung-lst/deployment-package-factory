@@ -13,6 +13,7 @@ class DeploymentPackageSettings:
     data_dir: Path
     task_db_path: Path
     output_dir: Path
+    api_token: str
     max_concurrent_builds: int
     execution_mode: str
     worker_poll_interval_seconds: int
@@ -32,6 +33,7 @@ def load_settings() -> DeploymentPackageSettings:
         data_dir=data_dir,
         task_db_path=task_db_path,
         output_dir=output_dir,
+        api_token=os.getenv("DEPLOYMENT_PACKAGE_API_TOKEN", "").strip(),
         max_concurrent_builds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS"), default=1),
         execution_mode=_execution_mode(os.getenv("DEPLOYMENT_PACKAGE_EXECUTION_MODE")),
         worker_poll_interval_seconds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS"), default=3),

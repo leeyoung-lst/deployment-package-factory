@@ -5,6 +5,7 @@ function readRuntimeEnv(): RuntimeEnv {
 }
 
 export const BASE = readRuntimeEnv().VITE_API_BASE_URL ?? "";
+const API_TOKEN = readRuntimeEnv().VITE_DEPLOYMENT_PACKAGE_API_TOKEN ?? "";
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
@@ -12,6 +13,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -19,6 +21,19 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw await apiError(response);
   }
   return (await response.json()) as T;
+}
+
+export async function download(path: string): Promise<Blob> {
+  const response = await fetch(`${BASE}${path}`, {
+    cache: "no-store",
+    headers: {
+      ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    throw await apiError(response);
+  }
+  return response.blob();
 }
 
 async function apiError(response: Response) {
