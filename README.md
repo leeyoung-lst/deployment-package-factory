@@ -149,6 +149,7 @@ k8s/dry-run.sh
 ```bash
 ./install.sh k8s
 ./install.sh docker-compose
+./install.sh k8s --yes --skip-dry-run --skip-health-check
 ```
 
 Windows PowerShell：
@@ -156,7 +157,10 @@ Windows PowerShell：
 ```powershell
 .\install.ps1 -Mode k8s
 .\install.ps1 -Mode docker-compose
+.\install.ps1 -Mode k8s -Yes -SkipDryRun -SkipHealthCheck
 ```
+
+统一入口默认会要求确认。自动化执行时使用 `--yes` 或 `-Yes`，现场已完成预检时可跳过 dry-run 或健康检查。
 
 或 Docker Compose：
 

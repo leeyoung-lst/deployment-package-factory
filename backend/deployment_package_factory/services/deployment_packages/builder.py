@@ -14,7 +14,7 @@ from deployment_package_factory.services.deployment_packages.catalog import load
 from deployment_package_factory.services.deployment_packages.dependency_resolver import resolve_package_preview
 from deployment_package_factory.services.deployment_packages.deployment_renderer import render_deployment_files
 from deployment_package_factory.services.deployment_packages.init_script_renderer import render_init_files
-from deployment_package_factory.services.deployment_packages.install_renderer import render_root_install_files
+from deployment_package_factory.services.deployment_packages.install_renderer import INSTALLER_OPTIONS, INSTALLER_VERSION, render_root_install_files
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult, ProjectProfile
 from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
 
@@ -318,6 +318,12 @@ def _package_index(package_root: Path, manifest: dict) -> dict:
             "deployModes": manifest["deployModes"],
             "imageMode": manifest["imageMode"],
             "database": manifest["database"],
+        },
+        "installer": {
+            "version": INSTALLER_VERSION,
+            "entrypoints": ["install.sh", "install.ps1"],
+            "supportedModes": ["k8s", "docker-compose"],
+            "options": INSTALLER_OPTIONS,
         },
         "sections": {
             "root": _section(files, {"README.md", "manifest.json", "package-index.json", "install.sh", "install.ps1"}),

@@ -105,6 +105,9 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "docker compose --env-file" in compose_dry_run
     assert "docker-compose.yml\" config" in compose_dry_run
     assert "package-index.json" in root_install
+    assert "--skip-dry-run" in root_install
+    assert "--skip-health-check" in root_install
+    assert "--yes" in root_install
     assert "k8s/dry-run.sh" in root_install
     assert "docker-compose/dry-run.sh" in root_install
     assert "scripts/health-check.sh" in root_install
@@ -132,6 +135,10 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert index["packageId"] == result.package_id
     assert index["projectKey"] == "mes-lite"
     assert index["summary"]["fileCount"] > 0
+    assert index["installer"]["version"] == "1.1.0"
+    assert index["installer"]["entrypoints"] == ["install.sh", "install.ps1"]
+    assert index["installer"]["supportedModes"] == ["k8s", "docker-compose"]
+    assert "--skip-dry-run" in index["installer"]["options"]
     assert index["sections"]["k8s"]
     assert index["sections"]["dockerCompose"]
     assert index["sections"]["init"]
