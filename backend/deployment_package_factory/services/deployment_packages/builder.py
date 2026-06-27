@@ -49,6 +49,7 @@ def build_deployment_package(
     package_root.mkdir(parents=True, exist_ok=True)
 
     catalog = load_catalog()
+    request = _apply_project_build_defaults(request, catalog)
     preview = resolve_package_preview(request, catalog)
     image_entries = _image_entries(preview.images, request)
     manifest = _manifest(package_id, request, preview, image_entries)
@@ -108,6 +109,8 @@ def _manifest(package_id: str, request: PackageBuildRequest, preview, image_entr
     return {
         "packageId": package_id,
         "createdAt": datetime.now(timezone.utc).isoformat(),
+        "projectKey": request.project_key,
+        "productVersion": request.product_version,
         "sourceEnv": request.source_env,
         "targetEnv": request.target_profile.env,
         "deployModes": request.deploy_modes,
@@ -121,6 +124,36 @@ def _manifest(package_id: str, request: PackageBuildRequest, preview, image_entr
         "images": preview.images,
         "imageEntries": image_entries,
     }
+
+
+def _apply_project_build_defaults(request: PackageBuildRequest, catalog) -> PackageBuildRequest:
+    if not request.project_key:
+        return request
+    project = catalog.projects.get(request.project_key)
+    if project is None:
+        raise PackageBuildError(f"Unknown project {request.project_key!r}.")
+    if request.product_version and request.product_version not in project.versions:
+        raise PackageBuildError(f"Unsupported product version {request.product_version!r} for project {project.key!r}.")
+    target = request.target_profile.model_copy(
+        update={
+            "env": request.target_profile.env or "prod",
+            "domain": request.target_profile.domain if request.target_profile.domain != "prod.example.com" else project.domain,
+            "registry": request.target_profile.registry or project.registry,
+            "namespace_prefix": request.target_profile.namespace_prefix if request.target_profile.namespace_prefix != "prod" else project.namespace_prefix,
+            "storage_class": request.target_profile.storage_class or project.storage_class,
+        }
+    )
+    return request.model_copy(
+        update={
+            "source_env": request.source_env or project.default_source_env,
+            "deploy_modes": request.deploy_modes or project.default_deploy_modes,
+            "platform_services": request.platform_services or project.default_platform_services,
+            "business_services": request.business_services or project.default_business_services,
+            "database": request.database or project.default_database,
+            "product_version": request.product_version or project.default_version,
+            "target_profile": target,
+        }
+    )
 
 
 def _readme(manifest: dict) -> str:

@@ -31,6 +31,7 @@ export interface DeploymentPackageOptions {
   businessServices: DeploymentServiceOption[];
   databaseOptions: DatabaseOption[];
   middleware: MiddlewareOption[];
+  projects: ProjectProfile[];
 }
 
 export interface BusinessSelection {
@@ -39,6 +40,8 @@ export interface BusinessSelection {
 }
 
 export interface PackagePreviewRequest {
+  projectKey: string;
+  productVersion: string;
   sourceEnv: SourceEnv;
   deployModes: DeployMode[];
   platformServices: string[];
@@ -56,6 +59,25 @@ export interface PackageBuildRequest extends PackagePreviewRequest {
     storageClass: string;
     exportImages: boolean;
   };
+}
+
+export interface ProjectProfile {
+  key: string;
+  name: string;
+  description: string;
+  defaultVersion: string;
+  versions: string[];
+  defaultSourceEnv: SourceEnv;
+  defaultDeployModes: DeployMode[];
+  defaultPlatformServices: string[];
+  defaultBusinessServices: BusinessSelection[];
+  defaultDatabase: string;
+  registry: string;
+  namespacePrefix: string;
+  domain: string;
+  storageClass: string;
+  imageTag: string;
+  overlays: string[];
 }
 
 export interface ResolvedDependency {

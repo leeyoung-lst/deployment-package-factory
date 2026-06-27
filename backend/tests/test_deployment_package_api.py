@@ -25,6 +25,7 @@ def test_deployment_package_options_returns_catalog() -> None:
     assert any(item["key"] == "iam" for item in payload["platformServices"])
     assert any(item["key"] == "eam" for item in payload["businessServices"])
     assert any(item["key"] == "postgres" for item in payload["databaseOptions"])
+    assert any(item["key"] == "standard-eam" for item in payload["projects"])
 
 
 def test_deployment_package_preview_returns_resolved_dependencies() -> None:

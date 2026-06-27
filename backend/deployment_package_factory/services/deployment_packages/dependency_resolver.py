@@ -12,6 +12,7 @@ from deployment_package_factory.services.deployment_packages.models import (
 
 
 def resolve_package_preview(request: PackagePreviewRequest, catalog: DeploymentCatalog) -> PackagePreview:
+    request = _apply_project_defaults(request, catalog)
     database_key = request.database
     if database_key not in catalog.database_options:
         raise CatalogError(f"Unsupported database option {database_key!r}.")
@@ -85,6 +86,26 @@ def resolve_package_preview(request: PackagePreviewRequest, catalog: DeploymentC
         database=catalog.database_options[database_key],
         images=_resolve_images(selected_platform, selected_business, middleware_keys, catalog),
         warnings=[],
+    )
+
+
+def _apply_project_defaults(request: PackagePreviewRequest, catalog: DeploymentCatalog) -> PackagePreviewRequest:
+    if not request.project_key:
+        return request.model_copy(update={"database": request.database or "postgres"})
+    project = catalog.projects.get(request.project_key)
+    if project is None:
+        raise CatalogError(f"Unknown project {request.project_key!r}.")
+    if request.product_version and request.product_version not in project.versions:
+        raise CatalogError(f"Unsupported product version {request.product_version!r} for project {project.key!r}.")
+    return request.model_copy(
+        update={
+            "source_env": request.source_env or project.default_source_env,
+            "deploy_modes": request.deploy_modes or project.default_deploy_modes,
+            "platform_services": request.platform_services or project.default_platform_services,
+            "business_services": request.business_services or project.default_business_services,
+            "database": request.database or project.default_database,
+            "product_version": request.product_version or project.default_version,
+        }
     )
 
 

@@ -68,6 +68,10 @@ async def deployment_package_options() -> dict:
             }
             for item in catalog.middleware.values()
         ],
+        "projects": [
+            item.model_dump(by_alias=True)
+            for item in catalog.projects.values()
+        ],
     }
 
 

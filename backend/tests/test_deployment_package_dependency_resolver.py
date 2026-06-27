@@ -14,6 +14,8 @@ def test_catalog_loads_default_capabilities() -> None:
     assert "eam" in catalog.business
     assert "postgres" in catalog.database_options
     assert "dm" in catalog.database_options
+    assert "standard-eam" in catalog.projects
+    assert catalog.projects["mes-lite"].default_database == "dm"
 
 
 def test_eam_preview_resolves_platform_and_middleware_dependencies() -> None:
@@ -56,7 +58,22 @@ def test_ai_agent_preview_resolves_qdrant_and_audit() -> None:
     assert "redis" in middleware_keys
 
 
+def test_project_defaults_drive_preview_selection() -> None:
+    catalog = load_catalog()
+    preview = resolve_package_preview(PackagePreviewRequest(projectKey="mes-lite"), catalog)
+
+    assert [item.key for item in preview.business_services] == ["mes"]
+    assert preview.database.key == "dm"
+    assert "dm" in {item.key for item in preview.middleware}
+
+
 def test_unknown_database_is_rejected() -> None:
     catalog = load_catalog()
     with pytest.raises(CatalogError):
         resolve_package_preview(PackagePreviewRequest(database="mysql"), catalog)
+
+
+def test_unknown_project_is_rejected() -> None:
+    catalog = load_catalog()
+    with pytest.raises(CatalogError):
+        resolve_package_preview(PackagePreviewRequest(projectKey="missing-project"), catalog)

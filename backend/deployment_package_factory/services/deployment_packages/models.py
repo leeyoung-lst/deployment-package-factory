@@ -41,6 +41,7 @@ class DeploymentCatalog(BaseModel):
     business: dict[str, Capability]
     database_options: dict[str, DatabaseOption]
     middleware: dict[str, MiddlewareOption]
+    projects: dict[str, "ProjectProfile"] = Field(default_factory=dict)
     default_platform: list[str] = Field(default_factory=list)
     allowed_databases: list[str] = Field(default_factory=list)
 
@@ -50,14 +51,37 @@ class BusinessSelection(BaseModel):
     profile: str = ""
 
 
+class ProjectProfile(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    key: str
+    name: str
+    description: str = ""
+    default_version: str = Field(default="", alias="defaultVersion")
+    versions: list[str] = Field(default_factory=list)
+    default_source_env: str = Field(default="test", alias="defaultSourceEnv")
+    default_deploy_modes: list[str] = Field(default_factory=list, alias="defaultDeployModes")
+    default_platform_services: list[str] = Field(default_factory=list, alias="defaultPlatformServices")
+    default_business_services: list[BusinessSelection] = Field(default_factory=list, alias="defaultBusinessServices")
+    default_database: str = Field(default="postgres", alias="defaultDatabase")
+    registry: str = ""
+    namespace_prefix: str = Field(default="prod", alias="namespacePrefix")
+    domain: str = "prod.example.com"
+    storage_class: str = Field(default="", alias="storageClass")
+    image_tag: str = Field(default="prod", alias="imageTag")
+    overlays: list[str] = Field(default_factory=list)
+
+
 class PackagePreviewRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    project_key: str = Field(default="", alias="projectKey")
+    product_version: str = Field(default="", alias="productVersion")
     source_env: str = Field(default="test", alias="sourceEnv")
     deploy_modes: list[str] = Field(default_factory=list, alias="deployModes")
     platform_services: list[str] = Field(default_factory=list, alias="platformServices")
     business_services: list[BusinessSelection] = Field(default_factory=list, alias="businessServices")
-    database: str = "postgres"
+    database: str = ""
 
 
 class TargetProfile(BaseModel):

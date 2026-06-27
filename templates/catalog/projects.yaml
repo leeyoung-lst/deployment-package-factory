@@ -1,0 +1,53 @@
+projects:
+  standard-eam:
+    name: 标准 EAM 项目
+    description: 默认 EAM 生产部署模板
+    defaultVersion: "2026.06"
+    versions:
+      - "2026.06"
+      - "2026.03"
+    defaultSourceEnv: test
+    defaultDeployModes:
+      - k8s
+      - docker-compose
+    defaultPlatformServices:
+      - iam
+      - gateway-frontend
+      - file-documents
+      - workflow-camunda
+      - audit
+    defaultBusinessServices:
+      - name: eam
+        profile: 4x60
+    defaultDatabase: postgres
+    registry: harbor.example.com/eam
+    namespacePrefix: eam-prod
+    domain: eam.example.com
+    storageClass: standard
+    imageTag: prod
+    overlays:
+      - standard
+  mes-lite:
+    name: MES 轻量项目
+    description: MES 轻量部署模板
+    defaultVersion: "2026.06"
+    versions:
+      - "2026.06"
+    defaultSourceEnv: test
+    defaultDeployModes:
+      - k8s
+    defaultPlatformServices:
+      - iam
+      - gateway-frontend
+      - audit
+    defaultBusinessServices:
+      - name: mes
+        profile: 4x3
+    defaultDatabase: dm
+    registry: harbor.example.com/mes
+    namespacePrefix: mes-prod
+    domain: mes.example.com
+    storageClass: fast-ssd
+    imageTag: prod
+    overlays:
+      - lite

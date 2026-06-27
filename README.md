@@ -6,7 +6,7 @@
 
 - `backend/`: 独立 FastAPI 服务，提供能力目录、依赖预览、部署包生成和下载接口。
 - `frontend/`: 独立 Vite + React 页面，面向实施人员执行导包。
-- `templates/catalog/`: 基础平台、业务产品、中间件和依赖规则目录。
+- `templates/catalog/`: 基础平台、业务产品、中间件、项目模板和依赖规则目录。
 - `data/deployment-packages/`: 默认部署包输出目录，运行时生成。
 
 ## 本地运行
@@ -43,6 +43,7 @@ docker compose up --build
 - 支持 `k8s`、`docker-compose` 部署方式选择。
 - 基础平台能力包括 IAM、AI / Agent、File / Documents、Workflow / Camunda、Audit、Gateway / Frontend Shell。
 - 业务产品包括 EAM、MES、ERP、APS。
+- 项目模板支持默认产品版本、业务组合、数据库、镜像仓库、命名空间前缀、域名、StorageClass 和 overlay 标识。
 - 数据库在达梦 DM 与 PostgreSQL 中二选一。
 - 中间件依赖按所选基础能力和业务产品自动解析。
 - 生成包包含 manifest、安装文档、K8s namespace、Docker Compose 样例、初始化脚本占位和安全摘要。
@@ -111,6 +112,26 @@ GET /api/deployment-packages/tasks
 ```http
 GET /api/deployment-packages/{packageId}/download
 ```
+
+## 项目模板
+
+项目模板定义在 `templates/catalog/projects.yaml`。每个项目可以配置：
+
+- `defaultVersion`
+- `versions`
+- `defaultSourceEnv`
+- `defaultDeployModes`
+- `defaultPlatformServices`
+- `defaultBusinessServices`
+- `defaultDatabase`
+- `registry`
+- `namespacePrefix`
+- `domain`
+- `storageClass`
+- `imageTag`
+- `overlays`
+
+前端选择项目后会自动套用这些默认值；后端在预览和构建时也会校验并应用项目配置。
 
 ## 后续硬化
 

@@ -10,6 +10,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     DatabaseOption,
     DeploymentCatalog,
     MiddlewareOption,
+    ProjectProfile,
 )
 
 
@@ -49,6 +50,7 @@ def load_catalog(catalog_dir: Path | None = None) -> DeploymentCatalog:
     business_raw = _read_yaml(base / "business.yaml")
     middleware_raw = _read_yaml(base / "middleware.yaml")
     rules_raw = _read_yaml(base / "dependency-rules.yaml")
+    projects_raw = _read_yaml(base / "projects.yaml")
 
     platform = _capabilities(platform_raw, "platform")
     business = _capabilities(business_raw, "business")
@@ -60,8 +62,12 @@ def load_catalog(catalog_dir: Path | None = None) -> DeploymentCatalog:
         key: MiddlewareOption.model_validate({"key": key, **value})
         for key, value in (middleware_raw.get("middleware") or {}).items()
     }
+    projects = {
+        key: ProjectProfile.model_validate({"key": key, **value})
+        for key, value in (projects_raw.get("projects") or {}).items()
+    }
 
-    _validate_catalog(platform, business, database_options, middleware)
+    _validate_catalog(platform, business, database_options, middleware, projects)
 
     defaults = (rules_raw.get("defaults") or {}).get("platform") or []
     allowed = (rules_raw.get("database") or {}).get("allowed") or list(database_options)
@@ -70,6 +76,7 @@ def load_catalog(catalog_dir: Path | None = None) -> DeploymentCatalog:
         business=business,
         database_options=database_options,
         middleware=middleware,
+        projects=projects,
         default_platform=list(defaults),
         allowed_databases=list(allowed),
     )
@@ -80,6 +87,7 @@ def _validate_catalog(
     business: dict[str, Capability],
     database_options: dict[str, DatabaseOption],
     middleware: dict[str, MiddlewareOption],
+    projects: dict[str, ProjectProfile],
 ) -> None:
     overlap = set(platform) & set(business)
     if overlap:
@@ -98,3 +106,13 @@ def _validate_catalog(
         missing_middleware = set(capability.middleware) - middleware_keys
         if missing_middleware:
             raise CatalogError(f"Capability {capability.key!r} depends on unknown middleware: {sorted(missing_middleware)}")
+
+    for project in projects.values():
+        missing_platform = set(project.default_platform_services) - set(platform)
+        if missing_platform:
+            raise CatalogError(f"Project {project.key!r} references unknown platform services: {sorted(missing_platform)}")
+        missing_business = {item.name for item in project.default_business_services} - set(business)
+        if missing_business:
+            raise CatalogError(f"Project {project.key!r} references unknown business services: {sorted(missing_business)}")
+        if project.default_database not in database_options:
+            raise CatalogError(f"Project {project.key!r} references unknown database {project.default_database!r}.")

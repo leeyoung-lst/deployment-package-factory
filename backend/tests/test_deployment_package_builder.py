@@ -94,6 +94,21 @@ def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_p
     assert "postgres:" not in compose
 
 
+def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
+    result = build_deployment_package(
+        PackageBuildRequest(projectKey="mes-lite"),
+        output_dir=tmp_path,
+    )
+
+    assert result.manifest["projectKey"] == "mes-lite"
+    assert result.manifest["productVersion"] == "2026.06"
+    assert result.manifest["businessServices"] == ["mes"]
+    assert result.manifest["database"] == "dm"
+    assert result.manifest["targetProfile"]["registry"] == "harbor.example.com/mes"
+    assert result.manifest["targetProfile"]["namespacePrefix"] == "mes-prod"
+    assert result.manifest["targetProfile"]["domain"] == "mes.example.com"
+
+
 def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -> None:
     commands: list[list[str]] = []
 

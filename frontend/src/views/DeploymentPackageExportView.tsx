@@ -30,6 +30,8 @@ export const DeploymentPackageExportView: React.FC = () => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [options, setOptions] = useState<DeploymentPackageOptions | null>(null);
+  const [projectKey, setProjectKey] = useState("");
+  const [productVersion, setProductVersion] = useState("");
   const [sourceEnv, setSourceEnv] = useState<SourceEnv>("test");
   const [deployModes, setDeployModes] = useState<DeployMode[]>(["k8s", "docker-compose"]);
   const [platformServices, setPlatformServices] = useState<string[]>([]);
@@ -52,13 +54,33 @@ export const DeploymentPackageExportView: React.FC = () => {
       return { name, profile: item?.profile || "" };
     });
     return {
+      projectKey,
+      productVersion,
       sourceEnv,
       deployModes,
       platformServices,
       businessServices: selectedBusiness,
       database,
     };
-  }, [businessServices, database, deployModes, options?.businessServices, platformServices, sourceEnv]);
+  }, [businessServices, database, deployModes, options?.businessServices, platformServices, productVersion, projectKey, sourceEnv]);
+
+  const applyProjectDefaults = useCallback((key: string, sourceOptions = options) => {
+    const project = sourceOptions?.projects.find((item) => item.key === key);
+    setProjectKey(key);
+    if (!project) return;
+    setProductVersion(project.defaultVersion || project.versions[0] || "");
+    setSourceEnv(project.defaultSourceEnv);
+    setDeployModes(project.defaultDeployModes);
+    setPlatformServices(project.defaultPlatformServices);
+    setBusinessServices(project.defaultBusinessServices.map((item) => item.name));
+    setDatabase(project.defaultDatabase);
+    form.setFieldsValue({
+      domain: project.domain,
+      registry: project.registry,
+      namespacePrefix: project.namespacePrefix,
+      storageClass: project.storageClass,
+    });
+  }, [form, options]);
 
   const loadOptions = useCallback(async () => {
     setLoadingOptions(true);
@@ -75,12 +97,15 @@ export const DeploymentPackageExportView: React.FC = () => {
       } else if (payload.databaseOptions[0]) {
         setDatabase(payload.databaseOptions[0].key);
       }
+      if (payload.projects[0]) {
+        applyProjectDefaults(payload.projects[0].key, payload);
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : "部署包选项加载失败");
     } finally {
       setLoadingOptions(false);
     }
-  }, [message]);
+  }, [applyProjectDefaults, message]);
 
   const refreshPreview = useCallback(async () => {
     if (!options) return;
@@ -103,7 +128,7 @@ export const DeploymentPackageExportView: React.FC = () => {
     if (!options) return;
     const timer = window.setTimeout(() => void refreshPreview(), 240);
     return () => window.clearTimeout(timer);
-  }, [businessServices, database, deployModes, options, platformServices, refreshPreview, sourceEnv]);
+  }, [businessServices, database, deployModes, options, platformServices, productVersion, projectKey, refreshPreview, sourceEnv]);
 
   const onPlatformChange = (checkedValues: Array<string | number | boolean>) => {
     const selected = checkedValues.map(String);
@@ -175,6 +200,24 @@ export const DeploymentPackageExportView: React.FC = () => {
           <div className={styles.formPanel}>
             <Form form={form} layout="vertical" initialValues={{ ...DEFAULT_TARGET, imageMode: "image-manifest" }}>
               <h3 className={styles.sectionTitle}>导出范围</h3>
+              <div className={styles.split}>
+                <Form.Item label="项目">
+                  <Select
+                    value={projectKey}
+                    options={(options?.projects ?? []).map((item) => ({ value: item.key, label: item.name }))}
+                    onChange={(value) => applyProjectDefaults(value)}
+                    placeholder="选择项目模板"
+                  />
+                </Form.Item>
+                <Form.Item label="产品版本">
+                  <Select
+                    value={productVersion}
+                    options={(options?.projects.find((item) => item.key === projectKey)?.versions ?? []).map((item) => ({ value: item, label: item }))}
+                    onChange={(value) => setProductVersion(value)}
+                    placeholder="选择版本"
+                  />
+                </Form.Item>
+              </div>
               <div className={styles.split}>
                 <Form.Item label="来源环境">
                   <Radio.Group value={sourceEnv} onChange={(event) => setSourceEnv(event.target.value)}>
