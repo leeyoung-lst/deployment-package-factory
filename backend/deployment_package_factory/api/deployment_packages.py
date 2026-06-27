@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
 
-from deployment_package_factory.services.deployment_packages.builder import PackageBuildError, build_deployment_package
+from deployment_package_factory.settings import load_settings
+from deployment_package_factory.services.deployment_packages.builder import PackageBuildError
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError, load_catalog
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
     resolve_package_preview,
@@ -18,15 +18,24 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackagePreviewRequest,
     PackageTask,
 )
+from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 router = APIRouter(prefix="/api/deployment-packages", tags=["deployment-packages"])
-_TASK_REPO = PackageTaskRepository()
-_BUILD_SEMAPHORE = asyncio.Semaphore(1)
+_SETTINGS = load_settings()
+_TASK_REPO = PackageTaskRepository(_SETTINGS.task_db_path)
+_TASK_EXECUTOR = PackageTaskExecutor(
+    _TASK_REPO,
+    PackageTaskExecutorConfig(max_concurrent_builds=_SETTINGS.max_concurrent_builds, output_dir=_SETTINGS.output_dir),
+)
 
 
 def get_task_repository() -> PackageTaskRepository:
     return _TASK_REPO
+
+
+def get_task_executor() -> PackageTaskExecutor:
+    return _TASK_EXECUTOR
 
 
 @router.get("/options")
@@ -89,7 +98,7 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
 async def create_deployment_package(payload: PackageBuildRequest, background_tasks: BackgroundTasks) -> PackageTask:
     repo = get_task_repository()
     task = repo.create(payload)
-    background_tasks.add_task(_run_package_task, task.task_id, payload)
+    background_tasks.add_task(get_task_executor().run, task.task_id, payload)
     return task
 
 
@@ -125,7 +134,7 @@ async def retry_deployment_package_task(task_id: str, background_tasks: Backgrou
         raise HTTPException(status_code=404, detail="Deployment package task not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    background_tasks.add_task(_run_package_task, retry_task.task_id, PackageBuildRequest.model_validate(retry_task.request))
+    background_tasks.add_task(get_task_executor().run, retry_task.task_id, PackageBuildRequest.model_validate(retry_task.request))
     return retry_task
 
 
@@ -150,34 +159,6 @@ async def download_deployment_package(package_id: str) -> FileResponse:
         media_type="application/gzip",
         filename=artifact.name,
     )
-
-
-async def _run_package_task(task_id: str, payload: PackageBuildRequest) -> None:
-    repo = get_task_repository()
-    try:
-        if repo.get(task_id) and repo.get(task_id).status == "canceled":
-            return
-        repo.update(task_id, status="pending", progress=5, message="等待导包执行槽位", log="等待导包执行槽位")
-        async with _BUILD_SEMAPHORE:
-            task = repo.get(task_id)
-            if task is None or task.status == "canceled":
-                return
-            repo.mark_running(task_id)
-            result = await asyncio.to_thread(build_deployment_package, payload)
-            if repo.is_cancel_requested(task_id):
-                repo.mark_canceled(task_id, "部署包任务已取消，已丢弃本次构建结果")
-            else:
-                repo.mark_completed(task_id, result)
-    except (CatalogError, PackageBuildError) as exc:
-        if repo.is_cancel_requested(task_id):
-            repo.mark_canceled(task_id)
-        else:
-            repo.mark_failed(task_id, str(exc))
-    except Exception as exc:  # pragma: no cover - defensive boundary for background execution
-        if repo.is_cancel_requested(task_id):
-            repo.mark_canceled(task_id)
-        else:
-            repo.mark_failed(task_id, f"Unexpected deployment package error: {exc}")
 
 
 def _find_completed_task(package_or_task_id: str) -> PackageTask | None:

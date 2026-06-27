@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 import pytest
 
 from deployment_package_factory.api import deployment_packages
+from deployment_package_factory.services.deployment_packages import builder, task_executor
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, PackageBuildResult
+from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 
@@ -61,13 +63,12 @@ def test_deployment_package_preview_rejects_unknown_database() -> None:
 
 
 def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    original_builder = deployment_packages.build_deployment_package
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
-        deployment_packages,
+        task_executor,
         "build_deployment_package",
-        lambda payload: original_builder(payload, output_dir=tmp_path),
+        lambda payload, output_dir=None: builder.build_deployment_package(payload, output_dir=tmp_path),
     )
     client = _client()
 
@@ -103,11 +104,11 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
 
 def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
-        deployment_packages,
+        task_executor,
         "build_deployment_package",
-        lambda payload: (_ for _ in ()).throw(deployment_packages.PackageBuildError("Docker CLI is not available.")),
+        lambda payload, output_dir=None: (_ for _ in ()).throw(builder.PackageBuildError("Docker CLI is not available.")),
     )
 
     response = _client().post(
@@ -129,7 +130,7 @@ def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path,
 
 def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    _set_repo(monkeypatch, repo, tmp_path)
     task = repo.create(deployment_packages.PackageBuildRequest())
 
     response = _client().post(f"/api/deployment-packages/tasks/{task.task_id}/cancel")
@@ -140,11 +141,11 @@ def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.Mo
 
 def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
-        deployment_packages,
+        task_executor,
         "build_deployment_package",
-        lambda payload: (_ for _ in ()).throw(deployment_packages.PackageBuildError("still failing")),
+        lambda payload, output_dir=None: (_ for _ in ()).throw(builder.PackageBuildError("still failing")),
     )
     task = repo.create(PackageBuildRequest(businessServices=[BusinessSelection(name="eam")]))
     repo.mark_failed(task.task_id, "failed once")
@@ -161,7 +162,7 @@ def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.Monk
 
 def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    _set_repo(monkeypatch, repo, tmp_path)
     task = repo.create(PackageBuildRequest())
     repo.mark_running(task.task_id)
     repo.cancel(task.task_id)
@@ -172,7 +173,7 @@ def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pyte
         sha256="abc",
         manifest={},
     )
-    monkeypatch.setattr(deployment_packages, "build_deployment_package", lambda payload: result)
+    monkeypatch.setattr(task_executor, "build_deployment_package", lambda payload, output_dir=None: result)
 
     with TestClient(_app()) as client:
         response = client.post(f"/api/deployment-packages/tasks/{task.task_id}/retry")
@@ -181,7 +182,7 @@ def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pyte
 
     import asyncio
 
-    asyncio.run(deployment_packages._run_package_task(task.task_id, PackageBuildRequest()))
+    asyncio.run(deployment_packages.get_task_executor().run(task.task_id, PackageBuildRequest()))
 
     reloaded = repo.get(task.task_id)
     assert reloaded is not None
@@ -191,7 +192,7 @@ def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pyte
 
 def test_list_deployment_package_tasks(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    _set_repo(monkeypatch, repo, tmp_path)
     repo.create(deployment_packages.PackageBuildRequest())
 
     response = _client().get("/api/deployment-packages/tasks")
@@ -206,12 +207,21 @@ def _app() -> FastAPI:
     return app
 
 
+def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: PackageTaskRepository, output_dir) -> None:
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
+    monkeypatch.setattr(
+        deployment_packages,
+        "_TASK_EXECUTOR",
+        PackageTaskExecutor(repo, PackageTaskExecutorConfig(max_concurrent_builds=1, output_dir=output_dir)),
+    )
+
+
 def _wait_for_task(client: TestClient, task_id: str) -> dict:
     for _ in range(50):
         response = client.get(f"/api/deployment-packages/tasks/{task_id}")
         assert response.status_code == 200, response.text
         payload = response.json()
-        if payload["status"] in {"completed", "failed"}:
+        if payload["status"] in {"completed", "failed", "canceled"}:
             return payload
         time.sleep(0.05)
     raise AssertionError(f"Task {task_id} did not finish")

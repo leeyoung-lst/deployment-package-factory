@@ -5,6 +5,11 @@ services:
       dockerfile: backend/Dockerfile
     ports:
       - "8096:8096"
+    environment:
+      DEPLOYMENT_PACKAGE_DATA_DIR: /app/data
+      DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
+      DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages
+      DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS: "1"
     volumes:
       - ./data:/app/data
     healthcheck:

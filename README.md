@@ -37,6 +37,19 @@ docker compose up --build
 
 访问 `http://127.0.0.1:5186`。
 
+## 运行配置
+
+后端支持通过环境变量调整任务执行和产物路径：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `DEPLOYMENT_PACKAGE_DATA_DIR` | `data/` | 运行时数据根目录 |
+| `DEPLOYMENT_PACKAGE_TASK_DB` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-package-tasks.sqlite3` | 导包任务 SQLite 路径 |
+| `DEPLOYMENT_PACKAGE_OUTPUT_DIR` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-packages` | 工作目录和 tar.gz 产物输出目录 |
+| `DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS` | `1` | 单进程内同时执行的导包任务数 |
+
+当前版本仍使用 FastAPI 后台任务执行导包，但执行逻辑已经抽到 `PackageTaskExecutor`。后续拆成独立 worker 进程时，可以复用同一套任务仓储、并发控制和输出目录配置。
+
 ## 当前能力
 
 - 支持 `dev`、`test` 来源环境。
