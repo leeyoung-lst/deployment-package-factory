@@ -5,9 +5,10 @@
 ## Jenkins Agent 要求
 
 - Linux agent。
-- 已安装 `python`、`node`、`corepack`、`docker`、`kubectl`。
+- 已安装 `docker`、`kubectl`、`git`。
 - Jenkins 用户可执行 Docker build/push。
 - 如启用 `DEPLOY_TO_K8S`，agent 能访问目标 K8s API。
+- 当前测试环境 Jenkins 节点使用 `/opt/jenkins/kube/config` 访问 K8s；K8s 可视化入口为 `https://headlamp.local/`，hosts 需指向 `192.168.10.220`。
 
 ## 必需凭据
 
@@ -15,34 +16,35 @@
 
 | ID | 类型 | 用途 |
 | --- | --- | --- |
-| `dpf-registry-credentials` | Username with password | Docker registry 登录。仅 `PUSH_IMAGES=true` 时使用。 |
+| `harbor-admin` | Username with password | Docker registry 登录。仅 `PUSH_IMAGES=true` 时使用。 |
+| `github-token` | Username with password | Jenkins 从独立 Git 仓库拉取源码。 |
 | `dpf-api-token` | Secret text | 后端 API token，同时写入前端运行时配置。 |
 | `dpf-database-url` | Secret text | 生产 PostgreSQL 连接串。 |
-| `dpf-kubeconfig` | Secret file | 目标 K8s kubeconfig。仅 `DEPLOY_TO_K8S=true` 时使用。 |
 
 ## Pipeline 参数
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `REGISTRY` | `registry.example.com` | 镜像仓库地址。 |
-| `REPOSITORY` | `platform` | 仓库命名空间。 |
-| `IMAGE_TAG` | 空 | 为空时使用 `branch-buildNumber`。 |
-| `STORAGE_CLASS` | `nfs-rwx` | K8s 产物 PVC 的 RWX StorageClass。 |
-| `HTTP_PORT` | `5186` | 生成 Compose env 时使用的前端端口。 |
+| `REGISTRY` | `192.168.10.210` | 镜像仓库地址。 |
+| `REPOSITORY` | `local-ai` | 仓库命名空间。 |
+| `IMAGE_TAG` | 空 | 为空时使用当前 Git commit SHA。 |
+| `STORAGE_CLASS` | `nfs-client` | K8s 产物 PVC 的 RWX StorageClass。 |
+| `KUBECONFIG_PATH` | `/opt/jenkins/kube/config` | Jenkins 节点上的 kubeconfig 路径。 |
 | `PUSH_IMAGES` | `true` | 是否推送三类镜像。 |
-| `DEPLOY_TO_K8S` | `false` | 是否执行 `kubectl apply -k deploy/generated`。 |
+| `DEPLOY_TO_K8S` | `true` | 是否执行 `kubectl apply -k deploy/generated`。 |
+| `USE_IN_CLUSTER_POSTGRES` | `true` | 测试环境使用命名空间内 Postgres；生产应改用外部数据库连接串。 |
 | `NO_CACHE` | `false` | Docker 构建是否禁用缓存。 |
 
 ## 执行阶段
 
-1. `Prepare`：检查工具链，计算镜像 tag。
-2. `Backend Tests`：运行 `python -m pytest backend/tests -q`。
-3. `Frontend Build`：使用 `pnpm@10.24.0` 和 lockfile 构建前端。
-4. `Validate Manifests`：校验 K8s YAML 与 `git diff --check`。
-5. `Build Images`：调用 `scripts/build-images.sh` 构建 backend、worker、frontend。
-6. `Push Images`：可选推送镜像。
-7. `Render Deploy Config`：生成 `deploy/generated/` 与被忽略的 `deploy/k8s/secret.yaml`。
-8. `Deploy to K8s`：可选部署并等待 rollout。
+1. `Prepare`：检查 `git`、`docker`、`kubectl`，计算镜像 tag。
+2. `Build Images`：调用 `scripts/build-images.sh` 构建 backend、worker、frontend。前后端依赖安装在 Docker build 内完成。
+3. `Push Images`：可选推送镜像。
+4. `Render Deploy Config`：生成 `deploy/generated/` 与被忽略的 `deploy/k8s/secret.yaml`。
+5. `Ensure Test Namespace`：创建 namespace 与 Harbor 拉取 Secret。
+6. `Ensure Test Postgres`：测试环境创建命名空间内 Postgres，生产环境建议关闭并改用外部 PostgreSQL。
+7. `Deploy to K8s`：可选部署并等待 rollout。
+8. `Smoke Test`：在 backend Pod 内验证 `/health`、`/metrics`、`/api/deployment-packages/options`。
 
 流水线结束时会删除 `deploy/generated/factory.env`、`deploy/k8s/secret.yaml` 和临时渲染文件，避免数据库连接串或 API token 被归档。Jenkins 只归档 `deploy/generated/kustomization.yaml` 与 `deploy/generated/pvc-storage-class-patch.yaml` 作为可审计的部署配置摘要。
 

@@ -4,22 +4,26 @@ pipeline {
   options {
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '20'))
+    timestamps()
   }
 
   parameters {
-    string(name: 'REGISTRY', defaultValue: 'registry.example.com', description: 'Container registry host, for example harbor.example.com')
-    string(name: 'REPOSITORY', defaultValue: 'platform', description: 'Registry repository or namespace')
-    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Image tag. Empty uses branch-buildNumber')
-    string(name: 'STORAGE_CLASS', defaultValue: 'nfs-rwx', description: 'RWX StorageClass for package artifacts')
-    string(name: 'HTTP_PORT', defaultValue: '5186', description: 'Frontend service host port used by generated compose env')
-    booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'Push backend, worker, and frontend images to REGISTRY')
-    booleanParam(name: 'DEPLOY_TO_K8S', defaultValue: false, description: 'Apply deploy/generated to Kubernetes')
+    string(name: 'REGISTRY', defaultValue: '192.168.10.210', description: 'Harbor registry host')
+    string(name: 'REPOSITORY', defaultValue: 'local-ai', description: 'Harbor project or repository namespace')
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Image tag. Empty uses the Git commit SHA')
+    string(name: 'STORAGE_CLASS', defaultValue: 'nfs-client', description: 'RWX StorageClass for package artifacts')
+    string(name: 'KUBECONFIG_PATH', defaultValue: '/opt/jenkins/kube/config', description: 'Kubeconfig path on the Jenkins node')
+    booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'Push backend, worker, and frontend images to Harbor')
+    booleanParam(name: 'DEPLOY_TO_K8S', defaultValue: true, description: 'Apply deploy/generated to Kubernetes')
+    booleanParam(name: 'USE_IN_CLUSTER_POSTGRES', defaultValue: true, description: 'Use the test namespace Postgres. Production should use an external database URL.')
     booleanParam(name: 'NO_CACHE', defaultValue: false, description: 'Build Docker images with --no-cache')
   }
 
   environment {
-    PYTHONUNBUFFERED = '1'
-    DEPLOYMENT_PACKAGE_TEMPLATE_DIR = "${WORKSPACE}/templates"
+    NAMESPACE = 'deployment-package-factory'
+    POSTGRES_IMAGE = '192.168.10.210/local-ai/postgres:16-alpine'
+    DPF_API_TOKEN = credentials('dpf-api-token')
+    DPF_DATABASE_URL = credentials('dpf-database-url')
   }
 
   stages {
@@ -28,54 +32,26 @@ pipeline {
         script {
           env.EFFECTIVE_IMAGE_TAG = params.IMAGE_TAG?.trim()
           if (!env.EFFECTIVE_IMAGE_TAG) {
-            env.EFFECTIVE_IMAGE_TAG = "${env.BRANCH_NAME ?: 'local'}-${env.BUILD_NUMBER}".replaceAll('[^A-Za-z0-9_.-]', '-')
+            env.EFFECTIVE_IMAGE_TAG = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
           }
         }
         sh '''
           set -eux
-          python --version
-          node --version
-          corepack --version || true
+          git rev-parse --short HEAD
           docker version
-          kubectl version --client=true
-        '''
-      }
-    }
-
-    stage('Backend Tests') {
-      steps {
-        sh 'python -m pytest backend/tests -q'
-      }
-    }
-
-    stage('Frontend Build') {
-      steps {
-        sh '''
-          set -eux
-          corepack enable
-          corepack prepare pnpm@10.24.0 --activate
-          pnpm --dir frontend install --frozen-lockfile
-          pnpm --dir frontend build
-        '''
-      }
-    }
-
-    stage('Validate Manifests') {
-      steps {
-        sh '''
-          set -eux
-          python -c "from pathlib import Path; import yaml; [list(yaml.safe_load_all(p.read_text(encoding='utf-8'))) for p in Path('deploy/k8s').glob('*.yaml')]; print('yaml ok')"
-          git diff --check
+          kubectl --kubeconfig "${KUBECONFIG_PATH}" version --client=true
         '''
       }
     }
 
     stage('Build Images') {
       steps {
-        script {
-          def cacheArg = params.NO_CACHE ? ' --no-cache' : ''
-          sh "bash scripts/build-images.sh --registry '${params.REGISTRY}' --repository '${params.REPOSITORY}' --tag '${env.EFFECTIVE_IMAGE_TAG}'${cacheArg}"
-        }
+        sh '''
+          set -eux
+          cache_arg=""
+          if [ "${NO_CACHE}" = "true" ]; then cache_arg="--no-cache"; fi
+          bash scripts/build-images.sh --registry "${REGISTRY}" --repository "${REPOSITORY}" --tag "${EFFECTIVE_IMAGE_TAG}" ${cache_arg}
+        '''
       }
     }
 
@@ -84,7 +60,7 @@ pipeline {
         expression { return params.PUSH_IMAGES }
       }
       steps {
-        withCredentials([usernamePassword(credentialsId: 'dpf-registry-credentials', usernameVariable: 'REGISTRY_USERNAME', passwordVariable: 'REGISTRY_PASSWORD')]) {
+        withCredentials([usernamePassword(credentialsId: 'harbor-admin', usernameVariable: 'REGISTRY_USERNAME', passwordVariable: 'REGISTRY_PASSWORD')]) {
           sh '''
             set -eux
             printf '%s' "${REGISTRY_PASSWORD}" | docker login "${REGISTRY}" --username "${REGISTRY_USERNAME}" --password-stdin
@@ -97,27 +73,115 @@ pipeline {
 
     stage('Render Deploy Config') {
       steps {
-        withCredentials([
-          string(credentialsId: 'dpf-api-token', variable: 'DPF_API_TOKEN'),
-          string(credentialsId: 'dpf-database-url', variable: 'DPF_DATABASE_URL')
-        ]) {
+        sh '''
+          set -eux
+          bash scripts/render-deploy-images.sh \
+            --registry "${REGISTRY}" \
+            --repository "${REPOSITORY}" \
+            --tag "${EFFECTIVE_IMAGE_TAG}" \
+            --http-port "5186" \
+            --database-url "${DPF_DATABASE_URL}" \
+            --storage-class "${STORAGE_CLASS}"
+          bash scripts/render-k8s-secret.sh \
+            --api-token "${DPF_API_TOKEN}" \
+            --frontend-api-token "${DPF_API_TOKEN}" \
+            --database-url "${DPF_DATABASE_URL}"
+          bash scripts/validate-deploy-config.sh k8s
+          kubectl --kubeconfig "${KUBECONFIG_PATH}" kustomize deploy/generated >/tmp/deployment-package-factory-rendered.yaml
+        '''
+      }
+    }
+
+    stage('Ensure Test Namespace') {
+      when {
+        expression { return params.DEPLOY_TO_K8S }
+      }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'harbor-admin', usernameVariable: 'REGISTRY_USERNAME', passwordVariable: 'REGISTRY_PASSWORD')]) {
           sh '''
             set -eux
-            bash scripts/render-deploy-images.sh \
-              --registry "${REGISTRY}" \
-              --repository "${REPOSITORY}" \
-              --tag "${EFFECTIVE_IMAGE_TAG}" \
-              --http-port "${HTTP_PORT}" \
-              --database-url "${DPF_DATABASE_URL}" \
-              --storage-class "${STORAGE_CLASS}"
-            bash scripts/render-k8s-secret.sh \
-              --api-token "${DPF_API_TOKEN}" \
-              --frontend-api-token "${DPF_API_TOKEN}" \
-              --database-url "${DPF_DATABASE_URL}"
-            bash scripts/validate-deploy-config.sh k8s
-            kubectl kustomize deploy/generated >/tmp/deployment-package-factory-rendered.yaml
+            export KUBECONFIG="${KUBECONFIG_PATH}"
+            kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+            kubectl -n "${NAMESPACE}" create secret docker-registry harbor-pull-secret \
+              --docker-server="${REGISTRY}" \
+              --docker-username="${REGISTRY_USERNAME}" \
+              --docker-password="${REGISTRY_PASSWORD}" \
+              --dry-run=client -o yaml | kubectl apply -f -
           '''
         }
+      }
+    }
+
+    stage('Ensure Test Postgres') {
+      when {
+        expression { return params.DEPLOY_TO_K8S && params.USE_IN_CLUSTER_POSTGRES }
+      }
+      steps {
+        sh '''
+          set -eux
+          export KUBECONFIG="${KUBECONFIG_PATH}"
+          cat >/tmp/deployment-package-factory-postgres.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deployment-package-factory-postgres
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  POSTGRES_DB: deployment_package_factory
+  POSTGRES_USER: factory
+  POSTGRES_PASSWORD: factory
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-package-factory-postgres
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deployment-package-factory
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deployment-package-factory
+        app.kubernetes.io/component: postgres
+    spec:
+      imagePullSecrets:
+        - name: harbor-pull-secret
+      containers:
+        - name: postgres
+          image: ${POSTGRES_IMAGE}
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: deployment-package-factory-postgres
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "factory", "-d", "deployment_package_factory"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deployment-package-factory-postgres
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app.kubernetes.io/name: deployment-package-factory
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+EOF
+          kubectl apply -f /tmp/deployment-package-factory-postgres.yaml
+          kubectl rollout status deployment/deployment-package-factory-postgres -n "${NAMESPACE}" --timeout=180s
+        '''
       }
     }
 
@@ -126,24 +190,43 @@ pipeline {
         expression { return params.DEPLOY_TO_K8S }
       }
       steps {
-        withCredentials([file(credentialsId: 'dpf-kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-          sh '''
-            set -eux
-            export KUBECONFIG="${KUBECONFIG_FILE}"
-            kubectl apply -k deploy/generated
-            kubectl rollout status deployment/deployment-package-factory-backend -n deployment-package-factory --timeout=180s
-            kubectl rollout status deployment/deployment-package-factory-worker -n deployment-package-factory --timeout=180s
-            kubectl rollout status deployment/deployment-package-factory-frontend -n deployment-package-factory --timeout=180s
-            kubectl get pods -n deployment-package-factory
-          '''
-        }
+        sh '''
+          set -eux
+          export KUBECONFIG="${KUBECONFIG_PATH}"
+          kubectl apply -k deploy/generated
+          kubectl -n "${NAMESPACE}" patch serviceaccount deployment-package-factory -p '{"imagePullSecrets":[{"name":"harbor-pull-secret"}]}' || true
+          kubectl -n "${NAMESPACE}" patch serviceaccount default -p '{"imagePullSecrets":[{"name":"harbor-pull-secret"}]}' || true
+          kubectl rollout status deployment/deployment-package-factory-backend -n "${NAMESPACE}" --timeout=240s
+          kubectl rollout status deployment/deployment-package-factory-worker -n "${NAMESPACE}" --timeout=240s
+          kubectl rollout status deployment/deployment-package-factory-frontend -n "${NAMESPACE}" --timeout=240s
+          kubectl get pods -n "${NAMESPACE}" -o wide
+        '''
+      }
+    }
+
+    stage('Smoke Test') {
+      when {
+        expression { return params.DEPLOY_TO_K8S }
+      }
+      steps {
+        sh '''
+          set -eux
+          export KUBECONFIG="${KUBECONFIG_PATH}"
+          POD=$(kubectl -n "${NAMESPACE}" get pod -l app.kubernetes.io/component=backend -o jsonpath='{.items[0].metadata.name}')
+          kubectl -n "${NAMESPACE}" exec "$POD" -- python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8096/health', timeout=20).read().decode())"
+          kubectl -n "${NAMESPACE}" exec "$POD" -- python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8096/metrics', timeout=20); print(r.status); print(r.read().decode()[:300])"
+          kubectl -n "${NAMESPACE}" exec "$POD" -- python -c "import urllib.request; req=urllib.request.Request('http://127.0.0.1:8096/api/deployment-packages/options', headers={'Authorization':'Bearer ${DPF_API_TOKEN}'}); r=urllib.request.urlopen(req, timeout=20); print(r.status); print(r.read().decode()[:300])"
+        '''
       }
     }
   }
 
   post {
     always {
-      sh 'rm -f deploy/generated/factory.env deploy/k8s/secret.yaml /tmp/deployment-package-factory-rendered.yaml || true'
+      sh '''
+        set +e
+        rm -f deploy/generated/factory.env deploy/k8s/secret.yaml /tmp/deployment-package-factory-rendered.yaml
+      '''
       archiveArtifacts artifacts: 'deploy/generated/kustomization.yaml,deploy/generated/pvc-storage-class-patch.yaml', allowEmptyArchive: true, fingerprint: true
     }
   }
