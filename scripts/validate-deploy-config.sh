@@ -26,8 +26,12 @@ case "${MODE}" in
   k8s)
     require_file "deploy/k8s/pvc.yaml"
     require_file "deploy/k8s/secret.yaml"
+    require_file "deploy/k8s/kustomization.yaml"
     reject_placeholders "deploy/k8s/pvc.yaml"
     reject_placeholders "deploy/k8s/secret.yaml"
+    if ! grep -q -- "- secret.yaml" "${ROOT_DIR}/deploy/k8s/kustomization.yaml"; then
+      fail "deploy/k8s/kustomization.yaml must include deploy/k8s/secret.yaml"
+    fi
     if ! grep -q "ReadWriteMany" "${ROOT_DIR}/deploy/k8s/pvc.yaml"; then
       fail "deploy/k8s/pvc.yaml must use ReadWriteMany for shared artifact storage"
     fi

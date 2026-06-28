@@ -28,8 +28,13 @@ function Reject-Placeholders([string]$RelativePath) {
 if ($Mode -eq "k8s") {
   Require-File "deploy/k8s/pvc.yaml"
   Require-File "deploy/k8s/secret.yaml"
+  Require-File "deploy/k8s/kustomization.yaml"
   Reject-Placeholders "deploy/k8s/pvc.yaml"
   Reject-Placeholders "deploy/k8s/secret.yaml"
+  $kustomization = Get-Content -LiteralPath (Join-Path $RootDir "deploy/k8s/kustomization.yaml") -Raw
+  if ($kustomization -notmatch "- secret\.yaml") {
+    Fail "deploy/k8s/kustomization.yaml must include deploy/k8s/secret.yaml"
+  }
   $pvc = Get-Content -LiteralPath (Join-Path $RootDir "deploy/k8s/pvc.yaml") -Raw
   if ($pvc -notmatch "ReadWriteMany") {
     Fail "deploy/k8s/pvc.yaml must use ReadWriteMany for shared artifact storage"

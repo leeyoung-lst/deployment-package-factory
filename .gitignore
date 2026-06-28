@@ -10,6 +10,7 @@ data/
 *.zip
 
 deploy/generated/
+deploy/k8s/secret.yaml
 
 node_modules/
 **/node_modules/
