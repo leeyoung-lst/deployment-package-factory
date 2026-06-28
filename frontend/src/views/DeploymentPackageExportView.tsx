@@ -103,9 +103,10 @@ export const DeploymentPackageExportView: React.FC = () => {
   );
 
   const makePreviewPayload = useCallback((): PackagePreviewRequest => {
-    const selectedBusiness: BusinessSelection[] = businessServices.map((name) => {
-      const item = options?.businessServices.find((candidate) => candidate.key === name);
-      return { name, profile: item?.profile || "" };
+    const selectedBusiness: BusinessSelection[] = businessServices.map((value) => {
+      const item = options?.businessServices.find((candidate) => businessOptionValue(candidate) === value);
+      const fallback = parseBusinessOptionValue(value);
+      return { name: item?.key || fallback.key, profile: item?.profile || fallback.profile };
     });
     const { imageMode, ...previewTargetProfile } = targetDraft;
     return {
@@ -131,7 +132,11 @@ export const DeploymentPackageExportView: React.FC = () => {
     setSourceEnv(project.defaultSourceEnv);
     setDeployMode(project.defaultDeployModes[0] || "k8s");
     setPlatformServices(project.defaultPlatformServices.filter((key) => serviceOptionsForEnv(sourceOptions?.platformServices ?? [], project.defaultSourceEnv).some((item) => item.key === key)));
-    setBusinessServices(project.defaultBusinessServices.map((item) => item.name).filter((key) => businessOptionsForEnv(sourceOptions?.businessServices ?? [], project.defaultSourceEnv).some((item) => item.key === key)));
+    setBusinessServices(
+      project.defaultBusinessServices
+        .map((item) => businessOptionValue({ key: item.name, profile: item.profile }))
+        .filter((value) => businessOptionsForEnv(sourceOptions?.businessServices ?? [], project.defaultSourceEnv).some((item) => businessOptionValue(item) === value)),
+    );
     const projectDatabases = serviceOptionsForEnv(sourceOptions?.databaseOptions ?? [], project.defaultSourceEnv);
     setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
     form.setFieldsValue({
@@ -157,7 +162,11 @@ export const DeploymentPackageExportView: React.FC = () => {
     setSourceEnv(project.defaultSourceEnv);
     setDeployMode(project.defaultDeployModes[0] || "k8s");
     setPlatformServices(project.defaultPlatformServices.filter((key) => serviceOptionsForEnv(sourceOptions.platformServices, project.defaultSourceEnv).some((item) => item.key === key)));
-    setBusinessServices(project.defaultBusinessServices.map((item) => item.name).filter((key) => businessOptionsForEnv(sourceOptions.businessServices, project.defaultSourceEnv).some((item) => item.key === key)));
+    setBusinessServices(
+      project.defaultBusinessServices
+        .map((item) => businessOptionValue({ key: item.name, profile: item.profile }))
+        .filter((value) => businessOptionsForEnv(sourceOptions.businessServices, project.defaultSourceEnv).some((item) => businessOptionValue(item) === value)),
+    );
     const projectDatabases = serviceOptionsForEnv(sourceOptions.databaseOptions, project.defaultSourceEnv);
     setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
     form.setFieldsValue({
@@ -186,7 +195,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       const required = runtimePlatform.filter((item) => item.required).map((item) => item.key);
       setPlatformServices((current) => Array.from(new Set([...required, ...current])));
       const runtimeBusiness = businessOptionsForEnv(payload.businessServices, nextSourceEnv);
-      setBusinessServices((current) => current.filter((key) => runtimeBusiness.some((item) => item.key === key)));
+      setBusinessServices((current) => current.filter((value) => runtimeBusiness.some((item) => businessOptionValue(item) === value)));
       const runtimeDatabases = serviceOptionsForEnv(payload.databaseOptions, nextSourceEnv);
       if (runtimeDatabases.some((item) => item.key === "postgres")) {
         setDatabase("postgres");
@@ -342,9 +351,9 @@ export const DeploymentPackageExportView: React.FC = () => {
 
   const disableBusiness = async (item: DeploymentServiceOption) => {
     if (!item.sourceEnv || !item.key) return;
-    setDisablingBusinessKey(`${item.sourceEnv}:${item.key}`);
+    setDisablingBusinessKey(businessPlatformRowKey(item));
     try {
-      await disableBusinessPlatform(item.sourceEnv as SourceEnv, item.key);
+      await disableBusinessPlatform(item.sourceEnv as SourceEnv, item.key, item.profile || "");
       message.success("业务平台已注销");
       await loadOptions();
       void refreshAuditEvents();
@@ -613,7 +622,7 @@ export const DeploymentPackageExportView: React.FC = () => {
               <h3 className={styles.sectionTitle}>业务平台服务</h3>
               <Checkbox.Group className={styles.serviceGrid} value={businessServices} onChange={onBusinessChange}>
                 {businessOptionsForSourceEnv.map((item) => (
-                  <Checkbox key={`${item.sourceEnv}-${item.key}`} value={item.key}>
+                  <Checkbox key={`${item.sourceEnv}-${item.key}-${item.profile || "default"}`} value={businessOptionValue(item)}>
                     <span className={styles.serviceItem}>
                       <span className={styles.serviceMain}>
                         <i className="ri-apps-2-line" />
@@ -940,7 +949,7 @@ function PlatformRegistryPanel({
                     danger
                     size="small"
                     icon={<i className="ri-forbid-line" />}
-                    loading={disablingBusinessKey === `${item.sourceEnv}:${item.key}`}
+                    loading={disablingBusinessKey === businessPlatformRowKey(item)}
                   >
                     注销
                   </Button>
@@ -1225,6 +1234,19 @@ function mergeTaskIntoList(tasks: PackageTask[], task: PackageTask) {
 
 function businessOptionsForEnv(items: DeploymentServiceOption[], sourceEnv: SourceEnv) {
   return items.filter((item) => item.registered && item.sourceEnv === sourceEnv && item.status !== "disabled");
+}
+
+function businessOptionValue(item: Pick<DeploymentServiceOption, "key" | "profile">) {
+  return `${item.key}::${item.profile || ""}`;
+}
+
+function businessPlatformRowKey(item: Pick<DeploymentServiceOption, "sourceEnv" | "key" | "profile">) {
+  return `${item.sourceEnv}:${item.key}:${item.profile || ""}`;
+}
+
+function parseBusinessOptionValue(value: string) {
+  const [key, profile = ""] = value.split("::", 2);
+  return { key, profile };
 }
 
 function serviceOptionsForEnv<T extends { sourceEnv?: SourceEnv | "" }>(items: T[], sourceEnv: SourceEnv) {

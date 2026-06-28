@@ -18,6 +18,7 @@ from deployment_package_factory.services.deployment_packages.dependency_resolver
 )
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     KubernetesRuntimeError,
+    RegisteredBusinessPlatform,
     disable_business_platform,
     register_business_platform,
 )
@@ -33,6 +34,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackageTask,
 )
 from deployment_package_factory.services.deployment_packages.repositories import create_audit_repository, create_task_repository
+from deployment_package_factory.services.deployment_packages.repositories import create_business_platform_repository
 from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 
@@ -47,6 +49,10 @@ router = APIRouter(
 _SETTINGS = load_settings()
 _TASK_REPO = create_task_repository(database_url=_SETTINGS.database_url, sqlite_path=_SETTINGS.task_db_path)
 _AUDIT_REPO = create_audit_repository(database_url=_SETTINGS.database_url, sqlite_path=_SETTINGS.audit_db_path)
+_BUSINESS_PLATFORM_REPO = create_business_platform_repository(
+    database_url=_SETTINGS.database_url,
+    sqlite_path=_SETTINGS.business_platform_db_path,
+)
 _TASK_EXECUTOR = PackageTaskExecutor(
     _TASK_REPO,
     PackageTaskExecutorConfig(
@@ -66,6 +72,10 @@ def get_audit_repository():
     return _AUDIT_REPO
 
 
+def get_business_platform_repository():
+    return _BUSINESS_PLATFORM_REPO
+
+
 def get_task_executor() -> PackageTaskExecutor:
     return _TASK_EXECUTOR
 
@@ -77,7 +87,7 @@ def should_run_background_tasks() -> bool:
 @router.get("/options")
 async def deployment_package_options() -> dict:
     catalog = load_catalog()
-    runtime_options = build_runtime_options(catalog)
+    runtime_options = build_runtime_options(catalog, _registered_business_platforms())
     return {
         "sourceEnvs": runtime_options.source_envs,
         "deployModes": ["k8s", "docker-compose"],
@@ -94,10 +104,16 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
     try:
         catalog = load_catalog()
         preview = resolve_package_preview(payload, catalog)
-        ensure_request_matches_runtime(payload, catalog)
+        registered_business = _registered_business_platforms()
+        ensure_request_matches_runtime(payload, catalog, registered_business)
         request, project = package_builder._apply_project_build_defaults(PackageBuildRequest.model_validate(payload.model_dump(by_alias=True)), catalog)
         image_tag = project.image_tag if project else "prod"
-        runtime_images = package_builder._discover_runtime_source_images(request.source_env, preview.images, image_tag)
+        runtime_images = package_builder._discover_runtime_source_images(
+            request.source_env,
+            preview.images,
+            image_tag,
+            _request_business_namespaces(request, registered_business),
+        )
         image_entries = package_builder._image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
         return preview.model_copy(update={"image_entries": image_entries})
     except (CatalogError, PackageBuildError, ValueError) as exc:
@@ -114,6 +130,10 @@ async def register_deployment_business_platform(
         result = register_business_platform(payload.source_env, payload.key, payload.name, payload.profile)
     except KubernetesRuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    platform = get_business_platform_repository().upsert_registered(
+        result,
+        metadata={"registeredBy": _operator(request, x_deployment_package_operator)},
+    )
     _audit(
         request,
         action="business-platform.register",
@@ -121,15 +141,15 @@ async def register_deployment_business_platform(
         target_id=result.namespace,
         message="Business platform namespace registered.",
         operator=x_deployment_package_operator,
-        metadata=result.__dict__,
+        metadata=platform.model_dump(by_alias=True),
     )
     return BusinessPlatformRegistrationResult(
         key=result.key,
         name=result.name,
         profile=result.profile,
-        namespace=result.namespace,
-        sourceEnv=result.source_env,
-        status=result.status,
+        namespace=platform.namespace,
+        sourceEnv=platform.source_env,
+        status=platform.status,
     )
 
 
@@ -138,12 +158,22 @@ async def disable_deployment_business_platform(
     source_env: str,
     business_key: str,
     request: Request,
+    profile: str = "",
     x_deployment_package_operator: str | None = Header(default=None),
 ) -> BusinessPlatformRegistrationResult:
     try:
-        result = disable_business_platform(source_env, business_key)
+        platform = get_business_platform_repository().resolve(source_env, business_key, profile)
+        result = disable_business_platform(source_env, business_key, platform.profile)
+        platform = get_business_platform_repository().upsert_registered(
+            result,
+            metadata={**platform.metadata, "disabledBy": _operator(request, x_deployment_package_operator)},
+        )
     except KubernetesRuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Business platform is not registered.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit(
         request,
         action="business-platform.disable",
@@ -151,15 +181,15 @@ async def disable_deployment_business_platform(
         target_id=result.namespace,
         message="Business platform namespace disabled.",
         operator=x_deployment_package_operator,
-        metadata=result.__dict__,
+        metadata=platform.model_dump(by_alias=True),
     )
     return BusinessPlatformRegistrationResult(
         key=result.key,
         name=result.name,
         profile=result.profile,
-        namespace=result.namespace,
-        sourceEnv=result.source_env,
-        status=result.status,
+        namespace=platform.namespace,
+        sourceEnv=platform.source_env,
+        status=platform.status,
     )
 
 
@@ -176,7 +206,7 @@ async def create_deployment_package(
     x_deployment_package_operator: str | None = Header(default=None),
 ) -> PackageTask:
     try:
-        ensure_request_matches_runtime(payload, load_catalog())
+        ensure_request_matches_runtime(payload, load_catalog(), _registered_business_platforms())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     repo = get_task_repository()
@@ -391,6 +421,34 @@ def _iter_file_chunks(path: Path, chunk_size: int = DOWNLOAD_CHUNK_SIZE):
             if not chunk:
                 break
             yield chunk
+
+
+def _registered_business_platforms() -> list[RegisteredBusinessPlatform]:
+    return [
+        RegisteredBusinessPlatform(
+            key=item.key,
+            name=item.name,
+            profile=item.profile,
+            namespace=item.namespace,
+            source_env=item.source_env,
+            status=item.status,
+        )
+        for item in get_business_platform_repository().list(include_disabled=True)
+    ]
+
+
+def _request_business_namespaces(request: PackageBuildRequest, platforms: list[RegisteredBusinessPlatform]) -> list[str]:
+    namespaces: list[str] = []
+    for selection in request.business_services:
+        for platform in platforms:
+            if (
+                platform.source_env == request.source_env
+                and platform.key == selection.name
+                and platform.profile == (selection.profile or "")
+                and platform.status != "disabled"
+            ):
+                namespaces.append(platform.namespace)
+    return list(dict.fromkeys(namespaces))
 
 
 def _audit(

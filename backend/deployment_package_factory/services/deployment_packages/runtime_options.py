@@ -7,9 +7,7 @@ from deployment_package_factory.services.deployment_packages import builder
 from deployment_package_factory.services.deployment_packages.dependency_resolver import resolve_package_preview
 from deployment_package_factory.services.deployment_packages.models import DeploymentCatalog, ProjectProfile
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
-    KubernetesRuntimeError,
     RegisteredBusinessPlatform,
-    list_registered_business_platforms,
     source_env_namespaces,
 )
 
@@ -24,12 +22,15 @@ class RuntimeOptions:
     projects: list[dict]
 
 
-def build_runtime_options(catalog: DeploymentCatalog) -> RuntimeOptions:
+def build_runtime_options(catalog: DeploymentCatalog, business_platforms: list[RegisteredBusinessPlatform] | None = None) -> RuntimeOptions:
     env_images: dict[str, list[builder.RuntimeSourceImage]] = {}
-    registered_business = _registered_business()
+    registered_business = business_platforms or []
     registered_envs = {item.source_env for item in registered_business if item.source_env}
     for source_env in _candidate_source_envs(registered_envs):
-        namespaces = source_env_namespaces(source_env)
+        namespaces = source_env_namespaces(
+            source_env,
+            [item.namespace for item in registered_business if item.source_env == source_env and item.status != "disabled"],
+        )
         images = builder._list_runtime_images(namespaces) if namespaces else []
         if images or source_env in registered_envs:
             env_images[source_env] = images
@@ -83,20 +84,21 @@ def build_runtime_options(catalog: DeploymentCatalog) -> RuntimeOptions:
     )
 
 
-def ensure_request_matches_runtime(payload, catalog: DeploymentCatalog) -> None:
-    runtime_options = build_runtime_options(catalog)
+def ensure_request_matches_runtime(payload, catalog: DeploymentCatalog, business_platforms: list[RegisteredBusinessPlatform] | None = None) -> None:
+    runtime_options = build_runtime_options(catalog, business_platforms)
     if payload.source_env not in runtime_options.source_envs:
         raise ValueError(f"Source environment {payload.source_env!r} was not found in the live Kubernetes environment.")
 
     active_business = {
-        item["key"]
+        (item["key"], item.get("profile") or "")
         for item in runtime_options.business_services
         if item.get("sourceEnv") == payload.source_env and item.get("status") != "disabled"
     }
-    requested_business = {item.name for item in payload.business_services}
+    requested_business = {(item.name, item.profile or "") for item in payload.business_services}
     missing_business = sorted(requested_business - active_business)
     if missing_business:
-        raise ValueError(f"Business platform is not registered in source environment {payload.source_env!r}: {missing_business}")
+        missing_label = [f"{key}:{profile}" if profile else key for key, profile in missing_business]
+        raise ValueError(f"Business platform is not registered in source environment {payload.source_env!r}: {missing_label}")
 
     active_platform = {
         item["key"]
@@ -147,13 +149,6 @@ def _candidate_source_envs(registered_envs: set[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def _registered_business() -> list[RegisteredBusinessPlatform]:
-    try:
-        return list_registered_business_platforms()
-    except KubernetesRuntimeError:
-        return []
-
-
 def _business_option(item: RegisteredBusinessPlatform) -> dict:
     return {
         "key": item.key,
@@ -194,7 +189,7 @@ def _runtime_projects(
         versions = _image_tags(capability.images, env_images[business.source_env])
         projects.append(
             ProjectProfile(
-                key=f"{business.source_env}-{business.key}",
+                key=f"{business.source_env}-{business.key}-{business.profile}" if business.profile else f"{business.source_env}-{business.key}",
                 name=f"{business.name} ({business.source_env})",
                 description=f"{business.namespace} 运行环境导出项目",
                 defaultVersion=versions[0] if versions else "",

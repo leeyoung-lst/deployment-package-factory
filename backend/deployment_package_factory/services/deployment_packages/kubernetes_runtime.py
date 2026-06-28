@@ -36,7 +36,7 @@ class RegisteredBusinessPlatform:
     status: str = "active"
 
 
-def source_env_namespaces(source_env: str) -> list[str]:
+def source_env_namespaces(source_env: str, business_namespaces: list[str] | None = None) -> list[str]:
     normalized_env = source_env.strip().lower()
     env_key = re.sub(r"[^A-Za-z0-9]+", "_", source_env.strip().upper())
     raw = os.getenv(f"DEPLOYMENT_PACKAGE_SOURCE_NAMESPACES_{env_key}", "").strip()
@@ -52,14 +52,18 @@ def source_env_namespaces(source_env: str) -> list[str]:
     try:
         namespaces.extend(_list_namespaces_by_label(LOCAL_AI_ENV_LABEL, normalized_env))
         namespaces.extend(_list_namespaces_by_label(ENV_LABEL, normalized_env))
-        namespaces.extend(item.namespace for item in list_registered_business_platforms(source_env))
+        namespaces.extend(business_namespaces or [])
+        if business_namespaces is None:
+            namespaces.extend(item.namespace for item in list_registered_business_platforms(source_env))
     except KubernetesRuntimeError:
         pass
     return list(dict.fromkeys(namespaces))
 
 
-def business_namespace(source_env: str, business_key: str) -> str:
-    return f"{_dns_label(source_env)}-business-{_dns_label(business_key)}"
+def business_namespace(source_env: str, business_key: str, profile: str = "") -> str:
+    profile_label = _dns_label(profile) if profile else ""
+    suffix = f"-{profile_label}" if profile_label else ""
+    return f"{_dns_label(source_env)}-biz-{_dns_label(business_key)}{suffix}"
 
 
 def list_registered_business_platforms(source_env: str | None = None, *, include_disabled: bool = False) -> list[RegisteredBusinessPlatform]:
@@ -100,7 +104,7 @@ def list_registered_business_platforms(source_env: str | None = None, *, include
 def register_business_platform(source_env: str, key: str, name: str = "", profile: str = "") -> RegisteredBusinessPlatform:
     normalized_env = _dns_label(source_env)
     normalized_key = _dns_label(key)
-    namespace = business_namespace(normalized_env, normalized_key)
+    namespace = business_namespace(normalized_env, normalized_key, profile)
     token = _require_service_account_token()
     existing = _get_namespace(namespace, token)
     labels = _business_namespace_labels(normalized_env, normalized_key, "active")
@@ -119,10 +123,10 @@ def register_business_platform(source_env: str, key: str, name: str = "", profil
     )
 
 
-def disable_business_platform(source_env: str, key: str) -> RegisteredBusinessPlatform:
+def disable_business_platform(source_env: str, key: str, profile: str = "") -> RegisteredBusinessPlatform:
     normalized_env = _dns_label(source_env)
     normalized_key = _dns_label(key)
-    namespace = business_namespace(normalized_env, normalized_key)
+    namespace = business_namespace(normalized_env, normalized_key, profile)
     token = _require_service_account_token()
     existing = _get_namespace(namespace, token)
     if not existing:
@@ -342,6 +346,9 @@ def _require_service_account_token() -> str:
 
 
 def _business_key_from_namespace(namespace: str) -> str:
+    match = re.match(r"^[a-z0-9-]+-biz-([a-z0-9-]+?)(?:-[0-9]+x[0-9]+)?$", namespace)
+    if match:
+        return match.group(1)
     if "-business-" not in namespace:
         return ""
     return namespace.rsplit("-business-", 1)[-1]

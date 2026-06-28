@@ -31,6 +31,7 @@ from deployment_package_factory.services.deployment_packages.models import (
 )
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     KubernetesRuntimeError,
+    business_namespace,
     create_image_export_pod,
     delete_pod,
     get_pod,
@@ -122,7 +123,12 @@ def build_deployment_package(
     request, project = _apply_project_build_defaults(request, catalog)
     preview = resolve_package_preview(request, catalog)
     image_tag = project.image_tag if project else "prod"
-    runtime_images = _discover_runtime_source_images(request.source_env, preview.images, image_tag)
+    runtime_images = _discover_runtime_source_images(
+        request.source_env,
+        preview.images,
+        image_tag,
+        _request_business_namespaces(request),
+    )
     image_entries = _image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
     manifest = _manifest(package_id, request, preview, image_entries, project, image_tag)
 
@@ -332,8 +338,16 @@ def _image_entries(
     return sorted(entries, key=lambda item: (item["group"], item["targetRef"]))
 
 
-def _discover_runtime_source_images(source_env: str, images: dict[str, list[str]], default_tag: str) -> dict[str, RuntimeSourceImage]:
-    namespaces = _source_env_namespaces(source_env)
+def _discover_runtime_source_images(
+    source_env: str,
+    images: dict[str, list[str]],
+    default_tag: str,
+    business_namespaces: list[str] | None = None,
+) -> dict[str, RuntimeSourceImage]:
+    try:
+        namespaces = _source_env_namespaces(source_env, business_namespaces)
+    except TypeError:
+        namespaces = _source_env_namespaces(source_env)
     if not namespaces:
         return {}
     runtime_images = _list_runtime_images(namespaces)
@@ -350,8 +364,16 @@ def _discover_runtime_source_images(source_env: str, images: dict[str, list[str]
     return resolved
 
 
-def _source_env_namespaces(source_env: str) -> list[str]:
-    return source_env_namespaces(source_env)
+def _source_env_namespaces(source_env: str, business_namespaces: list[str] | None = None) -> list[str]:
+    return source_env_namespaces(source_env, business_namespaces)
+
+
+def _request_business_namespaces(request: PackageBuildRequest) -> list[str]:
+    return [
+        business_namespace(request.source_env, item.name, item.profile)
+        for item in request.business_services
+        if item.name
+    ]
 
 
 def _list_runtime_images(namespaces: list[str]) -> list[RuntimeSourceImage]:

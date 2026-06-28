@@ -1,20 +1,31 @@
 from __future__ import annotations
 
 import time
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
 from deployment_package_factory.api import deployment_packages
-from deployment_package_factory.services.deployment_packages import builder, task_executor
-from deployment_package_factory.services.deployment_packages import runtime_options
+from deployment_package_factory.services.deployment_packages import builder, runtime_options, task_executor
+from deployment_package_factory.services.deployment_packages.business_platform_repository import BusinessPlatformRepository
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, PackageBuildResult
 from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
+
+
+@pytest.fixture(autouse=True)
+def _isolate_business_platform_repository(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        deployment_packages,
+        "_BUSINESS_PLATFORM_REPO",
+        BusinessPlatformRepository(tmp_path / "business-platforms.sqlite3"),
+    )
 
 
 def _client() -> TestClient:
@@ -54,11 +65,11 @@ def test_deployment_package_options_returns_only_runtime_services(monkeypatch: p
         "workflow-camunda",
     }
     assert [item["key"] for item in payload["businessServices"]] == ["eam"]
-    assert payload["businessServices"][0]["namespace"] == "test-business-eam"
+    assert payload["businessServices"][0]["namespace"] == "test-biz-eam-4x60"
     assert payload["businessServices"][0]["sourceEnv"] == "test"
     assert {item["key"] for item in payload["databaseOptions"]} == {"postgres"}
     assert {item["key"] for item in payload["middleware"]} == {"camunda", "iotdb", "minio", "redis"}
-    assert [item["key"] for item in payload["projects"]] == ["test-eam"]
+    assert [item["key"] for item in payload["projects"]] == ["test-eam-4x60"]
 
 
 def test_deployment_package_api_requires_token_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,7 +152,7 @@ def test_register_and_disable_business_platform_api(monkeypatch: pytest.MonkeyPa
         key="eam",
         name="EAM",
         profile="4x60",
-        namespace="test-business-eam",
+        namespace="test-biz-eam-4x60",
         source_env="test",
         status="active",
     )
@@ -149,12 +160,12 @@ def test_register_and_disable_business_platform_api(monkeypatch: pytest.MonkeyPa
         key="eam",
         name="EAM",
         profile="4x60",
-        namespace="test-business-eam",
+        namespace="test-biz-eam-4x60",
         source_env="test",
         status="disabled",
     )
     monkeypatch.setattr(deployment_packages, "register_business_platform", lambda source_env, key, name, profile: registered)
-    monkeypatch.setattr(deployment_packages, "disable_business_platform", lambda source_env, business_key: disabled)
+    monkeypatch.setattr(deployment_packages, "disable_business_platform", lambda source_env, business_key, profile="": disabled)
 
     created = _client().post(
         "/api/deployment-packages/business-platforms/register",
@@ -163,12 +174,29 @@ def test_register_and_disable_business_platform_api(monkeypatch: pytest.MonkeyPa
     removed = _client().post("/api/deployment-packages/business-platforms/test/eam/disable")
 
     assert created.status_code == 200, created.text
-    assert created.json()["namespace"] == "test-business-eam"
+    assert created.json()["namespace"] == "test-biz-eam-4x60"
     assert removed.status_code == 200, removed.text
     assert removed.json()["status"] == "disabled"
     actions = [event.action for event in audit_repo.list(limit=10)]
     assert "business-platform.register" in actions
     assert "business-platform.disable" in actions
+
+
+def test_preview_rejects_runtime_business_without_db_registration(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch, seed_business=False)
+
+    response = _client().post(
+        "/api/deployment-packages/preview",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "database": "postgres",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Business platform is not registered" in response.text
 
 
 def test_deployment_package_preview_rejects_unknown_database() -> None:
@@ -276,7 +304,7 @@ def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, mon
         json={
             "sourceEnv": "test",
             "deployModes": ["k8s"],
-            "businessServices": [{"name": "eam"}],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
             "database": "postgres",
         },
     )
@@ -302,7 +330,7 @@ def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path,
         json={
             "sourceEnv": "test",
             "deployModes": ["k8s"],
-            "businessServices": [{"name": "eam"}],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
             "database": "postgres",
             "imageMode": "image-archive",
         },
@@ -454,13 +482,13 @@ def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: PackageTaskRepository, outp
     return audit_repo
 
 
-def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business: bool = True) -> None:
     registered = [
         RegisteredBusinessPlatform(
             key="eam",
             name="EAM",
             profile="4x60",
-            namespace="test-business-eam",
+            namespace="test-biz-eam-4x60",
             source_env="test",
             status="active",
         )
@@ -479,9 +507,27 @@ def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         ("192.168.10.210/local-ai/apache/iotdb:latest", "iotdb"),
     ]
 
-    monkeypatch.setattr(runtime_options, "list_registered_business_platforms", lambda: registered)
-    monkeypatch.setattr(runtime_options, "source_env_namespaces", lambda source_env: ["local-ai", "test-business-eam"] if source_env == "test" else [])
-    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env: ["local-ai", "test-business-eam"] if source_env == "test" else [])
+    if seed_business:
+        repo = BusinessPlatformRepository(Path(tempfile.mkdtemp()) / "business.sqlite3")
+        for item in registered:
+            repo.upsert_registered(item)
+        monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
+
+    monkeypatch.setattr(
+        runtime_options,
+        "source_env_namespaces",
+        lambda source_env, business_namespaces=None: ["local-ai", *(business_namespaces or [])] if source_env == "test" else [],
+    )
+    monkeypatch.setattr(
+        deployment_packages.package_builder,
+        "_source_env_namespaces",
+        lambda source_env, business_namespaces=None: ["local-ai", *(business_namespaces or [])] if source_env == "test" else [],
+    )
+    monkeypatch.setattr(
+        builder,
+        "_source_env_namespaces",
+        lambda source_env, business_namespaces=None: ["local-ai", *(business_namespaces or [])] if source_env == "test" else [],
+    )
     monkeypatch.setattr(
         builder,
         "_list_runtime_images",

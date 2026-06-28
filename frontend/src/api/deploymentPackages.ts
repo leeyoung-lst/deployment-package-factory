@@ -233,9 +233,10 @@ export function registerBusinessPlatform(payload: BusinessPlatformRegistrationRe
   });
 }
 
-export function disableBusinessPlatform(sourceEnv: SourceEnv, businessKey: string) {
+export function disableBusinessPlatform(sourceEnv: SourceEnv, businessKey: string, profile = "") {
+  const query = profile ? `?profile=${encodeURIComponent(profile)}` : "";
   return request<BusinessPlatformRegistrationResult>(
-    `/api/deployment-packages/business-platforms/${encodeURIComponent(sourceEnv)}/${encodeURIComponent(businessKey)}/disable`,
+    `/api/deployment-packages/business-platforms/${encodeURIComponent(sourceEnv)}/${encodeURIComponent(businessKey)}/disable${query}`,
     { method: "POST" },
   );
 }

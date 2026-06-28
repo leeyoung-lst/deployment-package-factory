@@ -19,7 +19,7 @@ def test_register_business_platform_stores_display_fields_in_annotations(monkeyp
 
     result = kubernetes_runtime.register_business_platform("test", "eam", "设备管理", "4x60")
 
-    assert result.namespace == "test-business-eam"
+    assert result.namespace == "test-biz-eam-4x60"
     create_call = next(call for call in calls if call[0] == "POST")
     metadata = create_call[2]["metadata"]  # type: ignore[index]
     assert metadata["labels"][kubernetes_runtime.BUSINESS_KEY_LABEL] == "eam"
@@ -44,7 +44,7 @@ def test_source_env_namespaces_includes_local_ai_labeled_namespaces(monkeypatch,
                 ]
             }
         if "deployment-package-factory.local-ai/environment%3Dtest" in path or "deployment-package-factory.local-ai/environment=test" in path:
-            return {"items": [{"metadata": {"name": "test-business-eam"}}]}
+            return {"items": [{"metadata": {"name": "test-biz-eam-4x60"}}]}
         return {"items": []}
 
     monkeypatch.setattr(kubernetes_runtime, "_request_json", fake_request_json)
@@ -54,5 +54,5 @@ def test_source_env_namespaces_includes_local_ai_labeled_namespaces(monkeypatch,
         "local-ai",
         "test-middleware-public",
         "test-base-public",
-        "test-business-eam",
+        "test-biz-eam-4x60",
     ]

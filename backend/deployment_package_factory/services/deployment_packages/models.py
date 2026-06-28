@@ -146,6 +146,20 @@ class BusinessPlatformRegistrationResult(BaseModel):
     status: str
 
 
+class BusinessPlatform(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    key: str
+    name: str
+    profile: str = ""
+    namespace: str
+    source_env: str = Field(alias="sourceEnv")
+    status: str = "active"
+    metadata: dict = Field(default_factory=dict)
+    created_at: str = Field(alias="createdAt")
+    updated_at: str = Field(alias="updatedAt")
+
+
 class PackagePreview(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

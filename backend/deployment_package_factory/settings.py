@@ -14,6 +14,7 @@ class DeploymentPackageSettings:
     database_url: str
     task_db_path: Path
     audit_db_path: Path
+    business_platform_db_path: Path
     output_dir: Path
     api_token: str
     max_concurrent_builds: int
@@ -33,12 +34,16 @@ def load_settings() -> DeploymentPackageSettings:
     audit_db_path = Path(
         os.getenv("DEPLOYMENT_PACKAGE_AUDIT_DB", str(data_dir / "deployment-package-audit.sqlite3"))
     ).expanduser()
+    business_platform_db_path = Path(
+        os.getenv("DEPLOYMENT_PACKAGE_BUSINESS_PLATFORM_DB", str(data_dir / "deployment-package-business-platforms.sqlite3"))
+    ).expanduser()
     output_dir = Path(os.getenv("DEPLOYMENT_PACKAGE_OUTPUT_DIR", str(data_dir / "deployment-packages"))).expanduser()
     return DeploymentPackageSettings(
         data_dir=data_dir,
         database_url=os.getenv("DEPLOYMENT_PACKAGE_DATABASE_URL", "").strip(),
         task_db_path=task_db_path,
         audit_db_path=audit_db_path,
+        business_platform_db_path=business_platform_db_path,
         output_dir=output_dir,
         api_token=os.getenv("DEPLOYMENT_PACKAGE_API_TOKEN", "").strip(),
         max_concurrent_builds=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS"), default=1),
