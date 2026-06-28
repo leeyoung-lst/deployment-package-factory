@@ -245,6 +245,12 @@
   gap: 10px;
 }
 
+.validationSummary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .metricItem {
   display: grid;
   gap: 4px;
@@ -284,6 +290,7 @@
   }
 
   .taskItem,
+  .validationSummary,
   .cleanupSummary {
     grid-template-columns: 1fr;
   }

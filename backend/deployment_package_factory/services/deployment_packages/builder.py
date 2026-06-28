@@ -134,7 +134,8 @@ def build_deployment_package(
             json.dumps({"images": image_entries, "archives": _archive_lock(package_root)}, ensure_ascii=False, indent=2) + "\n",
         )
 
-    _write_text(package_root / "package-index.json", json.dumps(_package_index(package_root, manifest), ensure_ascii=False, indent=2) + "\n")
+    package_index = _package_index(package_root, manifest)
+    _write_text(package_root / "package-index.json", json.dumps(package_index, ensure_ascii=False, indent=2) + "\n")
     sha_file = package_root / "security" / "SHA256SUMS"
     _write_text(sha_file, _sha256s(package_root))
 
@@ -150,6 +151,8 @@ def build_deployment_package(
         workDir=str(work_dir),
         artifactPath=str(artifact_path),
         checksumPath=str(checksum_path),
+        artifactSize=artifact_path.stat().st_size,
+        validationSummary=_validation_summary(package_root, artifact_path, package_index, image_entries, request.image_mode),
         sha256=digest,
         manifest=manifest,
     )
@@ -394,6 +397,30 @@ def _archive_lock(package_root: Path) -> list[dict]:
     for path in sorted(item for item in archive_dir.iterdir() if item.is_file() and item.name != ".gitkeep"):
         result.append({"file": path.name, "sha256": _file_sha256(path), "size": path.stat().st_size})
     return result
+
+
+def _validation_summary(
+    package_root: Path,
+    artifact_path: Path,
+    package_index: dict,
+    image_entries: list[dict],
+    image_mode: str,
+) -> dict:
+    archive_dir = package_root / "images" / "archives"
+    archive_files = {
+        path.name
+        for path in archive_dir.iterdir()
+        if path.is_file() and path.name != ".gitkeep"
+    } if archive_dir.exists() else set()
+    expected_archives = {item["archiveFile"] for item in image_entries} if image_mode == "image-archive" else set()
+    return {
+        "artifactSize": artifact_path.stat().st_size,
+        "packageIndexFileCount": package_index.get("summary", {}).get("fileCount", 0),
+        "packageIndexTotalBytes": package_index.get("summary", {}).get("totalBytes", 0),
+        "imageEntryCount": len(image_entries),
+        "imageArchiveCount": len(archive_files),
+        "missingImageArchiveCount": len(expected_archives - archive_files),
+    }
 
 
 def _package_index(package_root: Path, manifest: dict) -> dict:

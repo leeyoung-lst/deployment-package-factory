@@ -29,6 +29,12 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert checksum.exists()
     assert result.sha256
     assert result.checksum_path == str(checksum)
+    assert result.artifact_size == artifact.stat().st_size
+    assert result.validation_summary["artifactSize"] == artifact.stat().st_size
+    assert result.validation_summary["packageIndexFileCount"] > 0
+    assert result.validation_summary["imageEntryCount"] > 0
+    assert result.validation_summary["imageArchiveCount"] == 0
+    assert result.validation_summary["missingImageArchiveCount"] == 0
     assert checksum.read_text(encoding="utf-8") == f"{result.sha256}  {artifact.name}\n"
     assert result.manifest["businessServices"] == ["eam"]
     assert result.manifest["database"] == "postgres"
@@ -342,6 +348,10 @@ def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -
     assert any(command[:2] == ["docker", "pull"] for command in commands)
     assert any(command[:2] == ["docker", "save"] for command in commands)
     assert lock["archives"]
+    assert result.artifact_size > 0
+    assert result.validation_summary["imageEntryCount"] == len(lock["images"])
+    assert result.validation_summary["imageArchiveCount"] == len(lock["archives"])
+    assert result.validation_summary["missingImageArchiveCount"] == 0
     assert all(item["targetRef"].startswith("harbor.example.com/prod/") for item in lock["images"])
     assert all((root / "images" / "archives" / item["file"]).exists() for item in lock["archives"])
 

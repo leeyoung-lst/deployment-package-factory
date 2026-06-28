@@ -136,6 +136,8 @@ class PackageBuildResult(BaseModel):
     work_dir: str = Field(alias="workDir")
     artifact_path: str = Field(alias="artifactPath")
     checksum_path: str = Field(default="", alias="checksumPath")
+    artifact_size: int = Field(default=0, alias="artifactSize")
+    validation_summary: dict = Field(default_factory=dict, alias="validationSummary")
     sha256: str
     manifest: dict
 

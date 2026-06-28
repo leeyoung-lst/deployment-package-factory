@@ -533,6 +533,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                     <span className={styles.muted}>SHA256</span>
                     <span className={styles.mono}>{task.result.sha256}</span>
                   </div>
+                  <ValidationSummary result={task.result} />
                   <div className={styles.resultRow}>
                     <span className={styles.muted}>产物路径</span>
                     <Space direction="vertical" size={4}>
@@ -653,6 +654,35 @@ function ImageEnvironmentStatus({ value, loading }: { value: ImageExportEnvironm
       <span className={styles.muted}>
         {value?.message || "镜像归档模式需要导包 worker 可访问镜像仓库，并具备 skopeo 或 Docker CLI 导出能力。"}
       </span>
+    </div>
+  );
+}
+
+function ValidationSummary({ result }: { result: NonNullable<PackageTask["result"]> }) {
+  const summary = result.validationSummary || {};
+  const artifactSize = summary.artifactSize || result.artifactSize || 0;
+  return (
+    <div className={styles.validationSummary}>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>包大小</span>
+        <strong>{formatBytes(artifactSize)}</strong>
+      </div>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>索引文件</span>
+        <strong>{summary.packageIndexFileCount ?? 0}</strong>
+      </div>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>镜像条目</span>
+        <strong>{summary.imageEntryCount ?? 0}</strong>
+      </div>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>镜像归档</span>
+        <strong>{summary.imageArchiveCount ?? 0}</strong>
+      </div>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>缺失归档</span>
+        <strong>{summary.missingImageArchiveCount ?? 0}</strong>
+      </div>
     </div>
   );
 }

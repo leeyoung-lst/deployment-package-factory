@@ -101,6 +101,16 @@ export interface PackageBuildResult {
   packageId: string;
   workDir: string;
   artifactPath: string;
+  checksumPath: string;
+  artifactSize: number;
+  validationSummary: {
+    artifactSize?: number;
+    packageIndexFileCount?: number;
+    packageIndexTotalBytes?: number;
+    imageEntryCount?: number;
+    imageArchiveCount?: number;
+    missingImageArchiveCount?: number;
+  };
   sha256: string;
   manifest: Record<string, unknown>;
 }
