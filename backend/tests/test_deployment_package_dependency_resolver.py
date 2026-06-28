@@ -65,12 +65,29 @@ def test_project_defaults_drive_preview_selection() -> None:
     assert [item.key for item in preview.business_services] == ["mes"]
     assert preview.database.key == "dm"
     assert "dm" in {item.key for item in preview.middleware}
+    assert any("国产化数据库" in warning for warning in preview.warnings)
 
 
 def test_unknown_database_is_rejected() -> None:
     catalog = load_catalog()
     with pytest.raises(CatalogError):
         resolve_package_preview(PackagePreviewRequest(database="mysql"), catalog)
+
+
+def test_database_disallowed_by_rules_is_rejected() -> None:
+    catalog = load_catalog().model_copy(update={"allowed_databases": ["postgres"]})
+    with pytest.raises(CatalogError, match="not allowed"):
+        resolve_package_preview(PackagePreviewRequest(database="dm"), catalog)
+
+
+def test_preview_warns_when_no_business_service_selected() -> None:
+    catalog = load_catalog()
+    preview = resolve_package_preview(
+        PackagePreviewRequest(platformServices=["ai-agent"], businessServices=[], database="postgres"),
+        catalog,
+    )
+
+    assert any("未选择核心业务服务" in warning for warning in preview.warnings)
 
 
 def test_unknown_project_is_rejected() -> None:

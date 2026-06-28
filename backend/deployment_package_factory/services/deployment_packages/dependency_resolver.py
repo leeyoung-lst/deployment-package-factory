@@ -16,6 +16,8 @@ def resolve_package_preview(request: PackagePreviewRequest, catalog: DeploymentC
     database_key = request.database
     if database_key not in catalog.database_options:
         raise CatalogError(f"Unsupported database option {database_key!r}.")
+    if catalog.allowed_databases and database_key not in catalog.allowed_databases:
+        raise CatalogError(f"Database option {database_key!r} is not allowed by dependency rules.")
 
     selected_business = [item.name for item in request.business_services]
     unknown_business = sorted(set(selected_business) - set(catalog.business))
@@ -79,13 +81,14 @@ def resolve_package_preview(request: PackagePreviewRequest, catalog: DeploymentC
         for key in sorted(middleware_keys)
     ]
 
+    warnings = _warnings(request, catalog, selected_business, middleware_keys)
     return PackagePreview(
         platformServices=platform_items,
         businessServices=business_items,
         middleware=middleware_items,
         database=catalog.database_options[database_key],
         images=_resolve_images(selected_platform, selected_business, middleware_keys, catalog),
-        warnings=[],
+        warnings=warnings,
     )
 
 
@@ -171,3 +174,18 @@ def _resolve_images(
         "business": business_images,
         "middleware": sorted(set(middleware_images)),
     }
+
+
+def _warnings(
+    request: PackagePreviewRequest,
+    catalog: DeploymentCatalog,
+    selected_business: list[str],
+    middleware_keys: set[str],
+) -> list[str]:
+    warnings: list[str] = []
+    if not selected_business:
+        warnings.append("未选择核心业务服务，部署包将只包含基础平台能力。")
+    database = catalog.database_options[request.database]
+    if database.domestic:
+        warnings.append(f"已选择国产化数据库 {database.name}，请确认业务 SQL 与驱动适配已完成。")
+    return warnings
