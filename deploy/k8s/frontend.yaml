@@ -34,7 +34,7 @@ spec:
                 - ALL
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
           env:
             - name: DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL
               value: ""

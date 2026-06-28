@@ -4,9 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_OVERLAY_TEMPLATE_DIR = PROJECT_ROOT / "templates" / "overlays"
+from deployment_package_factory.services.deployment_packages.template_paths import default_overlay_template_dir
 
 
 DATABASE_INIT_PATHS = {
@@ -47,7 +45,7 @@ def render_init_files(manifest: dict, template_dir: Path | None = None) -> list[
     if "camunda" in middleware:
         files.append(RenderedInitFile(PurePosixPath(MIDDLEWARE_INIT_PATHS["camunda"]), _camunda_init_script(manifest), executable=True))
 
-    files.extend(_project_init_files(manifest, template_dir or DEFAULT_OVERLAY_TEMPLATE_DIR))
+    files.extend(_project_init_files(manifest, template_dir or default_overlay_template_dir()))
     return files
 
 

@@ -19,8 +19,25 @@ spec:
         - protocol: TCP
           port: 80
         - protocol: TCP
+          port: 8080
+        - protocol: TCP
           port: 8096
+        - protocol: TCP
+          port: 5432
   egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: deployment-package-factory
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8096
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 80
     - to:
         - namespaceSelector: {}
       ports:

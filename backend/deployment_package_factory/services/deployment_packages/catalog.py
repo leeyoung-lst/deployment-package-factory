@@ -12,10 +12,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     MiddlewareOption,
     ProjectProfile,
 )
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_CATALOG_DIR = PROJECT_ROOT / "templates" / "catalog"
+from deployment_package_factory.services.deployment_packages.template_paths import default_catalog_dir
 
 
 class CatalogError(ValueError):
@@ -45,7 +42,7 @@ def _capabilities(raw: dict[str, Any], section: str) -> dict[str, Capability]:
 
 
 def load_catalog(catalog_dir: Path | None = None) -> DeploymentCatalog:
-    base = catalog_dir or DEFAULT_CATALOG_DIR
+    base = catalog_dir or default_catalog_dir()
     platform_raw = _read_yaml(base / "platform.yaml")
     business_raw = _read_yaml(base / "business.yaml")
     middleware_raw = _read_yaml(base / "middleware.yaml")

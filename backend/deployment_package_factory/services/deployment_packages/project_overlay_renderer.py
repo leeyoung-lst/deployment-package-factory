@@ -4,9 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_OVERLAY_TEMPLATE_DIR = PROJECT_ROOT / "templates" / "overlays"
+from deployment_package_factory.services.deployment_packages.template_paths import default_overlay_template_dir
 
 
 @dataclass(frozen=True)
@@ -26,7 +24,7 @@ def render_project_overlay_files(manifest: dict, template_dir: Path | None = Non
         RenderedOverlayFile(overlay_dir / "values.json", json.dumps(values, ensure_ascii=False, indent=2) + "\n"),
         RenderedOverlayFile(overlay_dir / "kustomization.yaml", _kustomization_stub(manifest, profile)),
     ]
-    files.extend(_template_files(project_key, overlay_dir, template_dir or DEFAULT_OVERLAY_TEMPLATE_DIR))
+    files.extend(_template_files(project_key, overlay_dir, template_dir or default_overlay_template_dir()))
     return files
 
 
