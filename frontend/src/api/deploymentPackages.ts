@@ -51,20 +51,23 @@ export interface PackagePreviewRequest {
   platformServices: string[];
   businessServices: BusinessSelection[];
   database: string;
+  targetProfile?: Partial<TargetProfile>;
 }
 
 export interface PackageBuildRequest extends PackagePreviewRequest {
   imageMode: "image-manifest" | "image-archive";
-  targetProfile: {
-    env: string;
-    domain: string;
-    sourceRegistry: string;
-    sourceRegistryInsecure: boolean;
-    registry: string;
-    namespacePrefix: string;
-    storageClass: string;
-    exportImages: boolean;
-  };
+  targetProfile: TargetProfile;
+}
+
+export interface TargetProfile {
+  env: string;
+  domain: string;
+  sourceRegistry: string;
+  sourceRegistryInsecure: boolean;
+  registry: string;
+  namespacePrefix: string;
+  storageClass: string;
+  exportImages: boolean;
 }
 
 export interface ProjectProfile {

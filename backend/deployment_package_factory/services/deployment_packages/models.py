@@ -72,18 +72,6 @@ class ProjectProfile(BaseModel):
     overlays: list[str] = Field(default_factory=list)
 
 
-class PackagePreviewRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    project_key: str = Field(default="", alias="projectKey")
-    product_version: str = Field(default="", alias="productVersion")
-    source_env: str = Field(default="test", alias="sourceEnv")
-    deploy_modes: list[str] = Field(default_factory=list, alias="deployModes")
-    platform_services: list[str] = Field(default_factory=list, alias="platformServices")
-    business_services: list[BusinessSelection] = Field(default_factory=list, alias="businessServices")
-    database: str = ""
-
-
 class TargetProfile(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -97,9 +85,21 @@ class TargetProfile(BaseModel):
     export_images: bool = Field(default=False, alias="exportImages")
 
 
+class PackagePreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    project_key: str = Field(default="", alias="projectKey")
+    product_version: str = Field(default="", alias="productVersion")
+    source_env: str = Field(default="test", alias="sourceEnv")
+    deploy_modes: list[str] = Field(default_factory=list, alias="deployModes")
+    platform_services: list[str] = Field(default_factory=list, alias="platformServices")
+    business_services: list[BusinessSelection] = Field(default_factory=list, alias="businessServices")
+    database: str = ""
+    target_profile: TargetProfile = Field(default_factory=TargetProfile, alias="targetProfile")
+
+
 class PackageBuildRequest(PackagePreviewRequest):
     image_mode: Literal["image-manifest", "image-archive"] = Field(default="image-manifest", alias="imageMode")
-    target_profile: TargetProfile = Field(default_factory=TargetProfile, alias="targetProfile")
 
 
 class ImageExportEnvironmentCheck(BaseModel):

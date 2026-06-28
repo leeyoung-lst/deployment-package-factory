@@ -99,6 +99,7 @@ export const DeploymentPackageExportView: React.FC = () => {
       const item = options?.businessServices.find((candidate) => candidate.key === name);
       return { name, profile: item?.profile || "" };
     });
+    const { imageMode, ...previewTargetProfile } = targetDraft;
     return {
       projectKey,
       productVersion,
@@ -107,8 +108,12 @@ export const DeploymentPackageExportView: React.FC = () => {
       platformServices,
       businessServices: selectedBusiness,
       database,
+      targetProfile: {
+        ...previewTargetProfile,
+        exportImages: imageMode === "image-archive",
+      },
     };
-  }, [businessServices, database, deployMode, options?.businessServices, platformServices, productVersion, projectKey, sourceEnv]);
+  }, [businessServices, database, deployMode, options?.businessServices, platformServices, productVersion, projectKey, sourceEnv, targetDraft]);
 
   const applyProjectDefaults = useCallback((key: string, sourceOptions = options) => {
     const project = sourceOptions?.projects.find((item) => item.key === key);
