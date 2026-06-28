@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ARG APT_MIRROR=""
 ARG APT_SECURITY_MIRROR=""
+ARG PIP_INDEX_URL=""
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -20,6 +21,7 @@ COPY backend/pyproject.toml /app/pyproject.toml
 COPY backend/deployment_package_factory /app/deployment_package_factory
 COPY templates /app/templates
 
+RUN if [ -n "${PIP_INDEX_URL}" ]; then pip config set global.index-url "${PIP_INDEX_URL}"; fi
 RUN pip install --no-cache-dir .
 
 RUN useradd --create-home --uid 10001 app \

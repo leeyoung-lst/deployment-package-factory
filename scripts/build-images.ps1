@@ -45,6 +45,9 @@ if ($env:BUILD_APT_MIRROR) {
 if ($env:BUILD_APT_SECURITY_MIRROR) {
   $BuildArgs += @("--build-arg", "APT_SECURITY_MIRROR=$env:BUILD_APT_SECURITY_MIRROR")
 }
+if ($env:BUILD_PIP_INDEX_URL) {
+  $BuildArgs += @("--build-arg", "PIP_INDEX_URL=$env:BUILD_PIP_INDEX_URL")
+}
 if ($env:BUILD_NPM_REGISTRY) {
   $BuildArgs += @("--build-arg", "NPM_REGISTRY=$env:BUILD_NPM_REGISTRY")
 }

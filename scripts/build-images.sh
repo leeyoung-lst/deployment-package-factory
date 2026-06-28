@@ -74,6 +74,9 @@ fi
 if [ -n "${BUILD_APT_SECURITY_MIRROR:-}" ]; then
   BUILD_ARGS+=(--build-arg "APT_SECURITY_MIRROR=${BUILD_APT_SECURITY_MIRROR}")
 fi
+if [ -n "${BUILD_PIP_INDEX_URL:-}" ]; then
+  BUILD_ARGS+=(--build-arg "PIP_INDEX_URL=${BUILD_PIP_INDEX_URL}")
+fi
 if [ -n "${BUILD_NPM_REGISTRY:-}" ]; then
   BUILD_ARGS+=(--build-arg "NPM_REGISTRY=${BUILD_NPM_REGISTRY}")
 fi
