@@ -60,7 +60,7 @@ pipeline {
           export BUILD_NO_PROXY_LIST="${BUILD_NO_PROXY_LIST:-}"
           export BUILD_APT_MIRROR="${BUILD_APT_MIRROR:-}"
           export BUILD_APT_SECURITY_MIRROR="${BUILD_APT_SECURITY_MIRROR:-}"
-          export BUILD_PIP_INDEX_URL="${BUILD_PIP_INDEX_URL:-}"
+          export BUILD_PIP_INDEX_URL="${BUILD_PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}"
           export BUILD_NPM_REGISTRY="${BUILD_NPM_REGISTRY:-}"
           bash scripts/build-images.sh --registry "${REGISTRY}" --repository "${REPOSITORY}" --tag "${EFFECTIVE_IMAGE_TAG}" ${cache_arg}
         '''
