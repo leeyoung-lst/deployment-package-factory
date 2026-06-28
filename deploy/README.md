@@ -130,6 +130,7 @@ deployment-package-factory.example.com
 - `deploy/k8s/pvc.yaml` 中的存储大小。backend 负责下载，worker 负责生成，两者必须能同时访问同一个产物卷；推荐 NFS、CephFS 或云厂商文件存储类 StorageClass。实际 RWX StorageClass 通过 `scripts/render-deploy-images.* --storage-class/-StorageClass` 生成到 `deploy/generated/pvc-storage-class-patch.yaml`。
 - `deploy/k8s/configmap.yaml` 中的并发数、保留天数和容量上限。
 - 复制 `deploy/k8s/secret.template.yaml` 为 `deploy/k8s/secret.yaml`，替换 `DEPLOYMENT_PACKAGE_DATABASE_URL`、`DEPLOYMENT_PACKAGE_API_TOKEN` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN`。`deploy/k8s/secret.yaml` 已被 `.gitignore` 忽略，并会随 `kubectl apply -k deploy/generated` 一起部署。K8s/生产部署必须使用外部 PostgreSQL 等生产关系库保存任务和审计元数据。
+- `deploy/k8s/networkpolicy.yaml` 默认只开放前端、后端、DNS、镜像/HTTP 出口和 PostgreSQL 出口；如果外部数据库、镜像仓库或对象存储使用了其他端口，需要按集群网络策略扩展。
 
 前端镜像启动时会根据 `DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN` 生成 `/runtime-config.js`，因此同一个前端镜像可以复用于 dev、test、prod；受保护环境下前端 token 应与后端 API token 保持一致。后续接入 IAM/OIDC 后可改为登录态令牌。
 

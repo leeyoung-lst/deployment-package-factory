@@ -22,10 +22,20 @@ spec:
         app.kubernetes.io/name: deployment-package-factory
         app.kubernetes.io/component: backend
     spec:
+      serviceAccountName: deployment-package-factory
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: deployment-package-factory-backend:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 8096

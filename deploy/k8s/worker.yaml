@@ -18,10 +18,20 @@ spec:
         app.kubernetes.io/name: deployment-package-factory
         app.kubernetes.io/component: worker
     spec:
+      serviceAccountName: deployment-package-factory
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
           image: deployment-package-factory-worker:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           envFrom:
             - configMapRef:
                 name: deployment-package-factory-config
