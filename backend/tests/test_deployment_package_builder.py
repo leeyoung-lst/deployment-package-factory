@@ -480,10 +480,40 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
     assert by_catalog["local-ai-eam-service:prod"]["sourceImageId"] == "192.168.10.210/local-ai/local-ai-eam-service@sha256:eam"
     assert by_catalog["local-ai-eam-service:prod"]["sourceNode"] == "k8s-wk1"
     assert by_catalog["sub-app-eam:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-sub-app-eam:k8s"
-    assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceRef"] == "postgres:16-alpine"
+    assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceRef"] == "192.168.10.210/local-ai/postgres:16-alpine"
+    assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceExportRef"] == "192.168.10.210/local-ai/postgres:16-alpine"
     assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceNode"] == "k8s-wk2"
     assert by_catalog["local-ai-eam-service:prod"]["targetRef"] == "harbor.prod/local-ai/local-ai-eam-service:prod"
     assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
+
+
+def test_image_entries_use_catalog_registry_when_runtime_image_is_short_name() -> None:
+    entries = builder._image_entries(
+        {"middleware": ["192.168.10.210/local-ai/redis:7.4-alpine"]},
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s"],
+            database="postgres",
+            targetProfile=TargetProfile(registry="harbor.prod/local-ai"),
+        ),
+        "prod",
+        {
+            "192.168.10.210/local-ai/redis:7.4-alpine": builder.RuntimeSourceImage(
+                source_ref="redis:7.4-alpine",
+                image_id="192.168.10.210/local-ai/redis@sha256:redis",
+                namespace="test-middleware-public",
+                pod="redis-0",
+                container="redis",
+                node="k8s-wk3",
+            )
+        },
+        require_runtime_sources=True,
+    )
+
+    assert entries[0]["sourceRef"] == "192.168.10.210/local-ai/redis:7.4-alpine"
+    assert entries[0]["sourceExportRef"] == "192.168.10.210/local-ai/redis:7.4-alpine"
+    assert entries[0]["sourceResolvedFrom"] == "kubernetes"
+    assert entries[0]["sourceImageId"] == "192.168.10.210/local-ai/redis@sha256:redis"
 
 
 def test_list_runtime_images_includes_pending_pod_spec_images(monkeypatch, tmp_path) -> None:
