@@ -13,6 +13,11 @@ pipeline {
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Image tag. Empty uses the Git commit SHA')
     string(name: 'STORAGE_CLASS', defaultValue: 'nfs-client', description: 'RWX StorageClass for package artifacts')
     string(name: 'KUBECONFIG_PATH', defaultValue: '/opt/jenkins/kube/config', description: 'Kubeconfig path on the Jenkins node')
+    string(name: 'BUILD_PROXY_URL', defaultValue: '', description: 'Optional HTTP/HTTPS proxy used only during Docker image builds')
+    string(name: 'BUILD_NO_PROXY_LIST', defaultValue: '127.0.0.1,localhost,192.168.10.0/24,192.168.10.210,192.168.10.211,192.168.10.220,.svc,.cluster.local', description: 'Optional no_proxy list passed to Docker image builds')
+    string(name: 'BUILD_APT_MIRROR', defaultValue: 'https://mirrors.aliyun.com/debian', description: 'Debian apt mirror used during backend and worker image builds. Empty keeps Docker image defaults.')
+    string(name: 'BUILD_APT_SECURITY_MIRROR', defaultValue: 'https://mirrors.aliyun.com/debian-security', description: 'Debian security apt mirror used during backend and worker image builds. Empty keeps Docker image defaults.')
+    string(name: 'BUILD_NPM_REGISTRY', defaultValue: 'https://registry.npmmirror.com', description: 'npm registry used during frontend image builds. Empty keeps npm defaults.')
     booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'Push backend, worker, and frontend images to Harbor')
     booleanParam(name: 'DEPLOY_TO_K8S', defaultValue: true, description: 'Apply deploy/generated to Kubernetes')
     booleanParam(name: 'USE_IN_CLUSTER_POSTGRES', defaultValue: true, description: 'Use the test namespace Postgres. Production should use an external database URL.')
@@ -50,6 +55,11 @@ pipeline {
           set -eux
           cache_arg=""
           if [ "${NO_CACHE}" = "true" ]; then cache_arg="--no-cache"; fi
+          export BUILD_PROXY_URL="${BUILD_PROXY_URL}"
+          export BUILD_NO_PROXY_LIST="${BUILD_NO_PROXY_LIST}"
+          export BUILD_APT_MIRROR="${BUILD_APT_MIRROR}"
+          export BUILD_APT_SECURITY_MIRROR="${BUILD_APT_SECURITY_MIRROR}"
+          export BUILD_NPM_REGISTRY="${BUILD_NPM_REGISTRY}"
           bash scripts/build-images.sh --registry "${REGISTRY}" --repository "${REPOSITORY}" --tag "${EFFECTIVE_IMAGE_TAG}" ${cache_arg}
         '''
       }

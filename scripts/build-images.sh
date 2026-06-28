@@ -68,6 +68,15 @@ if [ -n "${BUILD_NO_PROXY_LIST:-}" ]; then
   BUILD_ARGS+=(--build-arg "NO_PROXY=${BUILD_NO_PROXY_LIST}")
   BUILD_ARGS+=(--build-arg "no_proxy=${BUILD_NO_PROXY_LIST}")
 fi
+if [ -n "${BUILD_APT_MIRROR:-}" ]; then
+  BUILD_ARGS+=(--build-arg "APT_MIRROR=${BUILD_APT_MIRROR}")
+fi
+if [ -n "${BUILD_APT_SECURITY_MIRROR:-}" ]; then
+  BUILD_ARGS+=(--build-arg "APT_SECURITY_MIRROR=${BUILD_APT_SECURITY_MIRROR}")
+fi
+if [ -n "${BUILD_NPM_REGISTRY:-}" ]; then
+  BUILD_ARGS+=(--build-arg "NPM_REGISTRY=${BUILD_NPM_REGISTRY}")
+fi
 
 echo "Building ${BACKEND_IMAGE}"
 docker build "${BUILD_ARGS[@]}" -f "${REPO_ROOT}/backend/Dockerfile" -t "${BACKEND_IMAGE}" "${REPO_ROOT}"

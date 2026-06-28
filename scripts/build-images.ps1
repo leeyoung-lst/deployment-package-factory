@@ -29,6 +29,25 @@ $BuildArgs = @()
 if ($NoCache) {
   $BuildArgs += "--no-cache"
 }
+if ($env:BUILD_PROXY_URL) {
+  $BuildArgs += @("--build-arg", "HTTP_PROXY=$env:BUILD_PROXY_URL")
+  $BuildArgs += @("--build-arg", "HTTPS_PROXY=$env:BUILD_PROXY_URL")
+  $BuildArgs += @("--build-arg", "http_proxy=$env:BUILD_PROXY_URL")
+  $BuildArgs += @("--build-arg", "https_proxy=$env:BUILD_PROXY_URL")
+}
+if ($env:BUILD_NO_PROXY_LIST) {
+  $BuildArgs += @("--build-arg", "NO_PROXY=$env:BUILD_NO_PROXY_LIST")
+  $BuildArgs += @("--build-arg", "no_proxy=$env:BUILD_NO_PROXY_LIST")
+}
+if ($env:BUILD_APT_MIRROR) {
+  $BuildArgs += @("--build-arg", "APT_MIRROR=$env:BUILD_APT_MIRROR")
+}
+if ($env:BUILD_APT_SECURITY_MIRROR) {
+  $BuildArgs += @("--build-arg", "APT_SECURITY_MIRROR=$env:BUILD_APT_SECURITY_MIRROR")
+}
+if ($env:BUILD_NPM_REGISTRY) {
+  $BuildArgs += @("--build-arg", "NPM_REGISTRY=$env:BUILD_NPM_REGISTRY")
+}
 
 Write-Host "Building $BackendImage"
 docker build @BuildArgs -f "$RepoRoot/backend/Dockerfile" -t $BackendImage $RepoRoot

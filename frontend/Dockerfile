@@ -1,5 +1,7 @@
 FROM node:22-alpine AS build
 
+ARG NPM_REGISTRY=""
+
 WORKDIR /app
 
 COPY frontend/package.json /app/package.json
@@ -11,6 +13,7 @@ COPY frontend/vite.config.ts /app/vite.config.ts
 COPY frontend/src /app/src
 
 RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+RUN if [ -n "${NPM_REGISTRY}" ]; then pnpm config set registry "${NPM_REGISTRY}"; fi
 RUN pnpm install --frozen-lockfile --prod=false
 RUN pnpm build
 
