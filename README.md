@@ -101,6 +101,7 @@ GET /metrics
 - 生成包会写入 `package-index.json`，按 root/docs/k8s/docker-compose/init/overlays/images/scripts/security 分区登记文件、大小、SHA256 和可执行标记。
 - 生成包会写入 `verify.sh`、`verify.ps1` 和 `security/SHA256SUMS`，安装前默认校验文件完整性、包索引和镜像归档锁。
 - 生成包会写入 `quality-gate.sh`、`quality-gate.ps1` 和 `docs/quality-report.md`，统一执行完整性校验、K8s client dry-run 与 Docker Compose config 校验；运行结果写入 `docs/quality-report.runtime.md`。
+- K8s 生产部署中，任务/审计元数据存外部 PostgreSQL，真实生产包 tar.gz 和生成中工作目录存共享 RWX PVC 的 `/app/data/deployment-packages/artifacts/` 与 `/app/data/deployment-packages/work/`。
 
 ## 镜像导出模式
 
