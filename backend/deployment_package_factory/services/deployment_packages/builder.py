@@ -24,6 +24,7 @@ from deployment_package_factory.services.deployment_packages.models import (
 )
 from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
 from deployment_package_factory.services.deployment_packages.quality_renderer import QUALITY_GATE_CHECKS, QUALITY_GATE_VERSION, render_quality_gate_files
+from deployment_package_factory.services.deployment_packages.values_renderer import render_values_files
 from deployment_package_factory.services.deployment_packages.verify_renderer import VERIFIER_VERSION, render_package_verify_files
 
 
@@ -111,6 +112,9 @@ def build_deployment_package(
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_deployment_files(manifest):
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
+    for rendered_file in render_values_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_init_files(manifest):
@@ -469,6 +473,7 @@ def _package_index(package_root: Path, manifest: dict) -> dict:
                     "verify.ps1",
                     "quality-gate.sh",
                     "quality-gate.ps1",
+                    "deploy-values.json",
                 },
             ),
             "docs": _section_prefix(files, "docs/"),

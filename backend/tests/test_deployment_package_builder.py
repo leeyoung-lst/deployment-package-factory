@@ -49,6 +49,7 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
 
     root = f"local-ai-prod-package-{result.package_id}"
     assert f"{root}/manifest.json" in names
+    assert f"{root}/deploy-values.json" in names
     assert f"{root}/package-index.json" in names
     assert f"{root}/README.md" in names
     assert f"{root}/install.sh" in names
@@ -191,6 +192,7 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert any(item["path"] == "verify.ps1" for item in index["sections"]["root"])
     assert any(item["path"] == "quality-gate.sh" and item["executable"] for item in index["sections"]["root"])
     assert any(item["path"] == "quality-gate.ps1" for item in index["sections"]["root"])
+    assert any(item["path"] == "deploy-values.json" for item in index["sections"]["root"])
     assert any(item["path"] == "docs/quality-report.md" for item in index["sections"]["docs"])
     assert any(item["path"] == "overlays/mes-lite/values.json" for item in index["sections"]["overlays"])
     assert any(item["path"] == "scripts/load-images.sh" and item["executable"] for item in index["sections"]["scripts"])
@@ -280,6 +282,7 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
     deployments = (root / "k8s" / "deployments.yaml").read_text(encoding="utf-8")
     overlay_values = json.loads((root / "overlays" / "mes-lite" / "values.json").read_text(encoding="utf-8"))
+    deploy_values = json.loads((root / "deploy-values.json").read_text(encoding="utf-8"))
     overlay_sql = root / "overlays" / "mes-lite" / "files" / "init" / "dm" / "010_mes_lite_schema.sql"
     merged_init_sql = root / "init" / "project" / "mes-lite" / "dm" / "010_mes_lite_schema.sql"
     merged_qdrant = root / "init" / "project" / "mes-lite" / "qdrant" / "collections.json"
@@ -294,6 +297,14 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     assert result.manifest["targetProfile"]["registry"] == "harbor.example.com/mes"
     assert result.manifest["targetProfile"]["namespacePrefix"] == "mes-prod"
     assert result.manifest["targetProfile"]["domain"] == "mes.example.com"
+    assert deploy_values["schemaVersion"] == "deployment-values/v1"
+    assert deploy_values["projectKey"] == "mes-lite"
+    assert deploy_values["targetProfile"]["namespacePrefix"] == "mes-prod"
+    assert deploy_values["namespaces"]["basePublic"] == "mes-prod-base-public"
+    assert deploy_values["namespaces"]["business"]["mes"] == "mes-prod-business-mes"
+    assert deploy_values["database"]["key"] == "dm"
+    assert any(item["key"] == "mes" and item["group"] == "business" for item in deploy_values["services"])
+    assert deploy_values["images"]
     assert "harbor.example.com/mes/local-ai-mes-service:2026.06-lite" in deployments
     assert overlay_values["projectKey"] == "mes-lite"
     assert overlay_values["imageTag"] == "2026.06-lite"
