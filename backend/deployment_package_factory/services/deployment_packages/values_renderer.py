@@ -31,6 +31,7 @@ def render_values_files(manifest: dict) -> list[RenderedValuesFile]:
         "services": _services(manifest),
         "middleware": _middleware(manifest),
         "images": _images(manifest),
+        "validationSummary": manifest.get("validationSummary") or {},
         "initialization": {
             "root": "init/",
             "projectOverlay": f"init/project/{manifest.get('projectKey')}" if manifest.get("projectKey") else "",

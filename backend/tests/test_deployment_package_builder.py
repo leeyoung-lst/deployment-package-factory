@@ -303,6 +303,7 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     assert deploy_values["namespaces"]["basePublic"] == "mes-prod-base-public"
     assert deploy_values["namespaces"]["business"]["mes"] == "mes-prod-business-mes"
     assert deploy_values["database"]["key"] == "dm"
+    assert deploy_values["validationSummary"]["packageIndexFileCount"] > 0
     assert any(item["key"] == "mes" and item["group"] == "business" for item in deploy_values["services"])
     assert deploy_values["images"]
     assert "harbor.example.com/mes/local-ai-mes-service:2026.06-lite" in deployments

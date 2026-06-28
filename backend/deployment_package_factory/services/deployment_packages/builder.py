@@ -114,9 +114,6 @@ def build_deployment_package(
     for rendered_file in render_deployment_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
-    for rendered_file in render_values_files(manifest):
-        writer = _write_script if rendered_file.executable else _write_text
-        writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_init_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
@@ -138,6 +135,11 @@ def build_deployment_package(
             json.dumps({"images": image_entries, "archives": _archive_lock(package_root)}, ensure_ascii=False, indent=2) + "\n",
         )
 
+    package_index = _package_index(package_root, manifest)
+    manifest["validationSummary"] = _validation_summary(package_root, None, package_index, image_entries, request.image_mode)
+    for rendered_file in render_values_files(manifest):
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
     package_index = _package_index(package_root, manifest)
     _write_text(package_root / "package-index.json", json.dumps(package_index, ensure_ascii=False, indent=2) + "\n")
     sha_file = package_root / "security" / "SHA256SUMS"
@@ -405,7 +407,7 @@ def _archive_lock(package_root: Path) -> list[dict]:
 
 def _validation_summary(
     package_root: Path,
-    artifact_path: Path,
+    artifact_path: Path | None,
     package_index: dict,
     image_entries: list[dict],
     image_mode: str,
@@ -418,7 +420,7 @@ def _validation_summary(
     } if archive_dir.exists() else set()
     expected_archives = {item["archiveFile"] for item in image_entries} if image_mode == "image-archive" else set()
     return {
-        "artifactSize": artifact_path.stat().st_size,
+        "artifactSize": artifact_path.stat().st_size if artifact_path and artifact_path.exists() else 0,
         "packageIndexFileCount": package_index.get("summary", {}).get("fileCount", 0),
         "packageIndexTotalBytes": package_index.get("summary", {}).get("totalBytes", 0),
         "imageEntryCount": len(image_entries),

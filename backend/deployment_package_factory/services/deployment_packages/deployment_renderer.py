@@ -438,12 +438,83 @@ def _check_prerequisites_script() -> str:
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         'MODE="${1:-all}"\n'
+        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"\n'
         "\n"
         "require_command() {\n"
         '  if ! command -v "$1" >/dev/null 2>&1; then\n'
         '    echo "Missing required command: $1" >&2\n'
         "    exit 1\n"
         "  fi\n"
+        "}\n"
+        "\n"
+        "package_bytes() {\n"
+        '  if command -v python3 >/dev/null 2>&1 && [ -f "${PACKAGE_ROOT}/deploy-values.json" ]; then\n'
+        '    python3 - "${PACKAGE_ROOT}/deploy-values.json" <<\'PY\'\n'
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "values = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
+        "print(int(values.get('validationSummary', {}).get('packageIndexTotalBytes') or 0))\n"
+        "PY\n"
+        "    return 0\n"
+        "  fi\n"
+        '  if command -v python3 >/dev/null 2>&1 && [ -f "${PACKAGE_ROOT}/package-index.json" ]; then\n'
+        '    python3 - "${PACKAGE_ROOT}/package-index.json" <<\'PY\'\n'
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "index = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
+        "print(int(index.get('summary', {}).get('totalBytes') or 0))\n"
+        "PY\n"
+        "    return 0\n"
+        "  fi\n"
+        "  echo 0\n"
+        "}\n"
+        "\n"
+        "check_disk_space() {\n"
+        '  local required_bytes="$(package_bytes)"\n'
+        '  if [ "${required_bytes}" -le 0 ]; then\n'
+        '    echo "Disk space check skipped: package size metadata unavailable."\n'
+        "    return 0\n"
+        "  fi\n"
+        '  local available_kb="$(df -Pk "${PACKAGE_ROOT}" | awk \'NR==2 {print $4}\')"\n'
+        '  local available_bytes=$((available_kb * 1024))\n'
+        '  local minimum_bytes=$((required_bytes * 2))\n'
+        '  if [ "${available_bytes}" -lt "${minimum_bytes}" ]; then\n'
+        '    echo "Insufficient disk space: need at least ${minimum_bytes} bytes, available ${available_bytes} bytes." >&2\n'
+        "    exit 1\n"
+        "  fi\n"
+        '  echo "Disk space check passed: available ${available_bytes} bytes."\n'
+        "}\n"
+        "\n"
+        "check_image_archives() {\n"
+        '  if [ ! -f "${PACKAGE_ROOT}/deploy-values.json" ]; then\n'
+        '    echo "deploy-values.json not found; image archive preflight skipped."\n'
+        "    return 0\n"
+        "  fi\n"
+        '  if ! command -v python3 >/dev/null 2>&1; then\n'
+        '    echo "python3 is not available; image archive preflight skipped."\n'
+        "    return 0\n"
+        "  fi\n"
+        '  python3 - "${PACKAGE_ROOT}" <<\'PY\'\n'
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "root = Path(sys.argv[1])\n"
+        "values = json.loads((root / 'deploy-values.json').read_text(encoding='utf-8'))\n"
+        "if values.get('imageMode') != 'image-archive':\n"
+        "    raise SystemExit(0)\n"
+        "missing = []\n"
+        "for image in values.get('images', []):\n"
+        "    archive = image.get('archiveFile') or ''\n"
+        "    if archive and not (root / 'images' / 'archives' / archive).is_file():\n"
+        "        missing.append(archive)\n"
+        "if missing:\n"
+        "    print('Missing image archives: ' + ', '.join(missing), file=sys.stderr)\n"
+        "    raise SystemExit(1)\n"
+        "print('Image archive preflight passed.')\n"
+        "PY\n"
         "}\n"
         "\n"
         'case "${MODE}" in\n'
@@ -464,6 +535,8 @@ def _check_prerequisites_script() -> str:
         "    ;;\n"
         "esac\n"
         "\n"
+        "check_disk_space\n"
+        "check_image_archives\n"
         'echo "Prerequisite check passed for ${MODE}."\n'
     )
 

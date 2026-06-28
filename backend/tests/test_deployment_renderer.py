@@ -32,6 +32,9 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert '"${PACKAGE_ROOT}/scripts/secret-check.sh" k8s' in by_path["k8s/install.sh"]
     assert '"${PACKAGE_ROOT}/scripts/secret-check.sh" docker-compose' in by_path["docker-compose/install.sh"]
     assert '"${PACKAGE_ROOT}/init/run-init.sh" all' in by_path["docker-compose/install.sh"]
+    assert "check_disk_space" in by_path["scripts/check-prerequisites.sh"]
+    assert "check_image_archives" in by_path["scripts/check-prerequisites.sh"]
+    assert "Missing image archives" in by_path["scripts/check-prerequisites.sh"]
 
 
 def _manifest() -> dict:
