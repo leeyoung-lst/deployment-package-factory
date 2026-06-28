@@ -91,7 +91,7 @@ GET /metrics
 - 中间件依赖按所选基础能力和业务产品自动解析。
 - 生成包包含 manifest、安装文档、K8s namespace、Docker Compose 样例、初始化脚本占位、质量门禁脚本和安全摘要。
 - 镜像清单模式会生成 `images/images.txt`、`scripts/pull-images.sh`、`scripts/save-images.sh`、`scripts/load-images.sh`。
-- 镜像归档模式会调用本机 Docker CLI 执行 `docker pull` 和 `docker save`，将镜像 tar 写入 `images/archives/` 并记录 SHA256。
+- 镜像归档模式在 K8s worker 中优先使用 `skopeo` 进行无 daemon 镜像导出，本地运行时可回退到 Docker CLI，将镜像 tar 写入 `images/archives/` 并记录 SHA256。
 - K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装、卸载和 dry-run 脚本。
 - Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装、卸载和 dry-run 脚本。
 - 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 SQLite。
@@ -103,8 +103,8 @@ GET /metrics
 
 ## 镜像导出模式
 
-导包页面默认使用 `image-archive`，用于生成包含离线镜像 tar 的生产交付包。导包后端机器必须安装 Docker CLI、具备 Docker 执行权限，并能访问来源镜像仓库；否则任务会失败并返回明确错误。
-页面会调用 `GET /api/deployment-packages/image-export-environment` 检查 Docker CLI 和 daemon 是否可用；该检查只验证导出环境，不会提前拉取镜像。
+导包页面默认使用 `image-archive`，用于生成包含离线镜像 tar 的生产交付包。K8s 部署时 worker 镜像内置 `skopeo`，无需挂载宿主机 Docker socket；本地或 Compose 部署可回退到 Docker CLI。导包运行环境必须能访问来源镜像仓库，否则任务会失败并返回明确错误。
+页面会调用 `GET /api/deployment-packages/image-export-environment` 检查可用的镜像导出工具；该检查只验证导出环境，不会提前拉取镜像。
 
 `image-manifest` 适合在没有 Docker 或不希望立即拉取镜像时使用，部署包只包含镜像清单和脚本：
 
@@ -113,7 +113,7 @@ scripts/pull-images.sh
 scripts/save-images.sh
 ```
 
-`image-archive` 适合制作离线包。运行导包后端的机器必须已安装 Docker CLI，并且能够访问来源镜像仓库。失败时 API 会返回明确的 400 错误，例如 Docker 不可用或镜像拉取失败。
+`image-archive` 适合制作离线包。K8s worker 优先使用 `skopeo copy docker://... docker-archive:...`；如果没有 `skopeo`，本地模式会尝试 Docker CLI。失败时任务会记录明确错误，例如工具不可用、镜像仓库不可访问或镜像拉取失败。
 
 生产侧导入镜像：
 

@@ -345,6 +345,8 @@ def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -
 def test_check_image_export_environment_reports_available_docker(monkeypatch) -> None:
     calls: list[list[str]] = []
 
+    monkeypatch.setattr(builder.shutil, "which", lambda command: None)
+
     def fake_run(command, check, capture_output, text):
         calls.append(list(command))
         return subprocess.CompletedProcess(command, 0, stdout="Docker version 26.1.0\n", stderr="")
@@ -354,12 +356,35 @@ def test_check_image_export_environment_reports_available_docker(monkeypatch) ->
     result = builder.check_image_export_environment()
 
     assert result.available is True
+    assert result.export_tool == "docker"
     assert result.docker_version == "Docker version 26.1.0"
     assert result.message == "Docker CLI and daemon are available for image archive export."
     assert calls == [["docker", "--version"], ["docker", "info"]]
 
 
+def test_check_image_export_environment_prefers_skopeo(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(builder.shutil, "which", lambda command: "/usr/bin/skopeo" if command == "skopeo" else None)
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 0, stdout="skopeo version 1.14.0\n", stderr="")
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    result = builder.check_image_export_environment()
+
+    assert result.available is True
+    assert result.export_tool == "skopeo"
+    assert result.tool_version == "skopeo version 1.14.0"
+    assert result.docker_version == ""
+    assert calls == [["skopeo", "--version"]]
+
+
 def test_check_image_export_environment_reports_missing_docker(monkeypatch) -> None:
+    monkeypatch.setattr(builder.shutil, "which", lambda command: None)
+
     def fake_run(command, check, capture_output, text):
         raise FileNotFoundError()
 
@@ -368,5 +393,41 @@ def test_check_image_export_environment_reports_missing_docker(monkeypatch) -> N
     result = builder.check_image_export_environment()
 
     assert result.available is False
+    assert result.export_tool == ""
     assert result.docker_version == ""
-    assert "Docker CLI is not available" in result.message
+    assert "No image export tool is available" in result.message
+
+
+def test_build_deployment_package_exports_image_archives_with_skopeo(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(builder.shutil, "which", lambda command: "/usr/bin/skopeo" if command == "skopeo" else None)
+
+    def fake_run(command, check, capture_output, text):
+        commands.append(list(command))
+        archive = next((part for part in command if part.startswith("docker-archive:")), "")
+        if archive:
+            archive_path = Path(archive.removeprefix("docker-archive:").rsplit(".tar:", 1)[0] + ".tar")
+            archive_path.write_bytes(b"archive")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s"],
+            businessServices=[BusinessSelection(name="mes", profile="4x3")],
+            database="postgres",
+            imageMode="image-archive",
+            targetProfile=TargetProfile(registry="harbor.example.com/prod"),
+        ),
+        output_dir=tmp_path,
+    )
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    lock = json.loads((root / "security" / "image-digest-lock.json").read_text(encoding="utf-8"))
+
+    assert commands
+    assert all(command[:2] == ["skopeo", "copy"] for command in commands)
+    assert lock["archives"]
+    assert all((root / "images" / "archives" / item["file"]).exists() for item in lock["archives"])

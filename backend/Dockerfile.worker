@@ -5,6 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends skopeo ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY backend/pyproject.toml /app/pyproject.toml
 COPY backend/deployment_package_factory /app/deployment_package_factory
 COPY templates /app/templates

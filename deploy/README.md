@@ -152,4 +152,4 @@ prometheus.io/port: "8096"
 /app/data/deployment-packages/
 ```
 
-如果启用镜像归档导出，运行后端的节点还需要可访问来源镜像仓库，并具备 Docker CLI 或后续 worker 镜像导出能力。当前 K8s 清单默认用于镜像清单模式和配置包生成，不挂载宿主机 Docker socket。
+如果启用镜像归档导出，backend/worker Pod 需要能访问来源镜像仓库。默认 backend 和 worker 镜像内置 `skopeo`，通过 daemonless 方式检查环境并生成 `docker load` 可导入的镜像 tar，不需要挂载宿主机 Docker socket。Docker Compose 部署如未使用带 `skopeo` 的镜像，可回退到 Docker CLI，但需要自行提供 Docker daemon 访问能力。

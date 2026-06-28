@@ -136,6 +136,8 @@ export interface CleanupResult {
 
 export interface ImageExportEnvironmentCheck {
   available: boolean;
+  exportTool: string;
+  toolVersion: string;
   dockerVersion: string;
   message: string;
 }

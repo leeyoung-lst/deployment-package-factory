@@ -100,7 +100,8 @@ def test_image_export_environment_api_reports_docker_state(monkeypatch: pytest.M
         "check_image_export_environment",
         lambda: deployment_packages.ImageExportEnvironmentCheck(
             available=True,
-            dockerVersion="Docker version 26.1.0",
+            exportTool="skopeo",
+            toolVersion="skopeo version 1.14.0",
             message="ready",
         ),
     )
@@ -110,7 +111,9 @@ def test_image_export_environment_api_reports_docker_state(monkeypatch: pytest.M
     assert response.status_code == 200, response.text
     assert response.json() == {
         "available": True,
-        "dockerVersion": "Docker version 26.1.0",
+        "exportTool": "skopeo",
+        "toolVersion": "skopeo version 1.14.0",
+        "dockerVersion": "",
         "message": "ready",
     }
 

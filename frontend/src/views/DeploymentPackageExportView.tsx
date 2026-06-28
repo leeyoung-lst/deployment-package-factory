@@ -149,6 +149,8 @@ export const DeploymentPackageExportView: React.FC = () => {
     } catch (error) {
       setImageEnvironment({
         available: false,
+        exportTool: "",
+        toolVersion: "",
         dockerVersion: "",
         message: error instanceof Error ? error.message : "镜像导出环境检查失败",
       });
@@ -463,7 +465,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                 <Form.Item label="镜像模式" name="imageMode">
                   <Select
                     options={[
-                      { value: "image-archive", label: "镜像归档：执行 docker pull/save 并打包 tar" },
+                      { value: "image-archive", label: "镜像归档：导出离线镜像 tar" },
                       { value: "image-manifest", label: "镜像清单：仅生成 pull/save/load 脚本" },
                     ]}
                   />
@@ -640,15 +642,16 @@ function ProjectSummary({ project }: { project: ProjectProfile | null }) {
 
 function ImageEnvironmentStatus({ value, loading }: { value: ImageExportEnvironmentCheck | null; loading: boolean }) {
   const color = value?.available ? "green" : "orange";
-  const label = value?.available ? "Docker 可用" : "Docker 不可用";
+  const label = value?.available ? "导出工具可用" : "导出工具不可用";
   return (
     <div className={styles.imageEnvironment}>
       <Space size={8} wrap>
         <Tag color={loading ? "processing" : color}>{loading ? "检查中" : label}</Tag>
-        {value?.dockerVersion ? <span className={styles.mono}>{value.dockerVersion}</span> : null}
+        {value?.exportTool ? <Tag>{value.exportTool}</Tag> : null}
+        {value?.toolVersion || value?.dockerVersion ? <span className={styles.mono}>{value.toolVersion || value.dockerVersion}</span> : null}
       </Space>
       <span className={styles.muted}>
-        {value?.message || "镜像归档模式需要导包后端机器可执行 docker pull 和 docker save。"}
+        {value?.message || "镜像归档模式需要导包 worker 可访问镜像仓库，并具备 skopeo 或 Docker CLI 导出能力。"}
       </span>
     </div>
   );

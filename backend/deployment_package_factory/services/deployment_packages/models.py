@@ -104,6 +104,8 @@ class ImageExportEnvironmentCheck(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     available: bool
+    export_tool: str = Field(default="", alias="exportTool")
+    tool_version: str = Field(default="", alias="toolVersion")
     docker_version: str = Field(default="", alias="dockerVersion")
     message: str = ""
 
