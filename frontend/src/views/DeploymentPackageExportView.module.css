@@ -85,6 +85,16 @@
   background: rgba(248, 250, 252, 0.74);
 }
 
+.imageEnvironment {
+  display: grid;
+  gap: 6px;
+  margin-top: -2px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.74);
+}
+
 .summaryRow {
   display: grid;
   grid-template-columns: 86px minmax(0, 1fr);

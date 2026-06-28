@@ -15,7 +15,12 @@ from deployment_package_factory.services.deployment_packages.dependency_resolver
 from deployment_package_factory.services.deployment_packages.deployment_renderer import render_deployment_files
 from deployment_package_factory.services.deployment_packages.init_script_renderer import render_init_files
 from deployment_package_factory.services.deployment_packages.install_renderer import INSTALLER_OPTIONS, INSTALLER_VERSION, render_root_install_files
-from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult, ProjectProfile
+from deployment_package_factory.services.deployment_packages.models import (
+    ImageExportEnvironmentCheck,
+    PackageBuildRequest,
+    PackageBuildResult,
+    ProjectProfile,
+)
 from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
 from deployment_package_factory.services.deployment_packages.quality_renderer import QUALITY_GATE_CHECKS, QUALITY_GATE_VERSION, render_quality_gate_files
 from deployment_package_factory.services.deployment_packages.verify_renderer import VERIFIER_VERSION, render_package_verify_files
@@ -27,6 +32,29 @@ DockerRunner = Callable[[Sequence[str]], None]
 
 class PackageBuildError(RuntimeError):
     pass
+
+
+def check_image_export_environment() -> ImageExportEnvironmentCheck:
+    try:
+        version = subprocess.run(["docker", "--version"], check=True, capture_output=True, text=True)
+        subprocess.run(["docker", "info"], check=True, capture_output=True, text=True)
+    except FileNotFoundError:
+        return ImageExportEnvironmentCheck(
+            available=False,
+            message="Docker CLI is not available. Install Docker on the package factory host to export image archives.",
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        return ImageExportEnvironmentCheck(
+            available=False,
+            dockerVersion=_first_line(exc.stdout),
+            message=f"Docker is installed but not ready for image export: {detail}",
+        )
+    return ImageExportEnvironmentCheck(
+        available=True,
+        dockerVersion=_first_line(version.stdout),
+        message="Docker CLI and daemon are available for image archive export.",
+    )
 
 
 def build_deployment_package(
@@ -308,6 +336,10 @@ def _run_docker(command: Sequence[str]) -> None:
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
         raise PackageBuildError(detail) from exc
+
+
+def _first_line(value: str) -> str:
+    return next((line.strip() for line in value.splitlines() if line.strip()), "")
 
 
 def _archive_lock(package_root: Path) -> list[dict]:

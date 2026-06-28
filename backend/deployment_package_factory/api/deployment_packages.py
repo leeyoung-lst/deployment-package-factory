@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from deployment_package_factory.auth import require_api_token
 from deployment_package_factory.settings import load_settings
-from deployment_package_factory.services.deployment_packages.builder import PackageBuildError
+from deployment_package_factory.services.deployment_packages.builder import PackageBuildError, check_image_export_environment
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError, load_catalog
 from deployment_package_factory.services.deployment_packages.cleanup import CleanupPolicy, CleanupResult, cleanup_deployment_packages
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
@@ -17,6 +17,7 @@ from deployment_package_factory.services.deployment_packages.dependency_resolver
 )
 from deployment_package_factory.services.deployment_packages.models import (
     AuditEvent,
+    ImageExportEnvironmentCheck,
     PackageBuildRequest,
     PackageBuildResult,
     PackagePreview,
@@ -118,6 +119,11 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
         return resolve_package_preview(payload, load_catalog())
     except (CatalogError, PackageBuildError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/image-export-environment", response_model=ImageExportEnvironmentCheck)
+async def image_export_environment() -> ImageExportEnvironmentCheck:
+    return check_image_export_environment()
 
 
 @router.post("", response_model=PackageTask)

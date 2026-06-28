@@ -94,6 +94,27 @@ def test_deployment_package_preview_rejects_unknown_database() -> None:
     assert "Unsupported database option" in response.text
 
 
+def test_image_export_environment_api_reports_docker_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        deployment_packages,
+        "check_image_export_environment",
+        lambda: deployment_packages.ImageExportEnvironmentCheck(
+            available=True,
+            dockerVersion="Docker version 26.1.0",
+            message="ready",
+        ),
+    )
+
+    response = _client().get("/api/deployment-packages/image-export-environment")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "available": True,
+        "dockerVersion": "Docker version 26.1.0",
+        "message": "ready",
+    }
+
+
 def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)

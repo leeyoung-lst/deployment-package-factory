@@ -6,6 +6,7 @@ import {
   cleanupDeploymentPackages,
   createDeploymentPackage,
   downloadDeploymentPackage,
+  getImageExportEnvironment,
   getDeploymentPackageOptions,
   getDeploymentPackageTask,
   listDeploymentPackageAuditEvents,
@@ -17,6 +18,7 @@ import {
   type CleanupResult,
   type DeployMode,
   type DeploymentPackageOptions,
+  type ImageExportEnvironmentCheck,
   type PackagePreview,
   type PackagePreviewRequest,
   type PackageTask,
@@ -52,6 +54,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [tasks, setTasks] = useState<PackageTask[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
+  const [imageEnvironment, setImageEnvironment] = useState<ImageExportEnvironmentCheck | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -59,6 +62,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [imageEnvironmentLoading, setImageEnvironmentLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
 
@@ -137,6 +141,22 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   }, [applyProjectDefaults, message]);
 
+  const refreshImageEnvironment = useCallback(async () => {
+    setImageEnvironmentLoading(true);
+    try {
+      const payload = await getImageExportEnvironment();
+      setImageEnvironment(payload);
+    } catch (error) {
+      setImageEnvironment({
+        available: false,
+        dockerVersion: "",
+        message: error instanceof Error ? error.message : "镜像导出环境检查失败",
+      });
+    } finally {
+      setImageEnvironmentLoading(false);
+    }
+  }, []);
+
   const refreshPreview = useCallback(async () => {
     if (!options) return;
     setPreviewing(true);
@@ -188,7 +208,8 @@ export const DeploymentPackageExportView: React.FC = () => {
 
   useEffect(() => {
     queueMicrotask(() => void loadOptions());
-  }, [loadOptions]);
+    queueMicrotask(() => void refreshImageEnvironment());
+  }, [loadOptions, refreshImageEnvironment]);
 
   useEffect(() => {
     if (!options) return;
@@ -339,6 +360,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         </div>
         <Space>
           <Button icon={<i className="ri-list-check-3" />} loading={tasksLoading} onClick={() => void refreshTasks()}>刷新任务</Button>
+          <Button icon={<i className="ri-hard-drive-2-line" />} loading={imageEnvironmentLoading} onClick={() => void refreshImageEnvironment()}>检查镜像环境</Button>
           <Button icon={<i className="ri-refresh-line" />} loading={loadingOptions} onClick={() => void loadOptions()}>刷新选项</Button>
           <Button type="primary" icon={<i className="ri-package-line" />} loading={building} onClick={() => void buildPackage()}>生成部署包</Button>
         </Space>
@@ -447,6 +469,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                   />
                 </Form.Item>
               </div>
+              <ImageEnvironmentStatus value={imageEnvironment} loading={imageEnvironmentLoading} />
 
               <Divider />
               <h3 className={styles.sectionTitle}>生产目标</h3>
@@ -611,6 +634,22 @@ function ProjectSummary({ project }: { project: ProjectProfile | null }) {
         <span className={styles.muted}>目标配置</span>
         <span className={styles.mono}>{project.namespacePrefix} / {project.domain} / {project.storageClass || "default-storage"}</span>
       </div>
+    </div>
+  );
+}
+
+function ImageEnvironmentStatus({ value, loading }: { value: ImageExportEnvironmentCheck | null; loading: boolean }) {
+  const color = value?.available ? "green" : "orange";
+  const label = value?.available ? "Docker 可用" : "Docker 不可用";
+  return (
+    <div className={styles.imageEnvironment}>
+      <Space size={8} wrap>
+        <Tag color={loading ? "processing" : color}>{loading ? "检查中" : label}</Tag>
+        {value?.dockerVersion ? <span className={styles.mono}>{value.dockerVersion}</span> : null}
+      </Space>
+      <span className={styles.muted}>
+        {value?.message || "镜像归档模式需要导包后端机器可执行 docker pull 和 docker save。"}
+      </span>
     </div>
   );
 }

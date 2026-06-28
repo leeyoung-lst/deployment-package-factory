@@ -134,6 +134,12 @@ export interface CleanupResult {
   deletedPaths: string[];
 }
 
+export interface ImageExportEnvironmentCheck {
+  available: boolean;
+  dockerVersion: string;
+  message: string;
+}
+
 export interface AuditEvent {
   eventId: string;
   action: string;
@@ -148,6 +154,10 @@ export interface AuditEvent {
 
 export function getDeploymentPackageOptions() {
   return request<DeploymentPackageOptions>("/api/deployment-packages/options");
+}
+
+export function getImageExportEnvironment() {
+  return request<ImageExportEnvironmentCheck>("/api/deployment-packages/image-export-environment");
 }
 
 export function previewDeploymentPackage(payload: PackagePreviewRequest) {

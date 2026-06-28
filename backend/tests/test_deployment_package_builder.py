@@ -7,6 +7,7 @@ import tarfile
 from pathlib import Path
 from typing import Sequence
 
+from deployment_package_factory.services.deployment_packages import builder
 from deployment_package_factory.services.deployment_packages.builder import build_deployment_package
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, TargetProfile
 
@@ -339,3 +340,33 @@ def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -
     assert lock["archives"]
     assert all(item["targetRef"].startswith("harbor.example.com/prod/") for item in lock["images"])
     assert all((root / "images" / "archives" / item["file"]).exists() for item in lock["archives"])
+
+
+def test_check_image_export_environment_reports_available_docker(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command, check, capture_output, text):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 0, stdout="Docker version 26.1.0\n", stderr="")
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    result = builder.check_image_export_environment()
+
+    assert result.available is True
+    assert result.docker_version == "Docker version 26.1.0"
+    assert result.message == "Docker CLI and daemon are available for image archive export."
+    assert calls == [["docker", "--version"], ["docker", "info"]]
+
+
+def test_check_image_export_environment_reports_missing_docker(monkeypatch) -> None:
+    def fake_run(command, check, capture_output, text):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    result = builder.check_image_export_environment()
+
+    assert result.available is False
+    assert result.docker_version == ""
+    assert "Docker CLI is not available" in result.message

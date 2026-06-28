@@ -100,6 +100,14 @@ class PackageBuildRequest(PackagePreviewRequest):
     target_profile: TargetProfile = Field(default_factory=TargetProfile, alias="targetProfile")
 
 
+class ImageExportEnvironmentCheck(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    available: bool
+    docker_version: str = Field(default="", alias="dockerVersion")
+    message: str = ""
+
+
 class ResolvedDependency(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
