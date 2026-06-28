@@ -55,11 +55,11 @@ pipeline {
           set -eux
           cache_arg=""
           if [ "${NO_CACHE}" = "true" ]; then cache_arg="--no-cache"; fi
-          export BUILD_PROXY_URL="${BUILD_PROXY_URL}"
-          export BUILD_NO_PROXY_LIST="${BUILD_NO_PROXY_LIST}"
-          export BUILD_APT_MIRROR="${BUILD_APT_MIRROR}"
-          export BUILD_APT_SECURITY_MIRROR="${BUILD_APT_SECURITY_MIRROR}"
-          export BUILD_NPM_REGISTRY="${BUILD_NPM_REGISTRY}"
+          export BUILD_PROXY_URL="${BUILD_PROXY_URL:-}"
+          export BUILD_NO_PROXY_LIST="${BUILD_NO_PROXY_LIST:-}"
+          export BUILD_APT_MIRROR="${BUILD_APT_MIRROR:-}"
+          export BUILD_APT_SECURITY_MIRROR="${BUILD_APT_SECURITY_MIRROR:-}"
+          export BUILD_NPM_REGISTRY="${BUILD_NPM_REGISTRY:-}"
           bash scripts/build-images.sh --registry "${REGISTRY}" --repository "${REPOSITORY}" --tag "${EFFECTIVE_IMAGE_TAG}" ${cache_arg}
         '''
       }
