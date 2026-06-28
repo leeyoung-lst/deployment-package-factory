@@ -29,15 +29,25 @@ if ($Mode -eq "k8s") {
   Require-File "deploy/k8s/pvc.yaml"
   Require-File "deploy/k8s/secret.yaml"
   Require-File "deploy/k8s/kustomization.yaml"
-  Reject-Placeholders "deploy/k8s/pvc.yaml"
+  Require-File "deploy/generated/kustomization.yaml"
+  Require-File "deploy/generated/pvc-storage-class-patch.yaml"
   Reject-Placeholders "deploy/k8s/secret.yaml"
+  Reject-Placeholders "deploy/generated/pvc-storage-class-patch.yaml"
   $kustomization = Get-Content -LiteralPath (Join-Path $RootDir "deploy/k8s/kustomization.yaml") -Raw
   if ($kustomization -notmatch "- secret\.yaml") {
     Fail "deploy/k8s/kustomization.yaml must include deploy/k8s/secret.yaml"
   }
+  $generatedKustomization = Get-Content -LiteralPath (Join-Path $RootDir "deploy/generated/kustomization.yaml") -Raw
+  if ($generatedKustomization -notmatch "pvc-storage-class-patch\.yaml") {
+    Fail "deploy/generated/kustomization.yaml must include pvc-storage-class-patch.yaml"
+  }
   $pvc = Get-Content -LiteralPath (Join-Path $RootDir "deploy/k8s/pvc.yaml") -Raw
   if ($pvc -notmatch "ReadWriteMany") {
     Fail "deploy/k8s/pvc.yaml must use ReadWriteMany for shared artifact storage"
+  }
+  $pvcPatch = Get-Content -LiteralPath (Join-Path $RootDir "deploy/generated/pvc-storage-class-patch.yaml") -Raw
+  if ($pvcPatch -notmatch "storageClassName:\s*\S+") {
+    Fail "deploy/generated/pvc-storage-class-patch.yaml must define storageClassName"
   }
   $secret = Get-Content -LiteralPath (Join-Path $RootDir "deploy/k8s/secret.yaml") -Raw
   if ($secret -notmatch "DEPLOYMENT_PACKAGE_DATABASE_URL") {

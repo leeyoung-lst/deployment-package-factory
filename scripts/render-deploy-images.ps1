@@ -4,12 +4,16 @@ param(
   [string]$Tag = "latest",
   [string]$OutputDir = "deploy/generated",
   [string]$HttpPort = "5186",
-  [string]$DatabaseUrl = ""
+  [string]$DatabaseUrl = "",
+  [string]$StorageClass = ""
 )
 
 $ErrorActionPreference = "Stop"
 if (-not $Registry) {
   throw "Registry is required, for example: -Registry registry.example.com"
+}
+if (-not $StorageClass) {
+  throw "StorageClass is required for Kubernetes deployment config, for example: -StorageClass nfs-rwx"
 }
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -42,6 +46,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../k8s
+patches:
+  - path: pvc-storage-class-patch.yaml
 images:
   - name: deployment-package-factory-backend
     newName: $Prefix/deployment-package-factory-backend
@@ -55,6 +61,18 @@ images:
 "@
 $Kustomization | Set-Content -Encoding utf8 -NoNewline -LiteralPath (Join-Path $TargetDir "kustomization.yaml")
 
+$PvcPatch = @"
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deployment-package-factory-data
+  namespace: deployment-package-factory
+spec:
+  storageClassName: $StorageClass
+"@
+$PvcPatch | Set-Content -Encoding utf8 -NoNewline -LiteralPath (Join-Path $TargetDir "pvc-storage-class-patch.yaml")
+
 Write-Host "Generated deployment image files:"
 Write-Host "  $(Join-Path $TargetDir 'factory.env')"
 Write-Host "  $(Join-Path $TargetDir 'kustomization.yaml')"
+Write-Host "  $(Join-Path $TargetDir 'pvc-storage-class-patch.yaml')"

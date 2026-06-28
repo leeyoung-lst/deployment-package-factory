@@ -7,6 +7,7 @@ TAG="latest"
 OUTPUT_DIR="deploy/generated"
 HTTP_PORT="5186"
 DATABASE_URL=""
+STORAGE_CLASS=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -34,8 +35,12 @@ while [ "$#" -gt 0 ]; do
       DATABASE_URL="$2"
       shift 2
       ;;
+    --storage-class)
+      STORAGE_CLASS="$2"
+      shift 2
+      ;;
     *)
-      echo "Usage: scripts/render-deploy-images.sh --registry REGISTRY [--repository REPOSITORY] [--tag TAG] [--output-dir DIR] [--http-port PORT] [--database-url URL]" >&2
+      echo "Usage: scripts/render-deploy-images.sh --registry REGISTRY --storage-class STORAGE_CLASS [--repository REPOSITORY] [--tag TAG] [--output-dir DIR] [--http-port PORT] [--database-url URL]" >&2
       exit 1
       ;;
   esac
@@ -43,6 +48,10 @@ done
 
 if [ -z "${REGISTRY}" ]; then
   echo "--registry is required, for example: --registry registry.example.com" >&2
+  exit 1
+fi
+if [ -z "${STORAGE_CLASS}" ]; then
+  echo "--storage-class is required for Kubernetes deployment config, for example: --storage-class nfs-rwx" >&2
   exit 1
 fi
 
@@ -79,6 +88,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../k8s
+patches:
+  - path: pvc-storage-class-patch.yaml
 images:
   - name: deployment-package-factory-backend
     newName: ${PREFIX}/deployment-package-factory-backend
@@ -91,6 +102,17 @@ images:
     newTag: ${TAG}
 EOF
 
+cat > "${TARGET_DIR}/pvc-storage-class-patch.yaml" <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deployment-package-factory-data
+  namespace: deployment-package-factory
+spec:
+  storageClassName: ${STORAGE_CLASS}
+EOF
+
 echo "Generated deployment image files:"
 echo "  ${TARGET_DIR}/factory.env"
 echo "  ${TARGET_DIR}/kustomization.yaml"
+echo "  ${TARGET_DIR}/pvc-storage-class-patch.yaml"

@@ -43,13 +43,13 @@ Windows PowerShell：
 也可以生成部署镜像配置文件：
 
 ```bash
-scripts/render-deploy-images.sh --registry registry.example.com --repository platform --tag 2026.06 --database-url postgresql://factory:replace-with-password@postgres.example.com:5432/deployment_package_factory
+scripts/render-deploy-images.sh --registry registry.example.com --repository platform --tag 2026.06 --database-url postgresql://factory:replace-with-password@postgres.example.com:5432/deployment_package_factory --storage-class nfs-rwx
 ```
 
 Windows PowerShell：
 
 ```powershell
-.\scripts\render-deploy-images.ps1 -Registry registry.example.com -Repository platform -Tag 2026.06 -DatabaseUrl postgresql://factory:replace-with-password@postgres.example.com:5432/deployment_package_factory
+.\scripts\render-deploy-images.ps1 -Registry registry.example.com -Repository platform -Tag 2026.06 -DatabaseUrl postgresql://factory:replace-with-password@postgres.example.com:5432/deployment_package_factory -StorageClass nfs-rwx
 ```
 
 默认会生成：
@@ -57,6 +57,7 @@ Windows PowerShell：
 ```text
 deploy/generated/factory.env
 deploy/generated/kustomization.yaml
+deploy/generated/pvc-storage-class-patch.yaml
 ```
 
 ## Docker Compose
@@ -126,7 +127,7 @@ deployment-package-factory.example.com
 
 - `deploy/k8s/ingress.yaml` 中的域名。
 - `scripts/render-deploy-images.*` 生成的镜像地址。
-- `deploy/k8s/pvc.yaml` 中的存储大小和 RWX StorageClass。backend 负责下载，worker 负责生成，两者必须能同时访问同一个产物卷；推荐 NFS、CephFS 或云厂商文件存储类 StorageClass。
+- `deploy/k8s/pvc.yaml` 中的存储大小。backend 负责下载，worker 负责生成，两者必须能同时访问同一个产物卷；推荐 NFS、CephFS 或云厂商文件存储类 StorageClass。实际 RWX StorageClass 通过 `scripts/render-deploy-images.* --storage-class/-StorageClass` 生成到 `deploy/generated/pvc-storage-class-patch.yaml`。
 - `deploy/k8s/configmap.yaml` 中的并发数、保留天数和容量上限。
 - 复制 `deploy/k8s/secret.template.yaml` 为 `deploy/k8s/secret.yaml`，替换 `DEPLOYMENT_PACKAGE_DATABASE_URL`、`DEPLOYMENT_PACKAGE_API_TOKEN` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN`。`deploy/k8s/secret.yaml` 已被 `.gitignore` 忽略，并会随 `kubectl apply -k deploy/generated` 一起部署。K8s/生产部署必须使用外部 PostgreSQL 等生产关系库保存任务和审计元数据。
 
@@ -169,6 +170,6 @@ K8s 生产部署中，任务和审计元数据不写 SQLite 文件，而是通�
   artifacts/
 ```
 
-`deploy/k8s/pvc.yaml` 默认使用 `ReadWriteMany`，并要求将 `__REPLACE_WITH_RWX_STORAGE_CLASS__` 替换为集群可用的共享文件存储类。不要在多节点 K8s 生产环境使用 `ReadWriteOnce`，否则 worker 生成的包可能无法被 backend Pod 下载。
+`deploy/k8s/pvc.yaml` 默认使用 `ReadWriteMany`，并保留 `__REPLACE_WITH_RWX_STORAGE_CLASS__` 作为模板占位符；生产部署前必须通过 `scripts/render-deploy-images.* --storage-class/-StorageClass` 生成 `deploy/generated/pvc-storage-class-patch.yaml`，由 Kustomize 注入集群可用的共享文件存储类。不要在多节点 K8s 生产环境使用 `ReadWriteOnce`，否则 worker 生成的包可能无法被 backend Pod 下载。
 
 如果启用镜像归档导出，backend/worker Pod 需要能访问来源镜像仓库。默认 backend 和 worker 镜像内置 `skopeo`，通过 daemonless 方式检查环境并生成 `docker load` 可导入的镜像 tar，不需要挂载宿主机 Docker socket。Docker Compose 部署如未使用带 `skopeo` 的镜像，可回退到 Docker CLI，但需要自行提供 Docker daemon 访问能力。
