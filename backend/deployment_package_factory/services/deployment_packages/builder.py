@@ -358,7 +358,7 @@ def _list_runtime_images(namespaces: list[str]) -> list[RuntimeSourceImage]:
     for namespace in namespaces:
         payload = read_kubernetes_pods(namespace, token)
         for pod in payload.get("items", []):
-            if pod.get("status", {}).get("phase") not in {"Running", "Succeeded"}:
+            if pod.get("status", {}).get("phase") not in {"Pending", "Running", "Succeeded"}:
                 continue
             spec_containers = {
                 item.get("name", ""): item.get("image", "")

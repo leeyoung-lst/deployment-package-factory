@@ -455,6 +455,37 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
     assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
 
 
+def test_list_runtime_images_includes_pending_pod_spec_images(monkeypatch, tmp_path) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN_PATH", str(token_path))
+    monkeypatch.setattr(
+        builder,
+        "read_kubernetes_pods",
+        lambda namespace, token: {
+            "items": [
+                {
+                    "metadata": {"name": "iam-service-pending"},
+                    "status": {"phase": "Pending", "containerStatuses": []},
+                    "spec": {"containers": [{"name": "iam", "image": "192.168.10.210/local-ai/local-ai-iam-service:abc123"}]},
+                }
+            ]
+        },
+    )
+
+    images = builder._list_runtime_images(["local-ai"])
+
+    assert images == [
+        builder.RuntimeSourceImage(
+            source_ref="192.168.10.210/local-ai/local-ai-iam-service:abc123",
+            image_id="",
+            namespace="local-ai",
+            pod="iam-service-pending",
+            container="iam",
+        )
+    ]
+
+
 def test_image_entries_mark_missing_runtime_sources_when_cluster_images_are_available(monkeypatch) -> None:
     monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env: ["local-ai"] if source_env == "test" else [])
     monkeypatch.setattr(
