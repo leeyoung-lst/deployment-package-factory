@@ -58,6 +58,16 @@ BUILD_ARGS=()
 if [ "${NO_CACHE}" = "1" ]; then
   BUILD_ARGS+=(--no-cache)
 fi
+if [ -n "${BUILD_PROXY_URL:-}" ]; then
+  BUILD_ARGS+=(--build-arg "HTTP_PROXY=${BUILD_PROXY_URL}")
+  BUILD_ARGS+=(--build-arg "HTTPS_PROXY=${BUILD_PROXY_URL}")
+  BUILD_ARGS+=(--build-arg "http_proxy=${BUILD_PROXY_URL}")
+  BUILD_ARGS+=(--build-arg "https_proxy=${BUILD_PROXY_URL}")
+fi
+if [ -n "${BUILD_NO_PROXY_LIST:-}" ]; then
+  BUILD_ARGS+=(--build-arg "NO_PROXY=${BUILD_NO_PROXY_LIST}")
+  BUILD_ARGS+=(--build-arg "no_proxy=${BUILD_NO_PROXY_LIST}")
+fi
 
 echo "Building ${BACKEND_IMAGE}"
 docker build "${BUILD_ARGS[@]}" -f "${REPO_ROOT}/backend/Dockerfile" -t "${BACKEND_IMAGE}" "${REPO_ROOT}"
