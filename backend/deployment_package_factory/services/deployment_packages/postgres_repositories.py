@@ -4,7 +4,7 @@ import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator, TypeVar
 from uuid import uuid4
 
 import psycopg
@@ -18,6 +18,8 @@ from deployment_package_factory.services.deployment_packages.models import (
     TaskStatus,
 )
 from deployment_package_factory.services.deployment_packages.task_repository import _artifact_available, _parse_iso
+
+T = TypeVar("T")
 
 
 class PostgresPackageTaskRepository:
@@ -371,32 +373,42 @@ class PostgresAuditEventRepository:
             metadata=metadata or {},
             createdAt=now,
         )
-        with self._connect() as conn:
-            conn.execute(
-                """
-                insert into audit_events(
-                    event_id, action, target_id, status, operator, client_ip,
-                    message, metadata_json, created_at
-                ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                _event_to_row(event),
-            )
+        def insert_event() -> None:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    insert into audit_events(
+                        event_id, action, target_id, status, operator, client_ip,
+                        message, metadata_json, created_at
+                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    _event_to_row(event),
+                )
+
+        self._with_schema_retry(insert_event)
         return event
 
     def list(self, limit: int = 100) -> list[AuditEvent]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                "select * from audit_events order by created_at desc limit %s",
-                (max(1, min(500, limit)),),
-            ).fetchall()
+        def fetch_rows() -> list[dict]:
+            with self._connect() as conn:
+                return conn.execute(
+                    "select * from audit_events order by created_at desc limit %s",
+                    (max(1, min(500, limit)),),
+                ).fetchall()
+
+        rows = self._with_schema_retry(fetch_rows)
         return [_event_from_row(row) for row in rows]
 
     def metrics_summary(self) -> dict:
-        with self._connect() as conn:
-            total = conn.execute("select count(*) as count from audit_events").fetchone()["count"]
-            action_rows = conn.execute(
-                "select action, count(*) as count from audit_events group by action"
-            ).fetchall()
+        def fetch_summary() -> tuple[int, list[dict]]:
+            with self._connect() as conn:
+                total = conn.execute("select count(*) as count from audit_events").fetchone()["count"]
+                action_rows = conn.execute(
+                    "select action, count(*) as count from audit_events group by action"
+                ).fetchall()
+            return total, action_rows
+
+        total, action_rows = self._with_schema_retry(fetch_summary)
         return {
             "total": total,
             "byAction": {row["action"]: row["count"] for row in action_rows},
@@ -421,6 +433,13 @@ class PostgresAuditEventRepository:
             )
             conn.execute("create index if not exists idx_audit_events_created_at on audit_events(created_at)")
             conn.execute("create index if not exists idx_audit_events_action on audit_events(action)")
+
+    def _with_schema_retry(self, operation: Callable[[], T]) -> T:
+        try:
+            return operation()
+        except psycopg.errors.UndefinedTable:
+            self._ensure_schema()
+            return operation()
 
     @contextmanager
     def _connect(self) -> Iterator[psycopg.Connection]:
