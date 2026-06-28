@@ -417,6 +417,7 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
                 namespace="local-ai",
                 pod="eam-service-1",
                 container="eam-service",
+                node="k8s-wk1",
             ),
             builder.RuntimeSourceImage(
                 source_ref="192.168.10.210/local-ai/local-ai-sub-app-eam:k8s",
@@ -424,6 +425,7 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
                 namespace="local-ai",
                 pod="sub-app-eam-1",
                 container="sub-app-eam",
+                node="k8s-wk1",
             ),
             builder.RuntimeSourceImage(
                 source_ref="postgres:16-alpine",
@@ -431,6 +433,7 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
                 namespace="local-ai",
                 pod="postgres-1",
                 container="postgres",
+                node="k8s-wk2",
             ),
         ],
     )
@@ -450,8 +453,10 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
     assert by_catalog["local-ai-eam-service:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-eam-service:k8s"
     assert by_catalog["local-ai-eam-service:prod"]["sourceExportRef"] == "192.168.10.210/local-ai/local-ai-eam-service:k8s"
     assert by_catalog["local-ai-eam-service:prod"]["sourceImageId"] == "192.168.10.210/local-ai/local-ai-eam-service@sha256:eam"
+    assert by_catalog["local-ai-eam-service:prod"]["sourceNode"] == "k8s-wk1"
     assert by_catalog["sub-app-eam:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-sub-app-eam:k8s"
     assert by_catalog["postgres:16"]["sourceRef"] == "postgres:16-alpine"
+    assert by_catalog["postgres:16"]["sourceNode"] == "k8s-wk2"
     assert by_catalog["local-ai-eam-service:prod"]["targetRef"] == "harbor.prod/local-ai/local-ai-eam-service:prod"
     assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
 
@@ -468,7 +473,10 @@ def test_list_runtime_images_includes_pending_pod_spec_images(monkeypatch, tmp_p
                 {
                     "metadata": {"name": "iam-service-pending"},
                     "status": {"phase": "Pending", "containerStatuses": []},
-                    "spec": {"containers": [{"name": "iam", "image": "192.168.10.210/local-ai/local-ai-iam-service:abc123"}]},
+                    "spec": {
+                        "nodeName": "k8s-wk1",
+                        "containers": [{"name": "iam", "image": "192.168.10.210/local-ai/local-ai-iam-service:abc123"}],
+                    },
                 }
             ]
         },
@@ -483,6 +491,7 @@ def test_list_runtime_images_includes_pending_pod_spec_images(monkeypatch, tmp_p
             namespace="local-ai",
             pod="iam-service-pending",
             container="iam",
+            node="k8s-wk1",
         )
     ]
 
@@ -794,3 +803,122 @@ def test_image_archive_preflights_all_source_images_before_export(tmp_path, monk
     assert "postgres:16" in str(exc.value)
     assert "redis:7" in str(exc.value)
     assert all(command[:2] == ["skopeo", "inspect"] for command in commands)
+
+
+def test_image_archive_prefers_local_containerd_export_for_runtime_images(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+    socket_path = tmp_path / "containerd.sock"
+    socket_path.write_text("", encoding="utf-8")
+    image_entries = [
+        {
+            "catalogRef": "redis:7",
+            "sourceRef": "redis:7.4-alpine",
+            "sourceExportRef": "redis:7.4-alpine",
+            "sourceResolvedFrom": "kubernetes",
+            "sourceRegistryInsecure": False,
+            "targetRef": "harbor.prod/local-ai/redis:7.4-alpine",
+            "archiveFile": "redis.tar",
+        }
+    ]
+
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_CONTAINERD_SOCKET", str(socket_path))
+    monkeypatch.setattr(builder.shutil, "which", lambda command: f"/usr/bin/{command}" if command in {"ctr", "skopeo"} else None)
+
+    def fake_run(command, check, capture_output, text):
+        commands.append(list(command))
+        if command[:5] == ["ctr", "--address", str(socket_path), "--namespace", "k8s.io"]:
+            Path(command[7]).write_bytes(b"archive")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected registry command: {command}")
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    builder._export_image_archives(tmp_path, image_entries)
+
+    assert commands == [
+        [
+            "ctr",
+            "--address",
+            str(socket_path),
+            "--namespace",
+            "k8s.io",
+            "images",
+            "export",
+            str(tmp_path / "images" / "archives" / "redis.tar"),
+            "redis:7.4-alpine",
+        ]
+    ]
+    assert (tmp_path / "images" / "archives" / "redis.tar").exists()
+
+
+def test_image_archive_uses_source_node_helper_pod_for_runtime_images(tmp_path, monkeypatch) -> None:
+    created: list[dict] = []
+    deleted: list[tuple[str, str]] = []
+    image_entries = [
+        {
+            "catalogRef": "redis:7",
+            "sourceRef": "redis:7.4-alpine",
+            "sourceExportRef": "redis:7.4-alpine",
+            "sourceResolvedFrom": "kubernetes",
+            "sourceNode": "k8s-wk1",
+            "sourceRegistryInsecure": False,
+            "targetRef": "harbor.prod/local-ai/redis:7.4-alpine",
+            "archiveFile": "redis.tar",
+        }
+    ]
+
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_IMAGE_EXPORT_HELPER_IMAGE", "192.168.10.210/local-ai/deployment-package-factory-worker:test")
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_NAMESPACE", "deployment-package-factory")
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_CLAIM", "deployment-package-factory-data")
+    monkeypatch.setattr(builder, "_can_export_from_local_containerd", lambda: False)
+    monkeypatch.setattr(builder, "_containerd_socket", lambda: "/run/containerd/containerd.sock")
+    monkeypatch.setattr(builder, "time", type("FakeTime", (), {"monotonic": staticmethod(lambda: 1.0), "sleep": staticmethod(lambda seconds: None)})())
+
+    def fake_create_image_export_pod(**kwargs):
+        created.append(kwargs)
+        archive_path = Path(kwargs["command"][2].split("images export '", 1)[1].split("' \"$image\"", 1)[0])
+        archive_path.write_bytes(b"archive")
+        return {}
+
+    monkeypatch.setattr(builder, "create_image_export_pod", fake_create_image_export_pod)
+    monkeypatch.setattr(builder, "get_pod", lambda namespace, name: {"status": {"phase": "Succeeded"}})
+    monkeypatch.setattr(builder, "delete_pod", lambda namespace, name: deleted.append((namespace, name)))
+
+    builder._export_image_archives(tmp_path, image_entries)
+
+    assert created
+    pod = created[0]
+    assert pod["namespace"] == "deployment-package-factory"
+    assert pod["node_name"] == "k8s-wk1"
+    assert pod["image"] == "192.168.10.210/local-ai/deployment-package-factory-worker:test"
+    assert pod["data_claim_name"] == "deployment-package-factory-data"
+    assert pod["data_mount_path"] == str(tmp_path)
+    assert "redis:7.4-alpine" in pod["command"][2]
+    assert deleted == [("deployment-package-factory", pod["name"])]
+    assert (tmp_path / "images" / "archives" / "redis.tar").exists()
+
+
+def test_image_archive_runtime_image_failure_does_not_fallback_to_registry(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+    image_entries = [
+        {
+            "catalogRef": "redis:7",
+            "sourceRef": "redis:7.4-alpine",
+            "sourceExportRef": "redis:7.4-alpine",
+            "sourceResolvedFrom": "kubernetes",
+            "sourceNode": "k8s-wk1",
+            "sourceRegistryInsecure": False,
+            "targetRef": "harbor.prod/local-ai/redis:7.4-alpine",
+            "archiveFile": "redis.tar",
+        }
+    ]
+
+    monkeypatch.setattr(builder, "_try_export_local_containerd_image", lambda item, archive_path: False)
+    monkeypatch.setattr(builder.subprocess, "run", lambda command, check, capture_output, text: commands.append(list(command)))
+
+    with pytest.raises(builder.PackageBuildError) as exc:
+        builder._export_image_archives(tmp_path, image_entries)
+
+    assert "source node local image cache" in str(exc.value)
+    assert commands == []

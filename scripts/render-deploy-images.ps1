@@ -48,6 +48,7 @@ resources:
   - ../k8s
 patches:
   - path: pvc-storage-class-patch.yaml
+  - path: worker-helper-image-patch.yaml
 images:
   - name: deployment-package-factory-backend
     newName: $Prefix/deployment-package-factory-backend
@@ -72,7 +73,29 @@ spec:
 "@
 $PvcPatch | Set-Content -Encoding utf8 -NoNewline -LiteralPath (Join-Path $TargetDir "pvc-storage-class-patch.yaml")
 
+$WorkerPatch = @"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-package-factory-worker
+  namespace: deployment-package-factory
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: DEPLOYMENT_PACKAGE_IMAGE_EXPORT_HELPER_IMAGE
+              value: $WorkerImage
+            - name: DEPLOYMENT_PACKAGE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+"@
+$WorkerPatch | Set-Content -Encoding utf8 -NoNewline -LiteralPath (Join-Path $TargetDir "worker-helper-image-patch.yaml")
+
 Write-Host "Generated deployment image files:"
 Write-Host "  $(Join-Path $TargetDir 'factory.env')"
 Write-Host "  $(Join-Path $TargetDir 'kustomization.yaml')"
 Write-Host "  $(Join-Path $TargetDir 'pvc-storage-class-patch.yaml')"
+Write-Host "  $(Join-Path $TargetDir 'worker-helper-image-patch.yaml')"

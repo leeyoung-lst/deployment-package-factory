@@ -90,6 +90,7 @@ resources:
   - ../k8s
 patches:
   - path: pvc-storage-class-patch.yaml
+  - path: worker-helper-image-patch.yaml
 images:
   - name: deployment-package-factory-backend
     newName: ${PREFIX}/deployment-package-factory-backend
@@ -112,7 +113,28 @@ spec:
   storageClassName: ${STORAGE_CLASS}
 EOF
 
+cat > "${TARGET_DIR}/worker-helper-image-patch.yaml" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-package-factory-worker
+  namespace: deployment-package-factory
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: DEPLOYMENT_PACKAGE_IMAGE_EXPORT_HELPER_IMAGE
+              value: ${WORKER_IMAGE}
+            - name: DEPLOYMENT_PACKAGE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+EOF
+
 echo "Generated deployment image files:"
 echo "  ${TARGET_DIR}/factory.env"
 echo "  ${TARGET_DIR}/kustomization.yaml"
 echo "  ${TARGET_DIR}/pvc-storage-class-patch.yaml"
+echo "  ${TARGET_DIR}/worker-helper-image-patch.yaml"

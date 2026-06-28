@@ -149,6 +149,83 @@ def read_kubernetes_pods(namespace: str, token: str | None = None) -> dict:
         return {}
 
 
+def create_image_export_pod(
+    *,
+    namespace: str,
+    name: str,
+    node_name: str,
+    image: str,
+    command: list[str],
+    data_claim_name: str,
+    data_mount_path: str,
+    containerd_socket: str,
+) -> dict:
+    token = _require_service_account_token()
+    return _request_json(
+        "POST",
+        f"/api/v1/namespaces/{quote(namespace, safe='')}/pods",
+        token,
+        body={
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "name": name,
+                "labels": {
+                    MANAGED_BY_LABEL: MANAGED_BY_VALUE,
+                    "app.kubernetes.io/name": MANAGED_BY_VALUE,
+                    "app.kubernetes.io/component": "image-export-helper",
+                },
+            },
+            "spec": {
+                "restartPolicy": "Never",
+                "serviceAccountName": MANAGED_BY_VALUE,
+                "nodeName": node_name,
+                "containers": [
+                    {
+                        "name": "exporter",
+                        "image": image,
+                        "imagePullPolicy": "IfNotPresent",
+                        "command": command,
+                        "securityContext": {
+                            "privileged": True,
+                            "runAsUser": 0,
+                            "runAsGroup": 0,
+                            "allowPrivilegeEscalation": True,
+                        },
+                        "volumeMounts": [
+                            {"name": "data", "mountPath": data_mount_path},
+                            {"name": "containerd-socket", "mountPath": containerd_socket, "readOnly": True},
+                        ],
+                    }
+                ],
+                "volumes": [
+                    {"name": "data", "persistentVolumeClaim": {"claimName": data_claim_name}},
+                    {"name": "containerd-socket", "hostPath": {"path": containerd_socket, "type": "Socket"}},
+                ],
+            },
+        },
+    )
+
+
+def get_pod(namespace: str, name: str) -> dict | None:
+    token = _require_service_account_token()
+    try:
+        return _request_json("GET", f"/api/v1/namespaces/{quote(namespace, safe='')}/pods/{quote(name, safe='')}", token)
+    except KubernetesRuntimeError as exc:
+        if "404" in str(exc):
+            return None
+        raise
+
+
+def delete_pod(namespace: str, name: str) -> None:
+    token = _require_service_account_token()
+    try:
+        _request_json("DELETE", f"/api/v1/namespaces/{quote(namespace, safe='')}/pods/{quote(name, safe='')}", token, body={})
+    except KubernetesRuntimeError as exc:
+        if "404" not in str(exc):
+            raise
+
+
 def _business_namespace_labels(source_env: str, key: str, status: str) -> dict[str, str]:
     return {
         MANAGED_BY_LABEL: MANAGED_BY_VALUE,

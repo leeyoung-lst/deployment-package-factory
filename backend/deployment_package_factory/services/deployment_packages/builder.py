@@ -4,12 +4,14 @@ import hashlib
 import json
 import base64
 import ipaddress
+import logging
 import os
 import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +30,10 @@ from deployment_package_factory.services.deployment_packages.models import (
     ProjectProfile,
 )
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
+    KubernetesRuntimeError,
+    create_image_export_pod,
+    delete_pod,
+    get_pod,
     read_kubernetes_pods,
     source_env_namespaces,
 )
@@ -38,7 +44,9 @@ from deployment_package_factory.services.deployment_packages.verify_renderer imp
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "deployment-packages"
+DEFAULT_CONTAINERD_SOCKET = "/run/containerd/containerd.sock"
 DockerRunner = Callable[[Sequence[str]], None]
+LOGGER = logging.getLogger(__name__)
 
 
 class PackageBuildError(RuntimeError):
@@ -52,6 +60,7 @@ class RuntimeSourceImage:
     namespace: str = ""
     pod: str = ""
     container: str = ""
+    node: str = ""
 
 
 def check_image_export_environment() -> ImageExportEnvironmentCheck:
@@ -308,6 +317,7 @@ def _image_entries(
                         "sourceNamespace": runtime_image.namespace,
                         "sourcePod": runtime_image.pod,
                         "sourceContainer": runtime_image.container,
+                        "sourceNode": runtime_image.node,
                     }
                 )
             elif require_runtime_sources:
@@ -378,6 +388,7 @@ def _list_runtime_images(namespaces: list[str]) -> list[RuntimeSourceImage]:
                         namespace=namespace,
                         pod=pod.get("metadata", {}).get("name", ""),
                         container=container,
+                        node=pod.get("spec", {}).get("nodeName", ""),
                     )
                 )
     return runtime_images
@@ -534,6 +545,15 @@ def _export_image_archives(
             if docker_runner is not None:
                 docker_runner(["docker", "pull", source_ref])
                 docker_runner(["docker", "save", "-o", str(archive_path), source_ref])
+            elif _should_try_containerd_export(item):
+                if _try_export_local_containerd_image(item, archive_path):
+                    continue
+                raise PackageBuildError(
+                    "Failed to export Kubernetes runtime image from the source node local image cache: "
+                    f"{item.get('sourceRef') or item.get('catalogRef')} "
+                    f"(node: {item.get('sourceNode') or 'unknown'}). "
+                    f"Ensure the image export helper can run on the source node and access {_containerd_socket()}."
+                )
             else:
                 _run_image_export(
                     source_ref,
@@ -584,6 +604,8 @@ def _preflight_source_images(image_entries: list[dict], *, source_tls_verify: bo
         return
     failures: list[str] = []
     for item in image_entries:
+        if _should_try_containerd_export(item):
+            continue
         if item.get("sourceMissing"):
             failures.append(f"{item.get('catalogRef')}: {item.get('sourceMessage') or 'runtime source image is missing'}")
             continue
@@ -648,6 +670,165 @@ def _source_registry_host(source_ref: str) -> str:
     if not _has_registry(source_ref):
         return ""
     return source_ref.split("/", 1)[0]
+
+
+def _try_export_local_containerd_image(item: dict, archive_path: Path) -> bool:
+    if not _should_try_containerd_export(item):
+        return False
+    candidates = _containerd_image_candidates(item)
+    if _can_export_from_local_containerd() and _try_export_with_ctr(candidates, archive_path, item.get("sourceRef", "")):
+        return True
+    if item.get("sourceNode"):
+        return _try_export_with_helper_pod(item, archive_path, candidates)
+    return False
+
+
+def _try_export_with_ctr(candidates: list[str], archive_path: Path, source_ref: str) -> bool:
+    socket = _containerd_socket()
+    errors: list[str] = []
+    for image in candidates:
+        command = [
+            "ctr",
+            "--address",
+            socket,
+            "--namespace",
+            "k8s.io",
+            "images",
+            "export",
+            str(archive_path),
+            image,
+        ]
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            return True
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or str(exc)).strip()
+            errors.append(f"{image}: {detail}")
+    if errors:
+        LOGGER.warning("Local containerd image export failed for %s: %s", source_ref, "; ".join(errors))
+    return False
+
+
+def _try_export_with_helper_pod(item: dict, archive_path: Path, candidates: list[str]) -> bool:
+    namespace = os.getenv("DEPLOYMENT_PACKAGE_NAMESPACE", "deployment-package-factory").strip() or "deployment-package-factory"
+    pod_image = os.getenv("DEPLOYMENT_PACKAGE_IMAGE_EXPORT_HELPER_IMAGE", "").strip() or os.getenv("HOSTNAME_IMAGE", "").strip()
+    if not pod_image:
+        pod_image = os.getenv("DEPLOYMENT_PACKAGE_WORKER_IMAGE", "").strip()
+    if not pod_image:
+        pod_image = _current_worker_image()
+    if not pod_image:
+        return False
+    data_mount = os.getenv("DEPLOYMENT_PACKAGE_DATA_DIR", "/app/data").strip() or "/app/data"
+    data_claim = os.getenv("DEPLOYMENT_PACKAGE_DATA_CLAIM", "deployment-package-factory-data").strip() or "deployment-package-factory-data"
+    try:
+        relative_archive = archive_path.resolve().relative_to(Path(data_mount).resolve())
+    except ValueError:
+        return False
+    pod_name = f"dpf-image-export-{uuid4().hex[:12]}"
+    script = _helper_export_script(candidates, data_mount, relative_archive)
+    try:
+        create_image_export_pod(
+            namespace=namespace,
+            name=pod_name,
+            node_name=str(item["sourceNode"]),
+            image=pod_image,
+            command=["/bin/sh", "-lc", script],
+            data_claim_name=data_claim,
+            data_mount_path=data_mount,
+            containerd_socket=_containerd_socket(),
+        )
+        return _wait_for_helper_pod(namespace, pod_name)
+    except KubernetesRuntimeError as exc:
+        LOGGER.warning("Helper pod image export failed for %s: %s", item.get("sourceRef"), exc)
+        return False
+    finally:
+        try:
+            delete_pod(namespace, pod_name)
+        except KubernetesRuntimeError:
+            LOGGER.warning("Failed to delete helper pod %s", pod_name)
+
+
+def _helper_export_script(candidates: list[str], data_mount: str, relative_archive: Path) -> str:
+    archive = f"{data_mount.rstrip('/')}/{relative_archive.as_posix()}"
+    quoted_candidates = " ".join(_shell_quote(item) for item in candidates)
+    return (
+        "set -eu\n"
+        f"mkdir -p {_shell_quote(str(Path(archive).parent))}\n"
+        f"for image in {quoted_candidates}; do\n"
+        f"  if ctr --address {_shell_quote(_containerd_socket())} --namespace k8s.io images export {_shell_quote(archive)} \"$image\"; then exit 0; fi\n"
+        "done\n"
+        "exit 1\n"
+    )
+
+
+def _wait_for_helper_pod(namespace: str, pod_name: str) -> bool:
+    timeout = _positive_int_env("DEPLOYMENT_PACKAGE_IMAGE_EXPORT_HELPER_TIMEOUT_SECONDS", 300)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pod = get_pod(namespace, pod_name)
+        phase = ((pod or {}).get("status") or {}).get("phase", "")
+        if phase == "Succeeded":
+            return True
+        if phase == "Failed":
+            return False
+        time.sleep(2)
+    return False
+
+
+def _should_try_containerd_export(item: dict) -> bool:
+    if os.getenv("DEPLOYMENT_PACKAGE_LOCAL_IMAGE_EXPORT", "true").strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    if item.get("sourceResolvedFrom") != "kubernetes":
+        return False
+    return True
+
+
+def _can_export_from_local_containerd() -> bool:
+    return bool(shutil.which("ctr") and Path(_containerd_socket()).exists())
+
+
+def _containerd_socket() -> str:
+    return os.getenv("DEPLOYMENT_PACKAGE_CONTAINERD_SOCKET", DEFAULT_CONTAINERD_SOCKET).strip() or DEFAULT_CONTAINERD_SOCKET
+
+
+def _containerd_image_candidates(item: dict) -> list[str]:
+    candidates = [
+        item.get("sourceRef", ""),
+        item.get("sourceExportRef", ""),
+        item.get("sourceImageId", ""),
+    ]
+    source_ref = item.get("sourceRef", "")
+    if source_ref and not _has_registry(source_ref):
+        path, tag = _split_image_tag(source_ref)
+        if "/" not in path:
+            candidates.append(f"docker.io/library/{source_ref}")
+        else:
+            candidates.append(f"docker.io/{source_ref}")
+    return [value for value in dict.fromkeys(candidates) if value]
+
+
+def _split_image_tag(image: str) -> tuple[str, str]:
+    image = image.split("@", 1)[0]
+    last_part = image.rsplit("/", 1)[-1]
+    if ":" not in last_part:
+        return image, ""
+    path, tag = image.rsplit(":", 1)
+    return path, tag
+
+
+def _current_worker_image() -> str:
+    return os.getenv("DEPLOYMENT_PACKAGE_POD_IMAGE", "").strip()
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, "").strip() or default))
+    except ValueError:
+        return default
+
+
+def _shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
 def _source_registry_insecure(source_ref: str, user_requested: bool = False) -> bool:

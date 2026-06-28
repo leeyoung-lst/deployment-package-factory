@@ -13,7 +13,7 @@ RUN if [ -n "${APT_SECURITY_MIRROR}" ]; then sed -i "s|http://deb.debian.org/deb
     && if [ -n "${APT_MIRROR}" ]; then sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; fi \
     && printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' >/etc/apt/apt.conf.d/99build-timeouts \
     && apt-get update \
-    && apt-get install -y --no-install-recommends skopeo ca-certificates \
+    && apt-get install -y --no-install-recommends skopeo containerd ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/pyproject.toml /app/pyproject.toml
