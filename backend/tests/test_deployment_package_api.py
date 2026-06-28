@@ -9,6 +9,7 @@ import pytest
 
 from deployment_package_factory.api import deployment_packages
 from deployment_package_factory.services.deployment_packages import builder, task_executor
+from deployment_package_factory.services.deployment_packages import runtime_options
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, PackageBuildResult
 from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
@@ -22,43 +23,42 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
-def test_deployment_package_options_returns_catalog() -> None:
+def test_deployment_package_options_returns_no_fake_catalog_data() -> None:
     response = _client().get("/api/deployment-packages/options")
 
     assert response.status_code == 200, response.text
     payload = response.json()
     assert "k8s" in payload["deployModes"]
-    assert any(item["key"] == "iam" for item in payload["platformServices"])
-    assert any(item["key"] == "eam" for item in payload["businessServices"])
-    assert any(item["key"] == "postgres" for item in payload["databaseOptions"])
-    assert any(item["key"] == "standard-eam" for item in payload["projects"])
+    assert payload["sourceEnvs"] == []
+    assert payload["platformServices"] == []
+    assert payload["businessServices"] == []
+    assert payload["databaseOptions"] == []
+    assert payload["middleware"] == []
+    assert payload["projects"] == []
 
 
-def test_deployment_package_options_merges_registered_business_platform(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        deployment_packages,
-        "list_registered_business_platforms",
-        lambda: [
-            RegisteredBusinessPlatform(
-                key="eam",
-                name="EAM",
-                profile="4x60",
-                namespace="test-business-eam",
-                source_env="test",
-                status="active",
-            )
-        ],
-    )
+def test_deployment_package_options_returns_only_runtime_services(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
 
     response = _client().get("/api/deployment-packages/options")
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    registered = [item for item in payload["businessServices"] if item.get("registered")]
-    templates = [item for item in payload["businessServices"] if not item.get("registered")]
-    assert registered[0]["namespace"] == "test-business-eam"
-    assert registered[0]["sourceEnv"] == "test"
-    assert any(item["key"] == "eam" and item["status"] == "template" for item in templates)
+    assert payload["sourceEnvs"] == ["test"]
+    assert {item["key"] for item in payload["platformServices"]} == {
+        "ai-agent",
+        "audit",
+        "file-documents",
+        "gateway-frontend",
+        "iam",
+        "workflow-camunda",
+    }
+    assert [item["key"] for item in payload["businessServices"]] == ["eam"]
+    assert payload["businessServices"][0]["namespace"] == "test-business-eam"
+    assert payload["businessServices"][0]["sourceEnv"] == "test"
+    assert {item["key"] for item in payload["databaseOptions"]} == {"postgres"}
+    assert {item["key"] for item in payload["middleware"]} == {"camunda", "iotdb", "minio", "redis"}
+    assert [item["key"] for item in payload["projects"]] == ["test-eam"]
 
 
 def test_deployment_package_api_requires_token_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,7 +91,9 @@ def test_deployment_package_api_accepts_header_token(monkeypatch: pytest.MonkeyP
     assert response.status_code == 200, response.text
 
 
-def test_deployment_package_preview_returns_resolved_dependencies() -> None:
+def test_deployment_package_preview_returns_resolved_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+
     response = _client().post(
         "/api/deployment-packages/preview",
         json={
@@ -113,20 +115,7 @@ def test_deployment_package_preview_returns_resolved_dependencies() -> None:
 
 
 def test_deployment_package_preview_returns_runtime_image_entries(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env: ["local-ai"] if source_env == "test" else [])
-    monkeypatch.setattr(
-        builder,
-        "_list_runtime_images",
-        lambda namespaces: [
-            builder.RuntimeSourceImage(
-                source_ref="192.168.10.210/local-ai/local-ai-eam-service:k8s",
-                image_id="192.168.10.210/local-ai/local-ai-eam-service@sha256:eam",
-                namespace="local-ai",
-                pod="eam-service-1",
-                container="eam-service",
-            )
-        ],
-    )
+    _mock_runtime_environment(monkeypatch)
 
     response = _client().post(
         "/api/deployment-packages/preview",
@@ -217,6 +206,7 @@ def test_image_export_environment_api_reports_docker_state(monkeypatch: pytest.M
 
 
 def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
@@ -273,6 +263,7 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
 
 
 def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(deployment_packages, "_SETTINGS", replace(deployment_packages._SETTINGS, execution_mode="worker"))
@@ -294,6 +285,7 @@ def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, mon
 
 
 def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
     _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
@@ -457,6 +449,50 @@ def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: PackageTaskRepository, outp
         PackageTaskExecutor(repo, PackageTaskExecutorConfig(max_concurrent_builds=1, output_dir=output_dir)),
     )
     return audit_repo
+
+
+def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    registered = [
+        RegisteredBusinessPlatform(
+            key="eam",
+            name="EAM",
+            profile="4x60",
+            namespace="test-business-eam",
+            source_env="test",
+            status="active",
+        )
+    ]
+    runtime_images = [
+        ("192.168.10.210/local-ai/local-ai-iam-service:k8s", "iam"),
+        ("192.168.10.210/local-ai/local-ai-backend:k8s", "backend"),
+        ("192.168.10.210/local-ai/local-ai-frontend:k8s", "frontend"),
+        ("192.168.10.210/local-ai/local-ai-eam-service:k8s", "eam"),
+        ("192.168.10.210/local-ai/sub-app-eam:k8s", "sub-eam"),
+        ("192.168.10.210/local-ai/local-ai-collection-service:k8s", "collection"),
+        ("192.168.10.210/local-ai/postgres:16", "postgres"),
+        ("192.168.10.210/local-ai/redis:7", "redis"),
+        ("192.168.10.210/local-ai/minio/minio:latest", "minio"),
+        ("192.168.10.210/local-ai/camunda/camunda:latest", "camunda"),
+        ("192.168.10.210/local-ai/apache/iotdb:latest", "iotdb"),
+    ]
+
+    monkeypatch.setattr(runtime_options, "list_registered_business_platforms", lambda: registered)
+    monkeypatch.setattr(runtime_options, "source_env_namespaces", lambda source_env: ["local-ai", "test-business-eam"] if source_env == "test" else [])
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env: ["local-ai", "test-business-eam"] if source_env == "test" else [])
+    monkeypatch.setattr(
+        builder,
+        "_list_runtime_images",
+        lambda namespaces: [
+            builder.RuntimeSourceImage(
+                source_ref=image,
+                image_id=f"{image.rsplit(':', 1)[0]}@sha256:{digest}",
+                namespace=namespaces[0] if namespaces else "local-ai",
+                pod=f"{digest}-pod",
+                container=digest,
+            )
+            for image, digest in runtime_images
+        ],
+    )
 
 
 def _wait_for_task(client: TestClient, task_id: str) -> dict:

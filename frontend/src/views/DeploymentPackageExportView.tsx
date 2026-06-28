@@ -54,8 +54,8 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [sourceEnv, setSourceEnv] = useState<SourceEnv>("test");
   const [deployMode, setDeployMode] = useState<DeployMode>("k8s");
   const [platformServices, setPlatformServices] = useState<string[]>([]);
-  const [businessServices, setBusinessServices] = useState<string[]>(["eam"]);
-  const [database, setDatabase] = useState("postgres");
+  const [businessServices, setBusinessServices] = useState<string[]>([]);
+  const [database, setDatabase] = useState("");
   const [preview, setPreview] = useState<PackagePreview | null>(null);
   const [task, setTask] = useState<PackageTask | null>(null);
   const [tasks, setTasks] = useState<PackageTask[]>([]);
@@ -88,6 +88,14 @@ export const DeploymentPackageExportView: React.FC = () => {
   const businessOptionsForSourceEnv = useMemo(
     () => businessOptionsForEnv(options?.businessServices ?? [], sourceEnv),
     [options?.businessServices, sourceEnv],
+  );
+  const platformOptionsForSourceEnv = useMemo(
+    () => serviceOptionsForEnv(options?.platformServices ?? [], sourceEnv),
+    [options?.platformServices, sourceEnv],
+  );
+  const databaseOptionsForSourceEnv = useMemo(
+    () => serviceOptionsForEnv(options?.databaseOptions ?? [], sourceEnv),
+    [options?.databaseOptions, sourceEnv],
   );
   const registeredBusinessOptions = useMemo(
     () => (options?.businessServices ?? []).filter((item) => item.registered && item.status !== "disabled"),
@@ -122,9 +130,10 @@ export const DeploymentPackageExportView: React.FC = () => {
     setProductVersion(project.defaultVersion || project.versions[0] || "");
     setSourceEnv(project.defaultSourceEnv);
     setDeployMode(project.defaultDeployModes[0] || "k8s");
-    setPlatformServices(project.defaultPlatformServices);
-    setBusinessServices(project.defaultBusinessServices.map((item) => item.name));
-    setDatabase(project.defaultDatabase);
+    setPlatformServices(project.defaultPlatformServices.filter((key) => serviceOptionsForEnv(sourceOptions?.platformServices ?? [], project.defaultSourceEnv).some((item) => item.key === key)));
+    setBusinessServices(project.defaultBusinessServices.map((item) => item.name).filter((key) => businessOptionsForEnv(sourceOptions?.businessServices ?? [], project.defaultSourceEnv).some((item) => item.key === key)));
+    const projectDatabases = serviceOptionsForEnv(sourceOptions?.databaseOptions ?? [], project.defaultSourceEnv);
+    setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
     form.setFieldsValue({
       domain: project.domain,
       registry: project.registry,
@@ -147,9 +156,10 @@ export const DeploymentPackageExportView: React.FC = () => {
     setProductVersion(project.defaultVersion || project.versions[0] || "");
     setSourceEnv(project.defaultSourceEnv);
     setDeployMode(project.defaultDeployModes[0] || "k8s");
-    setPlatformServices(project.defaultPlatformServices);
-    setBusinessServices(project.defaultBusinessServices.map((item) => item.name));
-    setDatabase(project.defaultDatabase);
+    setPlatformServices(project.defaultPlatformServices.filter((key) => serviceOptionsForEnv(sourceOptions.platformServices, project.defaultSourceEnv).some((item) => item.key === key)));
+    setBusinessServices(project.defaultBusinessServices.map((item) => item.name).filter((key) => businessOptionsForEnv(sourceOptions.businessServices, project.defaultSourceEnv).some((item) => item.key === key)));
+    const projectDatabases = serviceOptionsForEnv(sourceOptions.databaseOptions, project.defaultSourceEnv);
+    setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
     form.setFieldsValue({
       domain: project.domain,
       registry: project.registry,
@@ -170,18 +180,26 @@ export const DeploymentPackageExportView: React.FC = () => {
     try {
       const payload = await getDeploymentPackageOptions();
       setOptions(payload);
-      const required = payload.platformServices.filter((item) => item.required).map((item) => item.key);
+      const nextSourceEnv = payload.sourceEnvs.includes(sourceEnv) ? sourceEnv : (payload.sourceEnvs[0] ?? "test");
+      setSourceEnv(nextSourceEnv);
+      const runtimePlatform = serviceOptionsForEnv(payload.platformServices, nextSourceEnv);
+      const required = runtimePlatform.filter((item) => item.required).map((item) => item.key);
       setPlatformServices((current) => Array.from(new Set([...required, ...current])));
-      if (!payload.businessServices.some((item) => item.key === "eam")) {
-        setBusinessServices(businessOptionsForEnv(payload.businessServices, sourceEnv).slice(0, 1).map((item) => item.key));
-      }
-      if (payload.databaseOptions.some((item) => item.key === "postgres")) {
+      const runtimeBusiness = businessOptionsForEnv(payload.businessServices, nextSourceEnv);
+      setBusinessServices((current) => current.filter((key) => runtimeBusiness.some((item) => item.key === key)));
+      const runtimeDatabases = serviceOptionsForEnv(payload.databaseOptions, nextSourceEnv);
+      if (runtimeDatabases.some((item) => item.key === "postgres")) {
         setDatabase("postgres");
-      } else if (payload.databaseOptions[0]) {
-        setDatabase(payload.databaseOptions[0].key);
+      } else if (runtimeDatabases[0]) {
+        setDatabase(runtimeDatabases[0].key);
+      } else {
+        setDatabase("");
       }
       if (payload.projects[0]) {
         applyProjectDefaultsFromOptions(payload.projects[0].key, payload);
+      } else {
+        setProjectKey("");
+        setProductVersion("");
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : "部署包选项加载失败");
@@ -220,6 +238,10 @@ export const DeploymentPackageExportView: React.FC = () => {
 
   const refreshPreview = useCallback(async () => {
     if (!options) return;
+    if (!options.sourceEnvs.includes(sourceEnv) || !database) {
+      setPreview(null);
+      return;
+    }
     setPreviewing(true);
     try {
       const payload = await previewDeploymentPackage(makePreviewPayload());
@@ -288,12 +310,11 @@ export const DeploymentPackageExportView: React.FC = () => {
   };
 
   const openRegisterModal = () => {
-    const firstTemplate = (options?.businessServices ?? []).find((item) => !item.registered) ?? options?.businessServices[0];
     registerForm.setFieldsValue({
       sourceEnv,
-      key: firstTemplate?.key || "",
-      name: firstTemplate?.name || "",
-      profile: firstTemplate?.profile || "",
+      key: "",
+      name: "",
+      profile: "",
     });
     setRegisterModalOpen(true);
   };
@@ -536,7 +557,8 @@ export const DeploymentPackageExportView: React.FC = () => {
                     value={projectKey}
                     options={(options?.projects ?? []).map((item) => ({ value: item.key, label: item.name }))}
                     onChange={(value) => applyProjectDefaults(value)}
-                    placeholder="选择项目模板"
+                    placeholder="暂无真实项目"
+                    disabled={!options?.projects.length}
                   />
                 </Form.Item>
                 <Form.Item label="产品版本">
@@ -544,7 +566,8 @@ export const DeploymentPackageExportView: React.FC = () => {
                     value={productVersion}
                     options={(options?.projects.find((item) => item.key === projectKey)?.versions ?? []).map((item) => ({ value: item, label: item }))}
                     onChange={(value) => setProductVersion(value)}
-                    placeholder="选择版本"
+                    placeholder="暂无真实版本"
+                    disabled={!(options?.projects.find((item) => item.key === projectKey)?.versions ?? []).length}
                   />
                 </Form.Item>
               </div>
@@ -552,10 +575,11 @@ export const DeploymentPackageExportView: React.FC = () => {
               <div className={styles.split}>
                 <Form.Item label="来源环境">
                   <Radio.Group value={sourceEnv} onChange={(event) => setSourceEnv(event.target.value)}>
-                    {(options?.sourceEnvs ?? ["dev", "test"]).map((env) => (
+                    {(options?.sourceEnvs ?? []).map((env) => (
                       <Radio.Button key={env} value={env}>{env === "dev" ? "开发环境" : "测试环境"}</Radio.Button>
                     ))}
                   </Radio.Group>
+                  {options?.sourceEnvs.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可读取的来源环境" /> : null}
                 </Form.Item>
                 <Form.Item label="部署方式">
                   <Radio.Group value={deployMode} onChange={(event) => setDeployMode(event.target.value)}>
@@ -571,7 +595,7 @@ export const DeploymentPackageExportView: React.FC = () => {
               <Divider />
               <h3 className={styles.sectionTitle}>基础平台服务</h3>
               <Checkbox.Group className={styles.serviceGrid} value={platformServices} onChange={onPlatformChange}>
-                {(options?.platformServices ?? []).map((item) => (
+                {platformOptionsForSourceEnv.map((item) => (
                   <Checkbox key={item.key} value={item.key} disabled={item.required} onChange={item.required ? onRequiredPlatformClick : undefined}>
                     <span className={styles.serviceItem}>
                       <span className={styles.serviceMain}>
@@ -583,12 +607,13 @@ export const DeploymentPackageExportView: React.FC = () => {
                   </Checkbox>
                 ))}
               </Checkbox.Group>
+              {platformOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无真实基础平台服务" /> : null}
 
               <Divider />
               <h3 className={styles.sectionTitle}>业务平台服务</h3>
               <Checkbox.Group className={styles.serviceGrid} value={businessServices} onChange={onBusinessChange}>
                 {businessOptionsForSourceEnv.map((item) => (
-                  <Checkbox key={`${item.sourceEnv || "template"}-${item.key}`} value={item.key}>
+                  <Checkbox key={`${item.sourceEnv}-${item.key}`} value={item.key}>
                     <span className={styles.serviceItem}>
                       <span className={styles.serviceMain}>
                         <i className="ri-apps-2-line" />
@@ -599,6 +624,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                   </Checkbox>
                 ))}
               </Checkbox.Group>
+              {businessOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无已注册业务平台" /> : null}
 
               <Divider />
               <h3 className={styles.sectionTitle}>中间件服务</h3>
@@ -606,7 +632,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                 <Form.Item label="数据库中间件（二选一）">
                   <Radio.Group value={database} onChange={(event) => setDatabase(event.target.value)}>
                     <Space direction="vertical">
-                      {(options?.databaseOptions ?? []).map((item) => (
+                      {databaseOptionsForSourceEnv.map((item) => (
                         <Radio key={item.key} value={item.key}>
                           {item.name}
                           <Tag color={item.domestic ? "red" : "blue"} style={{ marginLeft: 8 }}>{item.domestic ? "国产化" : "非国产化"}</Tag>
@@ -614,6 +640,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                       ))}
                     </Space>
                   </Radio.Group>
+                  {databaseOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无真实数据库服务" /> : null}
                 </Form.Item>
                 <Form.Item label="镜像模式" name="imageMode">
                   <Select
@@ -879,7 +906,6 @@ function PlatformRegistryPanel({
   onDisable: (item: DeploymentServiceOption) => void;
   disablingBusinessKey: string;
 }) {
-  const templateBusiness = (options?.businessServices ?? []).filter((item) => !item.registered);
   return (
     <div className={styles.registryLayout}>
       <div className={styles.resultPanel}>
@@ -925,21 +951,6 @@ function PlatformRegistryPanel({
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无已注册业务平台" />
         )}
-      </div>
-
-      <div className={styles.resultPanel}>
-        <h3 className={styles.sectionTitle}>可注册业务模板</h3>
-        <div className={styles.serviceGrid}>
-          {templateBusiness.map((item) => (
-            <div key={item.key} className={styles.serviceItem}>
-              <span className={styles.serviceMain}>
-                <i className="ri-apps-2-line" />
-                <span className={styles.serviceName}>{item.name}</span>
-              </span>
-              <span className={styles.muted}>{item.profile || item.namespaceGroup}</span>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -1213,10 +1224,11 @@ function mergeTaskIntoList(tasks: PackageTask[], task: PackageTask) {
 }
 
 function businessOptionsForEnv(items: DeploymentServiceOption[], sourceEnv: SourceEnv) {
-  const registeredForEnv = items.filter((item) => item.registered && item.sourceEnv === sourceEnv && item.status !== "disabled");
-  const registeredKeys = new Set(registeredForEnv.map((item) => item.key));
-  const templates = items.filter((item) => !item.registered && !registeredKeys.has(item.key));
-  return [...registeredForEnv, ...templates];
+  return items.filter((item) => item.registered && item.sourceEnv === sourceEnv && item.status !== "disabled");
+}
+
+function serviceOptionsForEnv<T extends { sourceEnv?: SourceEnv | "" }>(items: T[], sourceEnv: SourceEnv) {
+  return items.filter((item) => item.sourceEnv === sourceEnv);
 }
 
 function DependencyBlock({ title, items, color }: { title: string; items: PackagePreview["middleware"]; color: string }) {

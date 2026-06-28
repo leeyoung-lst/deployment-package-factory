@@ -20,12 +20,14 @@ export interface DatabaseOption {
   name: string;
   domestic: boolean;
   image: string;
+  sourceEnv?: SourceEnv | "";
 }
 
 export interface MiddlewareOption {
   key: string;
   name: string;
   image: string;
+  sourceEnv?: SourceEnv | "";
 }
 
 export interface DeploymentPackageOptions {

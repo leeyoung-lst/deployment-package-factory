@@ -19,7 +19,6 @@ from deployment_package_factory.services.deployment_packages.dependency_resolver
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     KubernetesRuntimeError,
     disable_business_platform,
-    list_registered_business_platforms,
     register_business_platform,
 )
 from deployment_package_factory.services.deployment_packages.models import (
@@ -34,6 +33,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackageTask,
 )
 from deployment_package_factory.services.deployment_packages.repositories import create_audit_repository, create_task_repository
+from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 
 LOGGER = logging.getLogger(__name__)
@@ -76,67 +76,15 @@ def should_run_background_tasks() -> bool:
 @router.get("/options")
 async def deployment_package_options() -> dict:
     catalog = load_catalog()
-    registered_business = list_registered_business_platforms()
-    business_options = [
-        {
-            "key": item.key,
-            "name": item.name,
-            "profile": item.profile,
-            "namespaceGroup": f"business-{item.key}",
-            "namespace": item.namespace,
-            "sourceEnv": item.source_env,
-            "status": item.status,
-            "registered": True,
-        }
-        for item in registered_business
-    ]
-    for item in catalog.business.values():
-        business_options.append(
-            {
-                "key": item.key,
-                "name": item.name,
-                "profile": item.profile,
-                "namespaceGroup": item.namespace_group,
-                "namespace": "",
-                "sourceEnv": "",
-                "status": "template",
-                "registered": False,
-            },
-        )
+    runtime_options = build_runtime_options(catalog)
     return {
-        "sourceEnvs": ["dev", "test"],
+        "sourceEnvs": runtime_options.source_envs,
         "deployModes": ["k8s", "docker-compose"],
-        "platformServices": [
-            {
-                "key": item.key,
-                "name": item.name,
-                "required": item.required,
-                "namespaceGroup": item.namespace_group,
-            }
-            for item in catalog.platform.values()
-        ],
-        "businessServices": sorted(business_options, key=lambda item: (item.get("sourceEnv") or "z", item["key"], item.get("registered") is False)),
-        "databaseOptions": [
-            {
-                "key": item.key,
-                "name": item.name,
-                "domestic": item.domestic,
-                "image": item.image,
-            }
-            for item in catalog.database_options.values()
-        ],
-        "middleware": [
-            {
-                "key": item.key,
-                "name": item.name,
-                "image": item.image,
-            }
-            for item in catalog.middleware.values()
-        ],
-        "projects": [
-            item.model_dump(by_alias=True)
-            for item in catalog.projects.values()
-        ],
+        "platformServices": runtime_options.platform_services,
+        "businessServices": runtime_options.business_services,
+        "databaseOptions": runtime_options.database_options,
+        "middleware": runtime_options.middleware,
+        "projects": runtime_options.projects,
     }
 
 
@@ -145,12 +93,13 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
     try:
         catalog = load_catalog()
         preview = resolve_package_preview(payload, catalog)
+        ensure_request_matches_runtime(payload, catalog)
         request, project = package_builder._apply_project_build_defaults(PackageBuildRequest.model_validate(payload.model_dump(by_alias=True)), catalog)
         image_tag = project.image_tag if project else "prod"
         runtime_images = package_builder._discover_runtime_source_images(request.source_env, preview.images, image_tag)
         image_entries = package_builder._image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
         return preview.model_copy(update={"image_entries": image_entries})
-    except (CatalogError, PackageBuildError) as exc:
+    except (CatalogError, PackageBuildError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -225,6 +174,10 @@ async def create_deployment_package(
     request: Request,
     x_deployment_package_operator: str | None = Header(default=None),
 ) -> PackageTask:
+    try:
+        ensure_request_matches_runtime(payload, load_catalog())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     repo = get_task_repository()
     task = repo.create(payload)
     _audit(
