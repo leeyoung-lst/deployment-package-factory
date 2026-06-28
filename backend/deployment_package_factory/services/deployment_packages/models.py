@@ -120,6 +120,29 @@ class ResolvedDependency(BaseModel):
     locked: bool = True
     required_by: list[str] = Field(default_factory=list, alias="requiredBy")
     reason: str = ""
+    namespace: str = ""
+    source_env: str = Field(default="", alias="sourceEnv")
+    status: str = ""
+
+
+class BusinessPlatformRegistrationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    source_env: str = Field(alias="sourceEnv")
+    key: str
+    name: str = ""
+    profile: str = ""
+
+
+class BusinessPlatformRegistrationResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    key: str
+    name: str
+    profile: str = ""
+    namespace: str
+    source_env: str = Field(alias="sourceEnv")
+    status: str
 
 
 class PackagePreview(BaseModel):
@@ -130,6 +153,7 @@ class PackagePreview(BaseModel):
     middleware: list[ResolvedDependency]
     database: DatabaseOption
     images: dict[str, list[str]]
+    image_entries: list[dict] = Field(default_factory=list, alias="imageEntries")
     warnings: list[str] = Field(default_factory=list)
 
 

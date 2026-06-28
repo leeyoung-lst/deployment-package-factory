@@ -10,13 +10,22 @@ from fastapi.responses import FileResponse
 from deployment_package_factory.auth import require_api_token
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.builder import PackageBuildError, check_image_export_environment
+from deployment_package_factory.services.deployment_packages import builder as package_builder
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError, load_catalog
 from deployment_package_factory.services.deployment_packages.cleanup import CleanupPolicy, CleanupResult, cleanup_deployment_packages
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
     resolve_package_preview,
 )
+from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
+    KubernetesRuntimeError,
+    disable_business_platform,
+    list_registered_business_platforms,
+    register_business_platform,
+)
 from deployment_package_factory.services.deployment_packages.models import (
     AuditEvent,
+    BusinessPlatformRegistrationRequest,
+    BusinessPlatformRegistrationResult,
     ImageExportEnvironmentCheck,
     PackageBuildRequest,
     PackageBuildResult,
@@ -67,6 +76,33 @@ def should_run_background_tasks() -> bool:
 @router.get("/options")
 async def deployment_package_options() -> dict:
     catalog = load_catalog()
+    registered_business = list_registered_business_platforms()
+    business_options = [
+        {
+            "key": item.key,
+            "name": item.name,
+            "profile": item.profile,
+            "namespaceGroup": f"business-{item.key}",
+            "namespace": item.namespace,
+            "sourceEnv": item.source_env,
+            "status": item.status,
+            "registered": True,
+        }
+        for item in registered_business
+    ]
+    for item in catalog.business.values():
+        business_options.append(
+            {
+                "key": item.key,
+                "name": item.name,
+                "profile": item.profile,
+                "namespaceGroup": item.namespace_group,
+                "namespace": "",
+                "sourceEnv": "",
+                "status": "template",
+                "registered": False,
+            },
+        )
     return {
         "sourceEnvs": ["dev", "test"],
         "deployModes": ["k8s", "docker-compose"],
@@ -79,15 +115,7 @@ async def deployment_package_options() -> dict:
             }
             for item in catalog.platform.values()
         ],
-        "businessServices": [
-            {
-                "key": item.key,
-                "name": item.name,
-                "profile": item.profile,
-                "namespaceGroup": item.namespace_group,
-            }
-            for item in catalog.business.values()
-        ],
+        "businessServices": sorted(business_options, key=lambda item: (item.get("sourceEnv") or "z", item["key"], item.get("registered") is False)),
         "databaseOptions": [
             {
                 "key": item.key,
@@ -115,9 +143,74 @@ async def deployment_package_options() -> dict:
 @router.post("/preview", response_model=PackagePreview)
 async def deployment_package_preview(payload: PackagePreviewRequest) -> PackagePreview:
     try:
-        return resolve_package_preview(payload, load_catalog())
+        catalog = load_catalog()
+        preview = resolve_package_preview(payload, catalog)
+        request, project = package_builder._apply_project_build_defaults(PackageBuildRequest.model_validate(payload.model_dump(by_alias=True)), catalog)
+        image_tag = project.image_tag if project else "prod"
+        runtime_images = package_builder._discover_runtime_source_images(request.source_env, preview.images, image_tag)
+        image_entries = package_builder._image_entries(preview.images, request, image_tag, runtime_images)
+        return preview.model_copy(update={"image_entries": image_entries})
     except (CatalogError, PackageBuildError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/business-platforms/register", response_model=BusinessPlatformRegistrationResult)
+async def register_deployment_business_platform(
+    payload: BusinessPlatformRegistrationRequest,
+    request: Request,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> BusinessPlatformRegistrationResult:
+    try:
+        result = register_business_platform(payload.source_env, payload.key, payload.name, payload.profile)
+    except KubernetesRuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _audit(
+        request,
+        action="business-platform.register",
+        status=result.status,
+        target_id=result.namespace,
+        message="Business platform namespace registered.",
+        operator=x_deployment_package_operator,
+        metadata=result.__dict__,
+    )
+    return BusinessPlatformRegistrationResult(
+        key=result.key,
+        name=result.name,
+        profile=result.profile,
+        namespace=result.namespace,
+        sourceEnv=result.source_env,
+        status=result.status,
+    )
+
+
+@router.post("/business-platforms/{source_env}/{business_key}/disable", response_model=BusinessPlatformRegistrationResult)
+async def disable_deployment_business_platform(
+    source_env: str,
+    business_key: str,
+    request: Request,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> BusinessPlatformRegistrationResult:
+    try:
+        result = disable_business_platform(source_env, business_key)
+    except KubernetesRuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _audit(
+        request,
+        action="business-platform.disable",
+        status=result.status,
+        target_id=result.namespace,
+        message="Business platform namespace disabled.",
+        operator=x_deployment_package_operator,
+        metadata=result.__dict__,
+    )
+    return BusinessPlatformRegistrationResult(
+        key=result.key,
+        name=result.name,
+        profile=result.profile,
+        namespace=result.namespace,
+        sourceEnv=result.source_env,
+        status=result.status,
+    )
 
 
 @router.get("/image-export-environment", response_model=ImageExportEnvironmentCheck)

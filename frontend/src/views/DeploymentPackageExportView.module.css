@@ -9,6 +9,12 @@
   gap: 16px;
 }
 
+.registryLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  gap: 16px;
+}
+
 .formPanel,
 .previewPanel,
 .resultPanel {
@@ -269,7 +275,8 @@
 }
 
 @media (max-width: 1120px) {
-  .content {
+  .content,
+  .registryLayout {
     grid-template-columns: 1fr;
   }
 }

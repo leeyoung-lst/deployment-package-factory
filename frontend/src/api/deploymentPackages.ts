@@ -9,6 +9,10 @@ export interface DeploymentServiceOption {
   required?: boolean;
   profile?: string;
   namespaceGroup?: string;
+  namespace?: string;
+  sourceEnv?: SourceEnv | "";
+  status?: string;
+  registered?: boolean;
 }
 
 export interface DatabaseOption {
@@ -88,6 +92,9 @@ export interface ResolvedDependency {
   locked: boolean;
   requiredBy: string[];
   reason: string;
+  namespace?: string;
+  sourceEnv?: SourceEnv | "";
+  status?: string;
 }
 
 export interface PackagePreview {
@@ -96,7 +103,38 @@ export interface PackagePreview {
   middleware: ResolvedDependency[];
   database: DatabaseOption;
   images: Record<string, string[]>;
+  imageEntries: ImageEntry[];
   warnings: string[];
+}
+
+export interface ImageEntry {
+  group: string;
+  catalogRef: string;
+  sourceRef: string;
+  sourceExportRef?: string;
+  targetRef: string;
+  sourceResolvedFrom?: string;
+  sourceImageId?: string;
+  sourceNamespace?: string;
+  sourcePod?: string;
+  sourceContainer?: string;
+  archiveFile?: string;
+}
+
+export interface BusinessPlatformRegistrationRequest {
+  sourceEnv: SourceEnv;
+  key: string;
+  name: string;
+  profile?: string;
+}
+
+export interface BusinessPlatformRegistrationResult {
+  key: string;
+  name: string;
+  profile: string;
+  namespace: string;
+  sourceEnv: SourceEnv;
+  status: string;
 }
 
 export interface PackageBuildResult {
@@ -179,6 +217,20 @@ export function previewDeploymentPackage(payload: PackagePreviewRequest) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function registerBusinessPlatform(payload: BusinessPlatformRegistrationRequest) {
+  return request<BusinessPlatformRegistrationResult>("/api/deployment-packages/business-platforms/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function disableBusinessPlatform(sourceEnv: SourceEnv, businessKey: string) {
+  return request<BusinessPlatformRegistrationResult>(
+    `/api/deployment-packages/business-platforms/${encodeURIComponent(sourceEnv)}/${encodeURIComponent(businessKey)}/disable`,
+    { method: "POST" },
+  );
 }
 
 export function createDeploymentPackage(payload: PackageBuildRequest) {

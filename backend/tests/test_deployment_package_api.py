@@ -9,6 +9,7 @@ import pytest
 
 from deployment_package_factory.api import deployment_packages
 from deployment_package_factory.services.deployment_packages import builder, task_executor
+from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, PackageBuildResult
 from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
@@ -31,6 +32,33 @@ def test_deployment_package_options_returns_catalog() -> None:
     assert any(item["key"] == "eam" for item in payload["businessServices"])
     assert any(item["key"] == "postgres" for item in payload["databaseOptions"])
     assert any(item["key"] == "standard-eam" for item in payload["projects"])
+
+
+def test_deployment_package_options_merges_registered_business_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        deployment_packages,
+        "list_registered_business_platforms",
+        lambda: [
+            RegisteredBusinessPlatform(
+                key="eam",
+                name="EAM",
+                profile="4x60",
+                namespace="test-business-eam",
+                source_env="test",
+                status="active",
+            )
+        ],
+    )
+
+    response = _client().get("/api/deployment-packages/options")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    registered = [item for item in payload["businessServices"] if item.get("registered")]
+    templates = [item for item in payload["businessServices"] if not item.get("registered")]
+    assert registered[0]["namespace"] == "test-business-eam"
+    assert registered[0]["sourceEnv"] == "test"
+    assert any(item["key"] == "eam" and item["status"] == "template" for item in templates)
 
 
 def test_deployment_package_api_requires_token_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,6 +110,76 @@ def test_deployment_package_preview_returns_resolved_dependencies() -> None:
     assert {"iam", "gateway-frontend", "file-documents", "workflow-camunda", "audit"}.issubset(platform_keys)
     assert {"postgres", "redis", "minio", "camunda", "iotdb"}.issubset(middleware_keys)
     assert "local-ai-eam-service" in payload["images"]["business"]
+
+
+def test_deployment_package_preview_returns_runtime_image_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env: ["local-ai"] if source_env == "test" else [])
+    monkeypatch.setattr(
+        builder,
+        "_list_runtime_images",
+        lambda namespaces: [
+            builder.RuntimeSourceImage(
+                source_ref="192.168.10.210/local-ai/local-ai-eam-service:k8s",
+                image_id="192.168.10.210/local-ai/local-ai-eam-service@sha256:eam",
+                namespace="local-ai",
+                pod="eam-service-1",
+                container="eam-service",
+            )
+        ],
+    )
+
+    response = _client().post(
+        "/api/deployment-packages/preview",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "database": "postgres",
+            "targetProfile": {"registry": "harbor.prod/local-ai"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    by_catalog = {item["catalogRef"]: item for item in response.json()["imageEntries"]}
+    assert by_catalog["local-ai-eam-service:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-eam-service:k8s"
+    assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
+
+
+def test_register_and_disable_business_platform_api(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
+    registered = RegisteredBusinessPlatform(
+        key="eam",
+        name="EAM",
+        profile="4x60",
+        namespace="test-business-eam",
+        source_env="test",
+        status="active",
+    )
+    disabled = RegisteredBusinessPlatform(
+        key="eam",
+        name="EAM",
+        profile="4x60",
+        namespace="test-business-eam",
+        source_env="test",
+        status="disabled",
+    )
+    monkeypatch.setattr(deployment_packages, "register_business_platform", lambda source_env, key, name, profile: registered)
+    monkeypatch.setattr(deployment_packages, "disable_business_platform", lambda source_env, business_key: disabled)
+
+    created = _client().post(
+        "/api/deployment-packages/business-platforms/register",
+        json={"sourceEnv": "test", "key": "eam", "name": "EAM", "profile": "4x60"},
+    )
+    removed = _client().post("/api/deployment-packages/business-platforms/test/eam/disable")
+
+    assert created.status_code == 200, created.text
+    assert created.json()["namespace"] == "test-business-eam"
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["status"] == "disabled"
+    actions = [event.action for event in audit_repo.list(limit=10)]
+    assert "business-platform.register" in actions
+    assert "business-platform.disable" in actions
 
 
 def test_deployment_package_preview_rejects_unknown_database() -> None:

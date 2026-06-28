@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+
+DPF_LABEL_PREFIX = "deployment-package-factory.local-ai"
+ENV_LABEL = f"{DPF_LABEL_PREFIX}/environment"
+NAMESPACE_TYPE_LABEL = f"{DPF_LABEL_PREFIX}/namespace-type"
+BUSINESS_KEY_LABEL = f"{DPF_LABEL_PREFIX}/business-key"
+STATUS_LABEL = f"{DPF_LABEL_PREFIX}/status"
+BUSINESS_NAME_ANNOTATION = f"{DPF_LABEL_PREFIX}/business-name"
+BUSINESS_PROFILE_ANNOTATION = f"{DPF_LABEL_PREFIX}/business-profile"
+MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
+MANAGED_BY_VALUE = "deployment-package-factory"
+
+
+class KubernetesRuntimeError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class RegisteredBusinessPlatform:
+    key: str
+    name: str
+    profile: str
+    namespace: str
+    source_env: str
+    status: str = "active"
+
+
+def source_env_namespaces(source_env: str) -> list[str]:
+    env_key = re.sub(r"[^A-Za-z0-9]+", "_", source_env.strip().upper())
+    raw = os.getenv(f"DEPLOYMENT_PACKAGE_SOURCE_NAMESPACES_{env_key}", "").strip()
+    if not raw:
+        raw = os.getenv("DEPLOYMENT_PACKAGE_SOURCE_NAMESPACES", "").strip()
+    if not raw:
+        defaults = {
+            "dev": "local-ai-dev",
+            "test": "local-ai",
+        }
+        raw = defaults.get(source_env.strip().lower(), "")
+    namespaces = [item.strip() for item in raw.split(",") if item.strip()]
+    try:
+        namespaces.extend(item.namespace for item in list_registered_business_platforms(source_env))
+    except KubernetesRuntimeError:
+        pass
+    return list(dict.fromkeys(namespaces))
+
+
+def business_namespace(source_env: str, business_key: str) -> str:
+    return f"{_dns_label(source_env)}-business-{_dns_label(business_key)}"
+
+
+def list_registered_business_platforms(source_env: str | None = None, *, include_disabled: bool = False) -> list[RegisteredBusinessPlatform]:
+    token = _service_account_token()
+    if not token:
+        return []
+    selector_parts = [
+        f"{MANAGED_BY_LABEL}={MANAGED_BY_VALUE}",
+        f"{NAMESPACE_TYPE_LABEL}=business",
+    ]
+    if source_env:
+        selector_parts.append(f"{ENV_LABEL}={source_env}")
+    payload = _request_json("GET", f"/api/v1/namespaces?labelSelector={quote(','.join(selector_parts), safe='=,./-')}", token)
+    result: list[RegisteredBusinessPlatform] = []
+    for item in payload.get("items", []):
+        metadata = item.get("metadata") or {}
+        labels = metadata.get("labels") or {}
+        annotations = metadata.get("annotations") or {}
+        status = labels.get(STATUS_LABEL) or "active"
+        if status == "disabled" and not include_disabled:
+            continue
+        key = labels.get(BUSINESS_KEY_LABEL) or _business_key_from_namespace(metadata.get("name", ""))
+        if not key:
+            continue
+        result.append(
+            RegisteredBusinessPlatform(
+                key=key,
+                name=annotations.get(BUSINESS_NAME_ANNOTATION) or key.upper(),
+                profile=annotations.get(BUSINESS_PROFILE_ANNOTATION) or "",
+                namespace=metadata.get("name", ""),
+                source_env=labels.get(ENV_LABEL) or "",
+                status=status,
+            )
+        )
+    return sorted(result, key=lambda item: (item.source_env, item.key, item.namespace))
+
+
+def register_business_platform(source_env: str, key: str, name: str = "", profile: str = "") -> RegisteredBusinessPlatform:
+    normalized_env = _dns_label(source_env)
+    normalized_key = _dns_label(key)
+    namespace = business_namespace(normalized_env, normalized_key)
+    token = _require_service_account_token()
+    existing = _get_namespace(namespace, token)
+    labels = _business_namespace_labels(normalized_env, normalized_key, "active")
+    annotations = _business_namespace_annotations(name or normalized_key.upper(), profile)
+    if existing:
+        _patch_namespace_metadata(namespace, labels, annotations, token)
+    else:
+        _create_namespace(namespace, labels, annotations, token)
+    return RegisteredBusinessPlatform(
+        key=normalized_key,
+        name=name or normalized_key.upper(),
+        profile=profile,
+        namespace=namespace,
+        source_env=normalized_env,
+        status="active",
+    )
+
+
+def disable_business_platform(source_env: str, key: str) -> RegisteredBusinessPlatform:
+    normalized_env = _dns_label(source_env)
+    normalized_key = _dns_label(key)
+    namespace = business_namespace(normalized_env, normalized_key)
+    token = _require_service_account_token()
+    existing = _get_namespace(namespace, token)
+    if not existing:
+        raise KubernetesRuntimeError(f"Business namespace {namespace!r} does not exist.")
+    labels = ((existing.get("metadata") or {}).get("labels") or {}).copy()
+    if labels.get(NAMESPACE_TYPE_LABEL) != "business" or labels.get(BUSINESS_KEY_LABEL) != normalized_key:
+        raise KubernetesRuntimeError(f"Namespace {namespace!r} is not a registered business platform.")
+    labels[STATUS_LABEL] = "disabled"
+    annotations = ((existing.get("metadata") or {}).get("annotations") or {}).copy()
+    _patch_namespace_metadata(namespace, labels, annotations, token)
+    return RegisteredBusinessPlatform(
+        key=normalized_key,
+        name=annotations.get(BUSINESS_NAME_ANNOTATION) or normalized_key.upper(),
+        profile=annotations.get(BUSINESS_PROFILE_ANNOTATION) or "",
+        namespace=namespace,
+        source_env=normalized_env,
+        status="disabled",
+    )
+
+
+def read_kubernetes_pods(namespace: str, token: str | None = None) -> dict:
+    access_token = token or _service_account_token()
+    if not access_token:
+        return {}
+    try:
+        return _request_json("GET", f"/api/v1/namespaces/{quote(namespace, safe='')}/pods", access_token)
+    except KubernetesRuntimeError:
+        return {}
+
+
+def _business_namespace_labels(source_env: str, key: str, status: str) -> dict[str, str]:
+    return {
+        MANAGED_BY_LABEL: MANAGED_BY_VALUE,
+        ENV_LABEL: source_env,
+        NAMESPACE_TYPE_LABEL: "business",
+        BUSINESS_KEY_LABEL: key,
+        STATUS_LABEL: status,
+    }
+
+
+def _business_namespace_annotations(name: str, profile: str) -> dict[str, str]:
+    return {
+        BUSINESS_NAME_ANNOTATION: name,
+        BUSINESS_PROFILE_ANNOTATION: profile,
+    }
+
+
+def _get_namespace(namespace: str, token: str) -> dict | None:
+    try:
+        return _request_json("GET", f"/api/v1/namespaces/{quote(namespace, safe='')}", token)
+    except KubernetesRuntimeError as exc:
+        if "404" in str(exc):
+            return None
+        raise
+
+
+def _create_namespace(namespace: str, labels: dict[str, str], annotations: dict[str, str], token: str) -> None:
+    _request_json(
+        "POST",
+        "/api/v1/namespaces",
+        token,
+        body={
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "name": namespace,
+                "labels": labels,
+                "annotations": annotations,
+            },
+        },
+    )
+
+
+def _patch_namespace_metadata(namespace: str, labels: dict[str, str], annotations: dict[str, str], token: str) -> None:
+    _request_json(
+        "PATCH",
+        f"/api/v1/namespaces/{quote(namespace, safe='')}",
+        token,
+        body={"metadata": {"labels": labels, "annotations": annotations}},
+        content_type="application/merge-patch+json",
+    )
+
+
+def _request_json(method: str, path: str, token: str, body: dict | None = None, content_type: str = "application/json") -> dict:
+    base_url = os.getenv("KUBERNETES_SERVICE_HOST_URL", "https://kubernetes.default.svc").rstrip("/")
+    ca_file = os.getenv("KUBERNETES_SERVICEACCOUNT_CA_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        f"{base_url}{path}",
+        method=method,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": content_type,
+        },
+    )
+    try:
+        import ssl
+
+        context = ssl.create_default_context(cafile=ca_file if Path(ca_file).exists() else None)
+        with urlopen(request, timeout=5, context=context) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise KubernetesRuntimeError(f"Kubernetes API returned {exc.code}: {detail or exc.reason}") from exc
+    except (URLError, TimeoutError, OSError, ValueError) as exc:
+        raise KubernetesRuntimeError(f"Kubernetes API request failed: {exc}") from exc
+
+
+def _service_account_token() -> str:
+    token_path = Path(os.getenv("KUBERNETES_SERVICEACCOUNT_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
+    if not token_path.exists():
+        return ""
+    try:
+        return token_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _require_service_account_token() -> str:
+    token = _service_account_token()
+    if not token:
+        raise KubernetesRuntimeError("Kubernetes service account token is not available.")
+    return token
+
+
+def _business_key_from_namespace(namespace: str) -> str:
+    if "-business-" not in namespace:
+        return ""
+    return namespace.rsplit("-business-", 1)[-1]
+
+
+def _dns_label(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9-]+", "-", value.strip().lower()).strip("-")
+    normalized = re.sub(r"-+", "-", normalized)
+    if not normalized:
+        raise KubernetesRuntimeError("Namespace key cannot be empty.")
+    if len(normalized) > 63:
+        raise KubernetesRuntimeError(f"Namespace key {value!r} is too long.")
+    return normalized

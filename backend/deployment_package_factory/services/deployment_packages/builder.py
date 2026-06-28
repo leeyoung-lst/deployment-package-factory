@@ -10,6 +10,7 @@ import subprocess
 import tarfile
 import tempfile
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 from uuid import uuid4
@@ -25,6 +26,10 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackageBuildResult,
     ProjectProfile,
 )
+from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
+    read_kubernetes_pods,
+    source_env_namespaces,
+)
 from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
 from deployment_package_factory.services.deployment_packages.quality_renderer import QUALITY_GATE_CHECKS, QUALITY_GATE_VERSION, render_quality_gate_files
 from deployment_package_factory.services.deployment_packages.values_renderer import render_values_files
@@ -37,6 +42,15 @@ DockerRunner = Callable[[Sequence[str]], None]
 
 class PackageBuildError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class RuntimeSourceImage:
+    source_ref: str
+    image_id: str = ""
+    namespace: str = ""
+    pod: str = ""
+    container: str = ""
 
 
 def check_image_export_environment() -> ImageExportEnvironmentCheck:
@@ -98,7 +112,8 @@ def build_deployment_package(
     request, project = _apply_project_build_defaults(request, catalog)
     preview = resolve_package_preview(request, catalog)
     image_tag = project.image_tag if project else "prod"
-    image_entries = _image_entries(preview.images, request, image_tag)
+    runtime_images = _discover_runtime_source_images(request.source_env, preview.images, image_tag)
+    image_entries = _image_entries(preview.images, request, image_tag, runtime_images)
     manifest = _manifest(package_id, request, preview, image_entries, project, image_tag)
 
     _write_text(package_root / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -252,30 +267,167 @@ def _readme(manifest: dict) -> str:
 """
 
 
-def _image_entries(images: dict[str, list[str]], request: PackageBuildRequest, default_tag: str) -> list[dict]:
+def _image_entries(
+    images: dict[str, list[str]],
+    request: PackageBuildRequest,
+    default_tag: str,
+    runtime_images: dict[str, RuntimeSourceImage] | None = None,
+) -> list[dict]:
     entries: list[dict] = []
     seen: set[str] = set()
+    runtime_images = runtime_images or {}
     source_registry = request.target_profile.source_registry.strip().rstrip("/")
     registry = request.target_profile.registry.strip().rstrip("/")
     for group, values in images.items():
         for raw in values:
             catalog_ref = _with_default_tag(raw, default_tag)
-            source_ref = _target_image_ref(catalog_ref, source_registry)
+            runtime_image = runtime_images.get(catalog_ref)
+            source_ref = runtime_image.source_ref if runtime_image else _target_image_ref(catalog_ref, source_registry)
+            source_export_ref = _source_export_ref(runtime_image) if runtime_image else source_ref
             target_ref = _target_image_ref(catalog_ref, registry)
             if target_ref in seen:
                 continue
             seen.add(target_ref)
-            entries.append(
-                {
-                    "group": group,
-                    "catalogRef": catalog_ref,
-                    "sourceRef": source_ref,
-                    "targetRef": target_ref,
-                    "sourceRegistryInsecure": request.target_profile.source_registry_insecure,
-                    "archiveFile": f"{_safe_image_filename(target_ref)}.tar",
-                }
-            )
+            entry = {
+                "group": group,
+                "catalogRef": catalog_ref,
+                "sourceRef": source_ref,
+                "sourceExportRef": source_export_ref,
+                "targetRef": target_ref,
+                "sourceRegistryInsecure": request.target_profile.source_registry_insecure,
+                "archiveFile": f"{_safe_image_filename(target_ref)}.tar",
+            }
+            if runtime_image:
+                entry.update(
+                    {
+                        "sourceResolvedFrom": "kubernetes",
+                        "sourceImageId": runtime_image.image_id,
+                        "sourceNamespace": runtime_image.namespace,
+                        "sourcePod": runtime_image.pod,
+                        "sourceContainer": runtime_image.container,
+                    }
+                )
+            entries.append(entry)
     return sorted(entries, key=lambda item: (item["group"], item["targetRef"]))
+
+
+def _discover_runtime_source_images(source_env: str, images: dict[str, list[str]], default_tag: str) -> dict[str, RuntimeSourceImage]:
+    namespaces = _source_env_namespaces(source_env)
+    if not namespaces:
+        return {}
+    runtime_images = _list_runtime_images(namespaces)
+    if not runtime_images:
+        return {}
+
+    resolved: dict[str, RuntimeSourceImage] = {}
+    for values in images.values():
+        for raw in values:
+            catalog_ref = _with_default_tag(raw, default_tag)
+            match = _best_runtime_image(catalog_ref, runtime_images)
+            if match:
+                resolved[catalog_ref] = match
+    return resolved
+
+
+def _source_env_namespaces(source_env: str) -> list[str]:
+    return source_env_namespaces(source_env)
+
+
+def _list_runtime_images(namespaces: list[str]) -> list[RuntimeSourceImage]:
+    token_path = Path(os.getenv("KUBERNETES_SERVICEACCOUNT_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
+    if not token_path.exists():
+        return []
+    try:
+        token = token_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return []
+    if not token:
+        return []
+
+    runtime_images: list[RuntimeSourceImage] = []
+    for namespace in namespaces:
+        payload = read_kubernetes_pods(namespace, token)
+        for pod in payload.get("items", []):
+            if pod.get("status", {}).get("phase") not in {"Running", "Succeeded"}:
+                continue
+            spec_containers = {
+                item.get("name", ""): item.get("image", "")
+                for item in pod.get("spec", {}).get("containers", [])
+                if item.get("image")
+            }
+            statuses = {
+                item.get("name", ""): item.get("imageID", "")
+                for item in pod.get("status", {}).get("containerStatuses", [])
+            }
+            for container, image in spec_containers.items():
+                runtime_images.append(
+                    RuntimeSourceImage(
+                        source_ref=image,
+                        image_id=_normalize_image_id(statuses.get(container, "")),
+                        namespace=namespace,
+                        pod=pod.get("metadata", {}).get("name", ""),
+                        container=container,
+                    )
+                )
+    return runtime_images
+
+
+def _best_runtime_image(catalog_ref: str, runtime_images: list[RuntimeSourceImage]) -> RuntimeSourceImage | None:
+    matches: list[tuple[tuple[int, int, str], RuntimeSourceImage]] = []
+    for image in runtime_images:
+        score = _runtime_image_match_score(catalog_ref, image.source_ref)
+        if score <= 0:
+            continue
+        matches.append(((score, _image_registry_priority(image.source_ref), image.source_ref), image))
+    if not matches:
+        return None
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return matches[0][1]
+
+
+def _runtime_image_match_score(catalog_ref: str, runtime_ref: str) -> int:
+    expected_path = _image_path_without_tag(catalog_ref)
+    runtime_path = _image_path_without_tag(runtime_ref)
+    expected_base = expected_path.rsplit("/", 1)[-1]
+    runtime_base = runtime_path.rsplit("/", 1)[-1]
+    if runtime_path == expected_path:
+        return 100
+    if runtime_base == expected_base:
+        return 80
+    if runtime_base == f"local-ai-{expected_base}":
+        return 70
+    if expected_base.startswith("local-ai-") and runtime_base == expected_base.removeprefix("local-ai-"):
+        return 60
+    return 0
+
+
+def _image_path_without_tag(image: str) -> str:
+    if _has_registry(image):
+        image = image.split("/", 1)[1]
+    image = image.split("@", 1)[0]
+    last_part = image.rsplit("/", 1)[-1]
+    if ":" in last_part:
+        return image.rsplit(":", 1)[0]
+    return image
+
+
+def _image_registry_priority(image: str) -> int:
+    return 1 if _has_registry(image) else 0
+
+
+def _source_export_ref(runtime_image: RuntimeSourceImage | None) -> str:
+    if not runtime_image:
+        return ""
+    if runtime_image.image_id and "@sha256:" in runtime_image.image_id:
+        return runtime_image.image_id
+    return runtime_image.source_ref
+
+
+def _normalize_image_id(image_id: str) -> str:
+    for prefix in ("docker-pullable://", "containerd://", "docker://"):
+        if image_id.startswith(prefix):
+            return image_id.removeprefix(prefix)
+    return image_id
 
 
 def _with_default_tag(image: str, default_tag: str) -> str:
@@ -367,27 +519,35 @@ def _export_image_archives(
         _preflight_source_images(image_entries, source_tls_verify=source_tls_verify)
     for item in image_entries:
         source_ref = item["sourceRef"]
+        source_export_ref = item.get("sourceExportRef") or source_ref
         archive_path = archive_dir / item["archiveFile"]
         try:
             if docker_runner is not None:
                 docker_runner(["docker", "pull", source_ref])
                 docker_runner(["docker", "save", "-o", str(archive_path), source_ref])
             else:
-                _run_image_export(source_ref, archive_path, source_tls_verify=source_tls_verify)
+                _run_image_export(source_ref, archive_path, source_export_ref=source_export_ref, source_tls_verify=source_tls_verify)
         except Exception as exc:
             raise PackageBuildError(f"Image export failed for {source_ref}: {exc}") from exc
 
 
-def _run_image_export(source_ref: str, archive_path: Path, *, source_tls_verify: bool = True) -> None:
+def _run_image_export(
+    source_ref: str,
+    archive_path: Path,
+    *,
+    source_export_ref: str = "",
+    source_tls_verify: bool = True,
+) -> None:
+    export_ref = source_export_ref or source_ref
     if shutil.which("skopeo"):
-        _run_skopeo(source_ref, archive_path, source_tls_verify=source_tls_verify)
+        _run_skopeo(export_ref, archive_path, archive_ref=source_ref, source_tls_verify=source_tls_verify)
         return
     _run_docker(["docker", "pull", source_ref])
     _run_docker(["docker", "save", "-o", str(archive_path), source_ref])
 
 
-def _run_skopeo(source_ref: str, archive_path: Path, *, source_tls_verify: bool = True) -> None:
-    command = ["skopeo", "copy", f"docker://{source_ref}", f"docker-archive:{archive_path}:{source_ref}"]
+def _run_skopeo(source_ref: str, archive_path: Path, *, archive_ref: str = "", source_tls_verify: bool = True) -> None:
+    command = ["skopeo", "copy", f"docker://{source_ref}", f"docker-archive:{archive_path}:{archive_ref or source_ref}"]
     if not source_tls_verify:
         command.insert(2, "--src-tls-verify=false")
     authfile = _source_registry_authfile(source_ref)
@@ -410,7 +570,7 @@ def _preflight_source_images(image_entries: list[dict], *, source_tls_verify: bo
         return
     failures: list[str] = []
     for item in image_entries:
-        source_ref = item["sourceRef"]
+        source_ref = item.get("sourceExportRef") or item["sourceRef"]
         try:
             _run_skopeo_inspect(source_ref, source_tls_verify=source_tls_verify)
         except PackageBuildError as exc:

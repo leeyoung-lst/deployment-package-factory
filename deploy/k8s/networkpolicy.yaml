@@ -39,6 +39,14 @@ spec:
         - protocol: TCP
           port: 80
     - to:
+        - ipBlock:
+            cidr: 10.96.0.0/12
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    - to:
         - namespaceSelector: {}
       ports:
         - protocol: TCP
