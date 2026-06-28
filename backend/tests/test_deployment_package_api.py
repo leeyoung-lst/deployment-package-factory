@@ -245,7 +245,10 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
     downloaded = client.get(f"/api/deployment-packages/{package_id}/download")
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.headers["content-type"] == "application/gzip"
+    assert downloaded.headers["content-length"] == str(task["result"]["artifactSize"])
+    assert f"local-ai-prod-package-{package_id}.tar.gz" in downloaded.headers["content-disposition"]
     assert downloaded.headers["x-deployment-package-sha256"] == task["result"]["sha256"]
+    assert downloaded.content
 
     checksum = client.get(f"/api/deployment-packages/{package_id}/checksum")
     assert checksum.status_code == 200, checksum.text

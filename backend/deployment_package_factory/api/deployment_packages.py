@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from deployment_package_factory.auth import require_api_token
 from deployment_package_factory.settings import load_settings
@@ -37,6 +37,7 @@ from deployment_package_factory.services.deployment_packages.runtime_options imp
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 
 LOGGER = logging.getLogger(__name__)
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
 router = APIRouter(
     prefix="/api/deployment-packages",
@@ -308,7 +309,7 @@ async def download_deployment_package(
     package_id: str,
     request: Request,
     x_deployment_package_operator: str | None = Header(default=None),
-) -> FileResponse:
+) -> StreamingResponse:
     task = _find_completed_task(package_id)
     if task is None or task.result is None:
         raise HTTPException(status_code=404, detail="Deployment package task not found")
@@ -324,11 +325,15 @@ async def download_deployment_package(
         operator=x_deployment_package_operator,
         metadata={"taskId": task.task_id, "artifactPath": task.result.artifact_path},
     )
-    return FileResponse(
-        artifact,
+    file_size = artifact.stat().st_size
+    return StreamingResponse(
+        _iter_file_chunks(artifact),
         media_type="application/gzip",
-        filename=artifact.name,
-        headers={"X-Deployment-Package-Sha256": task.result.sha256},
+        headers={
+            "Content-Disposition": f'attachment; filename="{artifact.name}"',
+            "Content-Length": str(file_size),
+            "X-Deployment-Package-Sha256": task.result.sha256,
+        },
     )
 
 
@@ -377,6 +382,15 @@ def _checksum_path(result: PackageBuildResult) -> Path:
         return Path(result.checksum_path)
     artifact = Path(result.artifact_path)
     return artifact.with_name(f"{artifact.name}.sha256")
+
+
+def _iter_file_chunks(path: Path, chunk_size: int = DOWNLOAD_CHUNK_SIZE):
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
 
 
 def _audit(
