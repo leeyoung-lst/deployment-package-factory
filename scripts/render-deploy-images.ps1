@@ -3,7 +3,8 @@ param(
   [string]$Repository = "platform",
   [string]$Tag = "latest",
   [string]$OutputDir = "deploy/generated",
-  [string]$HttpPort = "5186"
+  [string]$HttpPort = "5186",
+  [string]$DatabaseUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +33,7 @@ DPF_BACKEND_IMAGE=$BackendImage
 DPF_WORKER_IMAGE=$WorkerImage
 DPF_FRONTEND_IMAGE=$FrontendImage
 DPF_HTTP_PORT=$HttpPort
+DEPLOYMENT_PACKAGE_DATABASE_URL=$DatabaseUrl
 "@
 $ComposeEnv | Set-Content -Encoding utf8 -NoNewline -LiteralPath (Join-Path $TargetDir "factory.env")
 

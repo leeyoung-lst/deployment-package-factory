@@ -6,6 +6,7 @@ REPOSITORY="platform"
 TAG="latest"
 OUTPUT_DIR="deploy/generated"
 HTTP_PORT="5186"
+DATABASE_URL=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -29,8 +30,12 @@ while [ "$#" -gt 0 ]; do
       HTTP_PORT="$2"
       shift 2
       ;;
+    --database-url)
+      DATABASE_URL="$2"
+      shift 2
+      ;;
     *)
-      echo "Usage: scripts/render-deploy-images.sh --registry REGISTRY [--repository REPOSITORY] [--tag TAG] [--output-dir DIR] [--http-port PORT]" >&2
+      echo "Usage: scripts/render-deploy-images.sh --registry REGISTRY [--repository REPOSITORY] [--tag TAG] [--output-dir DIR] [--http-port PORT] [--database-url URL]" >&2
       exit 1
       ;;
   esac
@@ -66,6 +71,7 @@ DPF_BACKEND_IMAGE=${BACKEND_IMAGE}
 DPF_WORKER_IMAGE=${WORKER_IMAGE}
 DPF_FRONTEND_IMAGE=${FRONTEND_IMAGE}
 DPF_HTTP_PORT=${HTTP_PORT}
+DEPLOYMENT_PACKAGE_DATABASE_URL=${DATABASE_URL}
 EOF
 
 cat > "${TARGET_DIR}/kustomization.yaml" <<EOF

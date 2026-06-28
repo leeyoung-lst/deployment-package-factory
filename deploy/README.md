@@ -43,13 +43,13 @@ Windows PowerShell：
 也可以生成部署镜像配置文件：
 
 ```bash
-scripts/render-deploy-images.sh --registry registry.example.com --repository platform --tag 2026.06
+scripts/render-deploy-images.sh --registry registry.example.com --repository platform --tag 2026.06 --database-url postgresql://factory:replace-with-password@postgres.example.com:5432/deployment_package_factory
 ```
 
 Windows PowerShell：
 
 ```powershell
-.\scripts\render-deploy-images.ps1 -Registry registry.example.com -Repository platform -Tag 2026.06
+.\scripts\render-deploy-images.ps1 -Registry registry.example.com -Repository platform -Tag 2026.06 -DatabaseUrl postgresql://factory:replace-with-password@postgres.example.com:5432/deployment_package_factory
 ```
 
 默认会生成：
@@ -62,6 +62,7 @@ deploy/generated/kustomization.yaml
 ## Docker Compose
 
 ```bash
+scripts/validate-deploy-config.sh docker-compose
 docker compose --env-file deploy/generated/factory.env -f deploy/docker-compose.prod.yml up -d
 ```
 
@@ -97,6 +98,14 @@ http://localhost:5186
 部署：
 
 ```bash
+scripts/validate-deploy-config.sh k8s
+kubectl apply -k deploy/generated
+```
+
+Windows PowerShell：
+
+```powershell
+.\scripts\validate-deploy-config.ps1 -Mode k8s
 kubectl apply -k deploy/generated
 ```
 
