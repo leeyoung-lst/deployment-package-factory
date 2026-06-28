@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Checkbox, Divider, Empty, Form, Input, Popconfirm, Progress, Radio, Select, Space, Spin, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
@@ -120,6 +120,31 @@ export const DeploymentPackageExportView: React.FC = () => {
     }));
   }, [form, options]);
 
+  const applyProjectDefaultsFromOptions = useCallback((key: string, sourceOptions: DeploymentPackageOptions) => {
+    const project = sourceOptions.projects.find((item) => item.key === key);
+    setProjectKey(key);
+    if (!project) return;
+    setProductVersion(project.defaultVersion || project.versions[0] || "");
+    setSourceEnv(project.defaultSourceEnv);
+    setDeployModes(project.defaultDeployModes);
+    setPlatformServices(project.defaultPlatformServices);
+    setBusinessServices(project.defaultBusinessServices.map((item) => item.name));
+    setDatabase(project.defaultDatabase);
+    form.setFieldsValue({
+      domain: project.domain,
+      registry: project.registry,
+      namespacePrefix: project.namespacePrefix,
+      storageClass: project.storageClass,
+    });
+    setTargetDraft((current) => ({
+      ...current,
+      domain: project.domain,
+      registry: project.registry,
+      namespacePrefix: project.namespacePrefix,
+      storageClass: project.storageClass,
+    }));
+  }, [form]);
+
   const loadOptions = useCallback(async () => {
     setLoadingOptions(true);
     try {
@@ -136,14 +161,14 @@ export const DeploymentPackageExportView: React.FC = () => {
         setDatabase(payload.databaseOptions[0].key);
       }
       if (payload.projects[0]) {
-        applyProjectDefaults(payload.projects[0].key, payload);
+        applyProjectDefaultsFromOptions(payload.projects[0].key, payload);
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : "部署包选项加载失败");
     } finally {
       setLoadingOptions(false);
     }
-  }, [applyProjectDefaults, message]);
+  }, [applyProjectDefaultsFromOptions, message]);
 
   const refreshImageEnvironment = useCallback(async () => {
     setImageEnvironmentLoading(true);
@@ -162,6 +187,16 @@ export const DeploymentPackageExportView: React.FC = () => {
       setImageEnvironmentLoading(false);
     }
   }, []);
+  const loadOptionsRef = useRef(loadOptions);
+  const refreshImageEnvironmentRef = useRef(refreshImageEnvironment);
+
+  useEffect(() => {
+    loadOptionsRef.current = loadOptions;
+  }, [loadOptions]);
+
+  useEffect(() => {
+    refreshImageEnvironmentRef.current = refreshImageEnvironment;
+  }, [refreshImageEnvironment]);
 
   const refreshPreview = useCallback(async () => {
     if (!options) return;
@@ -213,9 +248,9 @@ export const DeploymentPackageExportView: React.FC = () => {
   }, [message]);
 
   useEffect(() => {
-    queueMicrotask(() => void loadOptions());
-    queueMicrotask(() => void refreshImageEnvironment());
-  }, [loadOptions, refreshImageEnvironment]);
+    queueMicrotask(() => void loadOptionsRef.current());
+    queueMicrotask(() => void refreshImageEnvironmentRef.current());
+  }, []);
 
   useEffect(() => {
     if (!options) return;
