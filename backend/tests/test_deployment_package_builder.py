@@ -658,6 +658,55 @@ def test_image_archive_uses_insecure_source_registry_with_skopeo(tmp_path, monke
     assert all(item["sourceRegistryInsecure"] is True for item in lock["images"])
 
 
+def test_image_archive_auto_uses_insecure_for_private_ip_registry_with_skopeo(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(builder.shutil, "which", lambda command: "/usr/bin/skopeo" if command == "skopeo" else None)
+
+    def fake_run(command, check, capture_output, text):
+        commands.append(list(command))
+        archive = next((part for part in command if part.startswith("docker-archive:")), "")
+        if archive:
+            archive_path = Path(archive.removeprefix("docker-archive:").rsplit(".tar:", 1)[0] + ".tar")
+            archive_path.write_bytes(b"archive")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s"],
+            platformServices=["iam"],
+            businessServices=[],
+            database="postgres",
+            imageMode="image-archive",
+            targetProfile=TargetProfile(
+                sourceRegistry="192.168.10.210/local-ai",
+                registry="harbor.example.com/prod",
+            ),
+        ),
+        output_dir=tmp_path,
+    )
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    lock = json.loads((root / "security" / "image-digest-lock.json").read_text(encoding="utf-8"))
+    private_registry_items = [item for item in lock["images"] if item["sourceRef"].startswith("192.168.10.210/")]
+    copy_commands = [command for command in commands if command[:2] == ["skopeo", "copy"]]
+    inspect_commands = [command for command in commands if command[:2] == ["skopeo", "inspect"]]
+
+    assert private_registry_items
+    assert all(item["sourceRegistryInsecure"] is True for item in private_registry_items)
+    assert all("--src-tls-verify=false" in command for command in copy_commands if "192.168.10.210/" in " ".join(command))
+    assert all("--tls-verify=false" in command for command in inspect_commands if "192.168.10.210/" in " ".join(command))
+
+
+def test_source_registry_insecure_does_not_mark_docker_hub_images() -> None:
+    assert builder._source_registry_insecure("redis:7.4-alpine") is False
+    assert builder._source_registry_insecure("qdrant/qdrant:v1.18.0") is False
+    assert builder._source_registry_insecure("registry-1.docker.io/library/redis:7.4-alpine") is False
+    assert builder._source_registry_insecure("192.168.10.210/local-ai/local-ai-backend:k8s") is True
+
+
 def test_image_archive_uses_source_registry_authfile_with_skopeo(tmp_path, monkeypatch) -> None:
     commands: list[list[str]] = []
 

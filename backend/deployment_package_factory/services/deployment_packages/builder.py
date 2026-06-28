@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import base64
+import ipaddress
 import os
 import re
 import shutil
@@ -296,7 +297,7 @@ def _image_entries(
                 "sourceRef": source_ref,
                 "sourceExportRef": source_export_ref,
                 "targetRef": target_ref,
-                "sourceRegistryInsecure": request.target_profile.source_registry_insecure,
+                "sourceRegistryInsecure": _source_registry_insecure(source_export_ref, request.target_profile.source_registry_insecure),
                 "archiveFile": f"{_safe_image_filename(target_ref)}.tar",
             }
             if runtime_image:
@@ -536,7 +537,12 @@ def _export_image_archives(
                 docker_runner(["docker", "pull", source_ref])
                 docker_runner(["docker", "save", "-o", str(archive_path), source_ref])
             else:
-                _run_image_export(source_ref, archive_path, source_export_ref=source_export_ref, source_tls_verify=source_tls_verify)
+                _run_image_export(
+                    source_ref,
+                    archive_path,
+                    source_export_ref=source_export_ref,
+                    source_tls_verify=not bool(item.get("sourceRegistryInsecure")),
+                )
         except Exception as exc:
             raise PackageBuildError(f"Image export failed for {source_ref}: {exc}") from exc
 
@@ -585,7 +591,7 @@ def _preflight_source_images(image_entries: list[dict], *, source_tls_verify: bo
             continue
         source_ref = item.get("sourceExportRef") or item["sourceRef"]
         try:
-            _run_skopeo_inspect(source_ref, source_tls_verify=source_tls_verify)
+            _run_skopeo_inspect(source_ref, source_tls_verify=not bool(item.get("sourceRegistryInsecure")))
         except PackageBuildError as exc:
             failures.append(f"{source_ref}: {exc}")
     if failures:
@@ -644,6 +650,29 @@ def _source_registry_host(source_ref: str) -> str:
     if not _has_registry(source_ref):
         return ""
     return source_ref.split("/", 1)[0]
+
+
+def _source_registry_insecure(source_ref: str, user_requested: bool = False) -> bool:
+    if user_requested:
+        return True
+    registry = _source_registry_host(source_ref)
+    if not registry:
+        return False
+    configured = {
+        item.strip().lower()
+        for item in os.getenv("DEPLOYMENT_PACKAGE_INSECURE_REGISTRIES", "192.168.10.210").split(",")
+        if item.strip()
+    }
+    host = registry.rsplit("@", 1)[0].rsplit(":", 1)[0].strip("[]").lower()
+    if registry.lower() in configured or host in configured:
+        return True
+    if host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_private or address.is_loopback
 
 
 def _archive_lock(package_root: Path) -> list[dict]:
