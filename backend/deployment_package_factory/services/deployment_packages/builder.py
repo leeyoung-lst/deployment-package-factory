@@ -130,7 +130,7 @@ def build_deployment_package(
     _write_text(package_root / "README.md", _readme(manifest))
     _write_text(package_root / "docs" / "install-k8s.md", "# K8s 安装说明\n\n替换 `k8s/secrets.template.yaml` 后执行 `k8s/install.sh`。\n")
     _write_text(package_root / "docs" / "install-docker-compose.md", "# Docker Compose 安装说明\n\n根据 `.env.template` 创建 `.env` 后执行 `docker-compose/install.sh`。\n")
-    for rendered_file in render_root_install_files():
+    for rendered_file in render_root_install_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_package_verify_files():

@@ -142,6 +142,8 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "Deployment Package Quality Report" in quality_report
     assert "ValidateSet('k8s', 'docker-compose')" in root_install_ps1
     assert "[switch]$SkipVerify" in root_install_ps1
+    assert "Invoke-DockerComposeInstall" in root_install_ps1
+    assert "bash (Join-Path $ScriptDir 'docker-compose" not in root_install_ps1
     assert "__REPLACE_WITH_" in secret_check
     assert "Secret placeholders remain" in secret_check
     assert "require_command kubectl" in prereq_check

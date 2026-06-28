@@ -27,3 +27,15 @@ def test_render_root_install_files_exports_shell_and_powershell_entries() -> Non
     assert "[switch]$SkipHealthCheck" in by_path["install.ps1"].content
     assert "[switch]$Yes" in by_path["install.ps1"].content
     assert "verify.ps1" in by_path["install.ps1"].content
+    assert "Invoke-DockerComposeDryRun" in by_path["install.ps1"].content
+    assert "Invoke-DockerComposeInstall" in by_path["install.ps1"].content
+    assert "docker compose --env-file" in by_path["install.ps1"].content
+    assert "docker info" in by_path["install.ps1"].content
+    assert "bash (Join-Path $ScriptDir 'docker-compose" not in by_path["install.ps1"].content
+
+
+def test_render_root_install_files_defaults_compose_when_package_only_supports_compose() -> None:
+    files = render_root_install_files({"deployModes": ["docker-compose"]})
+    by_path = {item.path.as_posix(): item for item in files}
+
+    assert "[string]$Mode = 'docker-compose'" in by_path["install.ps1"].content
