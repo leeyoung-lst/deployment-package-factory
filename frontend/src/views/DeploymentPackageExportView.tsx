@@ -476,8 +476,9 @@ export const DeploymentPackageExportView: React.FC = () => {
               </Checkbox.Group>
 
               <Divider />
+              <h3 className={styles.sectionTitle}>中间件服务</h3>
               <div className={styles.split}>
-                <Form.Item label="数据库">
+                <Form.Item label="数据库中间件（二选一）">
                   <Radio.Group value={database} onChange={(event) => setDatabase(event.target.value)}>
                     <Space direction="vertical">
                       {(options?.databaseOptions ?? []).map((item) => (
@@ -881,9 +882,9 @@ function PreviewSummary({ preview, project, targetProfile }: { preview: PackageP
       <div className={styles.previewGrid}>
         <DependencyBlock title="基础平台" items={preview.platformServices} color="blue" />
         <DependencyBlock title="业务平台" items={preview.businessServices} color="purple" />
-        <DependencyBlock title="中间件" items={preview.middleware} color="cyan" />
+        <DependencyBlock title="中间件服务" items={preview.middleware} color="cyan" />
         <div className={styles.previewBlock}>
-          <h3>数据库</h3>
+          <h3>数据库二选一</h3>
           <Tag color={preview.database.domestic ? "red" : "blue"}>{preview.database.name}</Tag>
           <div className={`${styles.mono} ${styles.imageList}`}>{preview.database.image}</div>
         </div>

@@ -7,6 +7,8 @@ import tarfile
 from pathlib import Path
 from typing import Sequence
 
+import pytest
+
 from deployment_package_factory.services.deployment_packages import builder
 from deployment_package_factory.services.deployment_packages.builder import build_deployment_package
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, TargetProfile
@@ -489,7 +491,10 @@ def test_build_deployment_package_exports_image_archives_with_skopeo(tmp_path, m
     lock = json.loads((root / "security" / "image-digest-lock.json").read_text(encoding="utf-8"))
 
     assert commands
-    assert all(command[:2] == ["skopeo", "copy"] for command in commands)
+    copy_commands = [command for command in commands if command[:2] == ["skopeo", "copy"]]
+    inspect_commands = [command for command in commands if command[:2] == ["skopeo", "inspect"]]
+    assert copy_commands
+    assert inspect_commands
     assert lock["archives"]
     assert all((root / "images" / "archives" / item["file"]).exists() for item in lock["archives"])
 
@@ -529,7 +534,12 @@ def test_image_archive_uses_insecure_source_registry_with_skopeo(tmp_path, monke
     lock = json.loads((root / "security" / "image-digest-lock.json").read_text(encoding="utf-8"))
 
     assert commands
-    assert all(command[:3] == ["skopeo", "copy", "--src-tls-verify=false"] for command in commands)
+    copy_commands = [command for command in commands if command[:2] == ["skopeo", "copy"]]
+    inspect_commands = [command for command in commands if command[:2] == ["skopeo", "inspect"]]
+    assert copy_commands
+    assert inspect_commands
+    assert all("--src-tls-verify=false" in command for command in copy_commands)
+    assert all("--tls-verify=false" in command for command in inspect_commands)
     assert all(item["sourceRegistryInsecure"] is True for item in lock["images"])
 
 
@@ -542,7 +552,8 @@ def test_image_archive_uses_source_registry_authfile_with_skopeo(tmp_path, monke
 
     def fake_run(command, check, capture_output, text):
         commands.append(list(command))
-        authfile = Path(command[command.index("--src-authfile") + 1])
+        auth_arg = "--src-authfile" if "--src-authfile" in command else "--authfile"
+        authfile = Path(command[command.index(auth_arg) + 1])
         auth = json.loads(authfile.read_text(encoding="utf-8"))
         assert "192.168.10.210" in auth["auths"]
         assert "secret" not in " ".join(command)
@@ -572,4 +583,49 @@ def test_image_archive_uses_source_registry_authfile_with_skopeo(tmp_path, monke
     )
 
     assert commands
-    assert all("--src-authfile" in command for command in commands)
+    copy_commands = [command for command in commands if command[:2] == ["skopeo", "copy"]]
+    inspect_commands = [command for command in commands if command[:2] == ["skopeo", "inspect"]]
+    assert copy_commands
+    assert inspect_commands
+    assert all("--src-authfile" in command for command in copy_commands)
+    assert all("--authfile" in command for command in inspect_commands)
+
+
+def test_image_archive_preflights_all_source_images_before_export(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(builder.shutil, "which", lambda command: "/usr/bin/skopeo" if command == "skopeo" else None)
+
+    def fake_run(command, check, capture_output, text):
+        commands.append(list(command))
+        if command[:2] == ["skopeo", "inspect"]:
+            image = command[-1].removeprefix("docker://")
+            if image.endswith("postgres:16") or image.endswith("redis:7"):
+                raise subprocess.CalledProcessError(1, command, stderr=f"missing {image}")
+            return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    with pytest.raises(builder.PackageBuildError) as exc:
+        build_deployment_package(
+            PackageBuildRequest(
+                sourceEnv="test",
+                deployModes=["k8s"],
+                platformServices=["iam", "gateway-frontend"],
+                businessServices=[],
+                database="postgres",
+                imageMode="image-archive",
+                targetProfile=TargetProfile(
+                    sourceRegistry="192.168.10.210/local-ai",
+                    sourceRegistryInsecure=True,
+                    registry="harbor.example.com/prod",
+                ),
+            ),
+            output_dir=tmp_path,
+        )
+
+    assert "Source image preflight failed" in str(exc.value)
+    assert "postgres:16" in str(exc.value)
+    assert "redis:7" in str(exc.value)
+    assert all(command[:2] == ["skopeo", "inspect"] for command in commands)

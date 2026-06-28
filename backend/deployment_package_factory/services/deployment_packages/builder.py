@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import base64
+import os
 import re
 import shutil
 import subprocess
 import tarfile
-import base64
-import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -363,6 +363,8 @@ def _export_image_archives(
 ) -> None:
     archive_dir = package_root / "images" / "archives"
     archive_dir.mkdir(parents=True, exist_ok=True)
+    if docker_runner is None:
+        _preflight_source_images(image_entries, source_tls_verify=source_tls_verify)
     for item in image_entries:
         source_ref = item["sourceRef"]
         archive_path = archive_dir / item["archiveFile"]
@@ -391,6 +393,40 @@ def _run_skopeo(source_ref: str, archive_path: Path, *, source_tls_verify: bool 
     authfile = _source_registry_authfile(source_ref)
     if authfile:
         command[2:2] = ["--src-authfile", authfile]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise PackageBuildError("Skopeo is not available.") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise PackageBuildError(detail) from exc
+    finally:
+        if authfile:
+            Path(authfile).unlink(missing_ok=True)
+
+
+def _preflight_source_images(image_entries: list[dict], *, source_tls_verify: bool = True) -> None:
+    if not shutil.which("skopeo"):
+        return
+    failures: list[str] = []
+    for item in image_entries:
+        source_ref = item["sourceRef"]
+        try:
+            _run_skopeo_inspect(source_ref, source_tls_verify=source_tls_verify)
+        except PackageBuildError as exc:
+            failures.append(f"{source_ref}: {exc}")
+    if failures:
+        details = "; ".join(failures)
+        raise PackageBuildError(f"Source image preflight failed. Missing or inaccessible images: {details}")
+
+
+def _run_skopeo_inspect(source_ref: str, *, source_tls_verify: bool = True) -> None:
+    command = ["skopeo", "inspect", f"docker://{source_ref}"]
+    if not source_tls_verify:
+        command.insert(2, "--tls-verify=false")
+    authfile = _source_registry_authfile(source_ref)
+    if authfile:
+        command[2:2] = ["--authfile", authfile]
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
     except FileNotFoundError as exc:
