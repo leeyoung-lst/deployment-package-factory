@@ -83,22 +83,26 @@ pipeline {
 
     stage('Render Deploy Config') {
       steps {
-        sh '''
-          set -eux
-          bash scripts/render-deploy-images.sh \
-            --registry "${REGISTRY}" \
-            --repository "${REPOSITORY}" \
-            --tag "${EFFECTIVE_IMAGE_TAG}" \
-            --http-port "5186" \
-            --database-url "${DPF_DATABASE_URL}" \
-            --storage-class "${STORAGE_CLASS}"
-          bash scripts/render-k8s-secret.sh \
-            --api-token "${DPF_API_TOKEN}" \
-            --frontend-api-token "${DPF_API_TOKEN}" \
-            --database-url "${DPF_DATABASE_URL}"
-          bash scripts/validate-deploy-config.sh k8s
-          kubectl --kubeconfig "${KUBECONFIG_PATH}" kustomize deploy/generated >/tmp/deployment-package-factory-rendered.yaml
-        '''
+        withCredentials([usernamePassword(credentialsId: 'harbor-admin', usernameVariable: 'SOURCE_REGISTRY_USERNAME', passwordVariable: 'SOURCE_REGISTRY_PASSWORD')]) {
+          sh '''
+            set -eux
+            bash scripts/render-deploy-images.sh \
+              --registry "${REGISTRY}" \
+              --repository "${REPOSITORY}" \
+              --tag "${EFFECTIVE_IMAGE_TAG}" \
+              --http-port "5186" \
+              --database-url "${DPF_DATABASE_URL}" \
+              --storage-class "${STORAGE_CLASS}"
+            bash scripts/render-k8s-secret.sh \
+              --api-token "${DPF_API_TOKEN}" \
+              --frontend-api-token "${DPF_API_TOKEN}" \
+              --database-url "${DPF_DATABASE_URL}" \
+              --source-registry-username "${SOURCE_REGISTRY_USERNAME}" \
+              --source-registry-password "${SOURCE_REGISTRY_PASSWORD}"
+            bash scripts/validate-deploy-config.sh k8s
+            kubectl --kubeconfig "${KUBECONFIG_PATH}" kustomize deploy/generated >/tmp/deployment-package-factory-rendered.yaml
+          '''
+        }
       }
     }
 

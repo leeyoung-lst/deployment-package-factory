@@ -531,3 +531,45 @@ def test_image_archive_uses_insecure_source_registry_with_skopeo(tmp_path, monke
     assert commands
     assert all(command[:3] == ["skopeo", "copy", "--src-tls-verify=false"] for command in commands)
     assert all(item["sourceRegistryInsecure"] is True for item in lock["images"])
+
+
+def test_image_archive_uses_source_registry_authfile_with_skopeo(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_USERNAME", "robot")
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_PASSWORD", "secret")
+    monkeypatch.setattr(builder.shutil, "which", lambda command: "/usr/bin/skopeo" if command == "skopeo" else None)
+
+    def fake_run(command, check, capture_output, text):
+        commands.append(list(command))
+        authfile = Path(command[command.index("--src-authfile") + 1])
+        auth = json.loads(authfile.read_text(encoding="utf-8"))
+        assert "192.168.10.210" in auth["auths"]
+        assert "secret" not in " ".join(command)
+        archive = next((part for part in command if part.startswith("docker-archive:")), "")
+        if archive:
+            archive_path = Path(archive.removeprefix("docker-archive:").rsplit(".tar:", 1)[0] + ".tar")
+            archive_path.write_bytes(b"archive")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(builder.subprocess, "run", fake_run)
+
+    build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s"],
+            platformServices=["iam", "gateway-frontend"],
+            businessServices=[],
+            database="postgres",
+            imageMode="image-archive",
+            targetProfile=TargetProfile(
+                sourceRegistry="192.168.10.210/local-ai",
+                sourceRegistryInsecure=True,
+                registry="harbor.example.com/prod",
+            ),
+        ),
+        output_dir=tmp_path,
+    )
+
+    assert commands
+    assert all("--src-authfile" in command for command in commands)

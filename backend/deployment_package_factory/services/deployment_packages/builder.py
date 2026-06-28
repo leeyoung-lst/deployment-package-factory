@@ -6,6 +6,9 @@ import re
 import shutil
 import subprocess
 import tarfile
+import base64
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Sequence
@@ -385,6 +388,9 @@ def _run_skopeo(source_ref: str, archive_path: Path, *, source_tls_verify: bool 
     command = ["skopeo", "copy", f"docker://{source_ref}", f"docker-archive:{archive_path}:{source_ref}"]
     if not source_tls_verify:
         command.insert(2, "--src-tls-verify=false")
+    authfile = _source_registry_authfile(source_ref)
+    if authfile:
+        command[2:2] = ["--src-authfile", authfile]
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
     except FileNotFoundError as exc:
@@ -392,6 +398,9 @@ def _run_skopeo(source_ref: str, archive_path: Path, *, source_tls_verify: bool 
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
         raise PackageBuildError(detail) from exc
+    finally:
+        if authfile:
+            Path(authfile).unlink(missing_ok=True)
 
 
 def _run_docker(command: Sequence[str]) -> None:
@@ -406,6 +415,26 @@ def _run_docker(command: Sequence[str]) -> None:
 
 def _first_line(value: str) -> str:
     return next((line.strip() for line in value.splitlines() if line.strip()), "")
+
+
+def _source_registry_authfile(source_ref: str) -> str:
+    username = os.getenv("DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_USERNAME", "").strip()
+    password = os.getenv("DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_PASSWORD", "")
+    registry = _source_registry_host(source_ref)
+    if not username or not password or not registry:
+        return ""
+    auth = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    payload = {"auths": {registry: {"auth": auth}}}
+    handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", prefix="skopeo-source-auth-", suffix=".json", delete=False)
+    with handle:
+        json.dump(payload, handle)
+    return handle.name
+
+
+def _source_registry_host(source_ref: str) -> str:
+    if not _has_registry(source_ref):
+        return ""
+    return source_ref.split("/", 1)[0]
 
 
 def _archive_lock(package_root: Path) -> list[dict]:

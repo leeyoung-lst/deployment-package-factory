@@ -4,6 +4,8 @@ set -euo pipefail
 API_TOKEN=""
 FRONTEND_API_TOKEN=""
 DATABASE_URL=""
+SOURCE_REGISTRY_USERNAME=""
+SOURCE_REGISTRY_PASSWORD=""
 OUTPUT_FILE="deploy/k8s/secret.yaml"
 
 while [ "$#" -gt 0 ]; do
@@ -20,12 +22,20 @@ while [ "$#" -gt 0 ]; do
       DATABASE_URL="$2"
       shift 2
       ;;
+    --source-registry-username)
+      SOURCE_REGISTRY_USERNAME="$2"
+      shift 2
+      ;;
+    --source-registry-password)
+      SOURCE_REGISTRY_PASSWORD="$2"
+      shift 2
+      ;;
     --output-file)
       OUTPUT_FILE="$2"
       shift 2
       ;;
     *)
-      echo "Usage: scripts/render-k8s-secret.sh --api-token TOKEN --frontend-api-token TOKEN --database-url URL [--output-file FILE]" >&2
+      echo "Usage: scripts/render-k8s-secret.sh --api-token TOKEN --frontend-api-token TOKEN --database-url URL [--source-registry-username USER] [--source-registry-password PASSWORD] [--output-file FILE]" >&2
       exit 1
       ;;
   esac
@@ -58,6 +68,8 @@ kubectl create secret generic deployment-package-factory-secret \
   --from-literal "DEPLOYMENT_PACKAGE_API_TOKEN=${API_TOKEN}" \
   --from-literal "DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN=${FRONTEND_API_TOKEN}" \
   --from-literal "DEPLOYMENT_PACKAGE_DATABASE_URL=${DATABASE_URL}" \
+  --from-literal "DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_USERNAME=${SOURCE_REGISTRY_USERNAME}" \
+  --from-literal "DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_PASSWORD=${SOURCE_REGISTRY_PASSWORD}" \
   --dry-run=client \
   -o yaml > "${TARGET_FILE}"
 
