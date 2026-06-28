@@ -455,6 +455,40 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
     assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
 
 
+def test_image_entries_mark_missing_runtime_sources_when_cluster_images_are_available(monkeypatch) -> None:
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env: ["local-ai"] if source_env == "test" else [])
+    monkeypatch.setattr(
+        builder,
+        "_list_runtime_images",
+        lambda namespaces: [
+            builder.RuntimeSourceImage(
+                source_ref="192.168.10.210/local-ai/local-ai-eam-service:k8s",
+                image_id="192.168.10.210/local-ai/local-ai-eam-service@sha256:eam",
+                namespace="local-ai",
+                pod="eam-service-1",
+                container="eam-service",
+            )
+        ],
+    )
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s"],
+            businessServices=[BusinessSelection(name="eam", profile="4x60")],
+            database="postgres",
+            targetProfile=TargetProfile(registry="harbor.prod/local-ai"),
+        )
+    )
+
+    by_catalog = {item["catalogRef"]: item for item in result.manifest["imageEntries"]}
+
+    assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
+    assert by_catalog["local-ai-iam-service:prod"]["sourceMissing"] is True
+    assert by_catalog["local-ai-iam-service:prod"]["sourceResolvedFrom"] == "missing"
+    assert "未在来源环境 test" in by_catalog["local-ai-iam-service:prod"]["sourceMessage"]
+
+
 def test_check_image_export_environment_reports_available_docker(monkeypatch) -> None:
     calls: list[list[str]] = []
 

@@ -1152,10 +1152,12 @@ function PreviewSummary({ preview, project, targetProfile }: { preview: PackageP
               <strong>{group}</strong>
               <div className={styles.imageMapList}>
                 {images.map((image) => (
-                  <div className={styles.imageMapRow} key={`${group}-${image.targetRef}`}>
+                  <div className={`${styles.imageMapRow} ${image.sourceMissing ? styles.imageMapRowMissing : ""}`} key={`${group}-${image.targetRef}`}>
                     <span className={styles.mono}>
                       {image.sourceRef}
                       {image.sourceResolvedFrom === "kubernetes" ? <Tag color="green" style={{ marginLeft: 6 }}>K8s</Tag> : null}
+                      {image.sourceMissing ? <Tag color="red" style={{ marginLeft: 6 }}>未匹配</Tag> : null}
+                      {image.sourceMessage ? <span className={styles.imageMessage}>{image.sourceMessage}</span> : null}
                     </span>
                     <i className="ri-arrow-right-line" />
                     <span className={styles.mono}>{image.targetRef}</span>

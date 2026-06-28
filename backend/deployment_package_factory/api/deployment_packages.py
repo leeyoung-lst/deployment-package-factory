@@ -148,7 +148,7 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
         request, project = package_builder._apply_project_build_defaults(PackageBuildRequest.model_validate(payload.model_dump(by_alias=True)), catalog)
         image_tag = project.image_tag if project else "prod"
         runtime_images = package_builder._discover_runtime_source_images(request.source_env, preview.images, image_tag)
-        image_entries = package_builder._image_entries(preview.images, request, image_tag, runtime_images)
+        image_entries = package_builder._image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
         return preview.model_copy(update={"image_entries": image_entries})
     except (CatalogError, PackageBuildError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

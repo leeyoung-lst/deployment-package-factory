@@ -117,6 +117,8 @@ export interface ImageEntry {
   sourceExportRef?: string;
   targetRef: string;
   sourceResolvedFrom?: string;
+  sourceMissing?: boolean;
+  sourceMessage?: string;
   sourceImageId?: string;
   sourceNamespace?: string;
   sourcePod?: string;

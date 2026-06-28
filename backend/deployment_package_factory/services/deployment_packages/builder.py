@@ -113,7 +113,7 @@ def build_deployment_package(
     preview = resolve_package_preview(request, catalog)
     image_tag = project.image_tag if project else "prod"
     runtime_images = _discover_runtime_source_images(request.source_env, preview.images, image_tag)
-    image_entries = _image_entries(preview.images, request, image_tag, runtime_images)
+    image_entries = _image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
     manifest = _manifest(package_id, request, preview, image_entries, project, image_tag)
 
     _write_text(package_root / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -272,6 +272,8 @@ def _image_entries(
     request: PackageBuildRequest,
     default_tag: str,
     runtime_images: dict[str, RuntimeSourceImage] | None = None,
+    *,
+    require_runtime_sources: bool = False,
 ) -> list[dict]:
     entries: list[dict] = []
     seen: set[str] = set()
@@ -305,6 +307,14 @@ def _image_entries(
                         "sourceNamespace": runtime_image.namespace,
                         "sourcePod": runtime_image.pod,
                         "sourceContainer": runtime_image.container,
+                    }
+                )
+            elif require_runtime_sources:
+                entry.update(
+                    {
+                        "sourceMissing": True,
+                        "sourceResolvedFrom": "missing",
+                        "sourceMessage": f"未在来源环境 {request.source_env} 的运行中 Pod 中匹配到镜像 {catalog_ref}",
                     }
                 )
             entries.append(entry)
@@ -570,6 +580,9 @@ def _preflight_source_images(image_entries: list[dict], *, source_tls_verify: bo
         return
     failures: list[str] = []
     for item in image_entries:
+        if item.get("sourceMissing"):
+            failures.append(f"{item.get('catalogRef')}: {item.get('sourceMessage') or 'runtime source image is missing'}")
+            continue
         source_ref = item.get("sourceExportRef") or item["sourceRef"]
         try:
             _run_skopeo_inspect(source_ref, source_tls_verify=source_tls_verify)
