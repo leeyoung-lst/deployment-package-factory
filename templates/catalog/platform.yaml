@@ -54,4 +54,6 @@ platform:
     namespaceGroup: base-public
     images:
       - local-ai-frontend
+    supportImages:
+      - 192.168.10.210/local-ai/nginx:1.27-alpine
     middleware: []

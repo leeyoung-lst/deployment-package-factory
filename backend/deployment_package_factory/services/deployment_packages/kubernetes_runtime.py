@@ -19,6 +19,7 @@ BUSINESS_NAME_ANNOTATION = f"{DPF_LABEL_PREFIX}/business-name"
 BUSINESS_PROFILE_ANNOTATION = f"{DPF_LABEL_PREFIX}/business-profile"
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "deployment-package-factory"
+LOCAL_AI_ENV_LABEL = "local-ai.io/environment"
 
 
 class KubernetesRuntimeError(RuntimeError):
@@ -36,6 +37,7 @@ class RegisteredBusinessPlatform:
 
 
 def source_env_namespaces(source_env: str) -> list[str]:
+    normalized_env = source_env.strip().lower()
     env_key = re.sub(r"[^A-Za-z0-9]+", "_", source_env.strip().upper())
     raw = os.getenv(f"DEPLOYMENT_PACKAGE_SOURCE_NAMESPACES_{env_key}", "").strip()
     if not raw:
@@ -45,9 +47,11 @@ def source_env_namespaces(source_env: str) -> list[str]:
             "dev": "local-ai-dev",
             "test": "local-ai",
         }
-        raw = defaults.get(source_env.strip().lower(), "")
+        raw = defaults.get(normalized_env, "")
     namespaces = [item.strip() for item in raw.split(",") if item.strip()]
     try:
+        namespaces.extend(_list_namespaces_by_label(LOCAL_AI_ENV_LABEL, normalized_env))
+        namespaces.extend(_list_namespaces_by_label(ENV_LABEL, normalized_env))
         namespaces.extend(item.namespace for item in list_registered_business_platforms(source_env))
     except KubernetesRuntimeError:
         pass
@@ -137,6 +141,19 @@ def disable_business_platform(source_env: str, key: str) -> RegisteredBusinessPl
         source_env=normalized_env,
         status="disabled",
     )
+
+
+def _list_namespaces_by_label(label_key: str, label_value: str) -> list[str]:
+    token = _service_account_token()
+    if not token:
+        return []
+    selector = quote(f"{label_key}={label_value}", safe="=,./-")
+    payload = _request_json("GET", f"/api/v1/namespaces?labelSelector={selector}", token)
+    return [
+        str((item.get("metadata") or {}).get("name") or "")
+        for item in payload.get("items", [])
+        if (item.get("metadata") or {}).get("name")
+    ]
 
 
 def read_kubernetes_pods(namespace: str, token: str | None = None) -> dict:

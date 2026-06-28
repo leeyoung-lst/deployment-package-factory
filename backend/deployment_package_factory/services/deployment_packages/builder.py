@@ -320,7 +320,7 @@ def _image_entries(
                         "sourceNode": runtime_image.node,
                     }
                 )
-            elif require_runtime_sources:
+            elif require_runtime_sources and group != "support":
                 entry.update(
                     {
                         "sourceMissing": True,
@@ -467,6 +467,11 @@ def _target_image_ref(source_ref: str, registry: str) -> str:
         image_path = source_ref.split("/", 1)[1]
     else:
         image_path = source_ref
+    registry_project = registry.rstrip("/").rsplit("/", 1)[-1]
+    for project_prefix in (registry_project, "local-ai"):
+        if project_prefix and image_path.startswith(f"{project_prefix}/"):
+            image_path = image_path.removeprefix(f"{project_prefix}/")
+            break
     return f"{registry}/{image_path}"
 
 

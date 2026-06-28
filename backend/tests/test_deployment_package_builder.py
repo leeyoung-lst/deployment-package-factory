@@ -153,6 +153,29 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "run_sql \"postgres\"" in init_runner
 
 
+def test_build_deployment_package_includes_frontend_support_images_without_deploying_them(tmp_path) -> None:
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            platformServices=["gateway-frontend"],
+            businessServices=[],
+            database="postgres",
+        ),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    images_txt = (root / "images" / "images.txt").read_text(encoding="utf-8")
+    compose = (root / "docker-compose" / "docker-compose.yml").read_text(encoding="utf-8")
+    by_catalog = {item["catalogRef"]: item for item in result.manifest["imageEntries"]}
+
+    assert by_catalog["192.168.10.210/local-ai/nginx:1.27-alpine"]["group"] == "support"
+    assert by_catalog["192.168.10.210/local-ai/nginx:1.27-alpine"]["sourceRef"] == "192.168.10.210/local-ai/nginx:1.27-alpine"
+    assert "support 192.168.10.210/local-ai/nginx:1.27-alpine 192.168.10.210/local-ai/nginx:1.27-alpine" in images_txt
+    assert "  nginx:" not in compose
+
+
 def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     result = build_deployment_package(
         PackageBuildRequest(projectKey="mes-lite"),
@@ -266,7 +289,7 @@ def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_p
     assert "name: prod-business-mes" in namespaces
     assert "name: prod-middleware" in namespaces
     assert "harbor.example.com/prod/local-ai-mes-service:prod" in deployments
-    assert "harbor.example.com/prod/dm8:latest" in deployments
+    assert "harbor.example.com/prod/dm8-dev:dm8_20241022_rev244896_x86_rh6_64" in deployments
     assert "postgres:16" not in deployments
     assert "storageClassName: fast-ssd" in pvcs
     assert "host: mes.example.com" in ingress
@@ -298,7 +321,7 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     assert result.manifest["imageTag"] == "2026.06-lite"
     assert result.manifest["businessServices"] == ["mes"]
     assert result.manifest["database"] == "dm"
-    assert result.manifest["targetProfile"]["registry"] == "harbor.example.com/mes"
+    assert result.manifest["targetProfile"]["registry"] == "192.168.10.210/local-ai"
     assert result.manifest["targetProfile"]["namespacePrefix"] == "mes-prod"
     assert result.manifest["targetProfile"]["domain"] == "mes.example.com"
     assert deploy_values["schemaVersion"] == "deployment-values/v1"
@@ -310,7 +333,7 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     assert deploy_values["validationSummary"]["packageIndexFileCount"] > 0
     assert any(item["key"] == "mes" and item["group"] == "business" for item in deploy_values["services"])
     assert deploy_values["images"]
-    assert "harbor.example.com/mes/local-ai-mes-service:2026.06-lite" in deployments
+    assert "192.168.10.210/local-ai/local-ai-mes-service:2026.06-lite" in deployments
     assert overlay_values["projectKey"] == "mes-lite"
     assert overlay_values["imageTag"] == "2026.06-lite"
     assert overlay_values["overlays"] == ["lite"]
@@ -401,10 +424,10 @@ def test_image_archive_uses_source_registry_separately_from_target_registry(tmp_
     root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
     lock = json.loads((root / "security" / "image-digest-lock.json").read_text(encoding="utf-8"))
 
-    assert any(command == ["docker", "pull", "harbor.internal/local-ai/postgres:16"] for command in commands)
+    assert any(command == ["docker", "pull", "harbor.internal/local-ai/postgres:16-alpine"] for command in commands)
     assert all(item["sourceRef"].startswith("harbor.internal/local-ai/") for item in lock["images"])
     assert all(item["targetRef"].startswith("harbor.prod/local-ai/") for item in lock["images"])
-    assert any(item["catalogRef"] == "postgres:16" for item in lock["images"])
+    assert any(item["catalogRef"] == "192.168.10.210/local-ai/postgres:16-alpine" for item in lock["images"])
 
 
 def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch) -> None:
@@ -457,8 +480,8 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
     assert by_catalog["local-ai-eam-service:prod"]["sourceImageId"] == "192.168.10.210/local-ai/local-ai-eam-service@sha256:eam"
     assert by_catalog["local-ai-eam-service:prod"]["sourceNode"] == "k8s-wk1"
     assert by_catalog["sub-app-eam:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-sub-app-eam:k8s"
-    assert by_catalog["postgres:16"]["sourceRef"] == "postgres:16-alpine"
-    assert by_catalog["postgres:16"]["sourceNode"] == "k8s-wk2"
+    assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceRef"] == "postgres:16-alpine"
+    assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceNode"] == "k8s-wk2"
     assert by_catalog["local-ai-eam-service:prod"]["targetRef"] == "harbor.prod/local-ai/local-ai-eam-service:prod"
     assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
 
@@ -776,7 +799,7 @@ def test_image_archive_preflights_all_source_images_before_export(tmp_path, monk
         commands.append(list(command))
         if command[:2] == ["skopeo", "inspect"]:
             image = command[-1].removeprefix("docker://")
-            if image.endswith("postgres:16") or image.endswith("redis:7"):
+            if image.endswith("postgres:16-alpine") or image.endswith("redis:7.4-alpine"):
                 raise subprocess.CalledProcessError(1, command, stderr=f"missing {image}")
             return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
@@ -802,8 +825,8 @@ def test_image_archive_preflights_all_source_images_before_export(tmp_path, monk
         )
 
     assert "Source image preflight failed" in str(exc.value)
-    assert "postgres:16" in str(exc.value)
-    assert "redis:7" in str(exc.value)
+    assert "postgres:16-alpine" in str(exc.value)
+    assert "redis:7.4-alpine" in str(exc.value)
     assert all(command[:2] == ["skopeo", "inspect"] for command in commands)
 
 

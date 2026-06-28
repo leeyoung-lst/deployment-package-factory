@@ -2,29 +2,29 @@ databaseOptions:
   dm:
     name: 达梦 DM
     domestic: true
-    image: dm8:latest
+    image: 192.168.10.210/local-ai/dm8-dev:dm8_20241022_rev244896_x86_rh6_64
     initPath: init/dm
   postgres:
     name: PostgreSQL
     domestic: false
-    image: postgres:16
+    image: 192.168.10.210/local-ai/postgres:16-alpine
     initPath: init/postgres
 middleware:
   redis:
     name: Redis
-    image: redis:7
+    image: 192.168.10.210/local-ai/redis:7.4-alpine
   minio:
     name: MinIO
-    image: minio/minio:latest
+    image: 192.168.10.210/local-ai/minio/minio:RELEASE.2025-09-07T16-13-09Z
   qdrant:
     name: Qdrant
-    image: qdrant/qdrant:latest
+    image: 192.168.10.210/local-ai/qdrant/qdrant:v1.18.0
   camunda:
     name: Camunda
-    image: camunda/camunda:latest
+    image: 192.168.10.210/local-ai/camunda/camunda:8.8.20
   iotdb:
     name: IoTDB
-    image: apache/iotdb:latest
+    image: 192.168.10.210/local-ai/apache/iotdb:latest
   monitoring:
     name: Prometheus / Grafana
-    image: prometheus:latest
+    image: 192.168.10.210/local-ai/prometheus:latest

@@ -12,6 +12,7 @@ class Capability(BaseModel):
     name: str
     namespace_group: str = Field(alias="namespaceGroup")
     images: list[str] = Field(default_factory=list)
+    support_images: list[str] = Field(default_factory=list, alias="supportImages")
     middleware: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list, alias="dependsOn")
     required: bool = False

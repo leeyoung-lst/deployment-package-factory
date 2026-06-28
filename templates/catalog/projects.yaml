@@ -20,7 +20,7 @@ projects:
       - name: eam
         profile: 4x60
     defaultDatabase: postgres
-    registry: harbor.example.com/eam
+    registry: 192.168.10.210/local-ai
     namespacePrefix: eam-prod
     domain: eam.example.com
     storageClass: standard
@@ -44,7 +44,7 @@ projects:
       - name: mes
         profile: 4x3
     defaultDatabase: dm
-    registry: harbor.example.com/mes
+    registry: 192.168.10.210/local-ai
     namespacePrefix: mes-prod
     domain: mes.example.com
     storageClass: fast-ssd

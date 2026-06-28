@@ -37,6 +37,7 @@ def test_eam_preview_resolves_platform_and_middleware_dependencies() -> None:
     assert {"iam", "gateway-frontend", "file-documents", "workflow-camunda", "audit"}.issubset(platform_keys)
     assert {"postgres", "redis", "minio", "camunda", "iotdb"}.issubset(middleware_keys)
     assert "local-ai-eam-service" in preview.images["business"]
+    assert "192.168.10.210/local-ai/nginx:1.27-alpine" in preview.images["support"]
 
     redis = next(item for item in preview.middleware if item.key == "redis")
     assert redis.locked is True

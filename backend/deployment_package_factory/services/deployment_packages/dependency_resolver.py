@@ -162,6 +162,7 @@ def _resolve_images(
     catalog: DeploymentCatalog,
 ) -> dict[str, list[str]]:
     platform_images = sorted({image for key in platform_keys for image in catalog.platform[key].images})
+    support_images = sorted({image for key in platform_keys for image in catalog.platform[key].support_images})
     business_images = sorted({image for key in business_keys for image in catalog.business[key].images})
     middleware_images = []
     for key in sorted(middleware_keys):
@@ -173,6 +174,7 @@ def _resolve_images(
         "platform": platform_images,
         "business": business_images,
         "middleware": sorted(set(middleware_images)),
+        "support": support_images,
     }
 
 

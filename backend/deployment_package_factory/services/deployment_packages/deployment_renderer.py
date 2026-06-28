@@ -104,7 +104,7 @@ def _k8s_secrets(manifest: dict) -> str:
 
 def _k8s_pvcs(manifest: dict) -> str:
     docs = []
-    for key in manifest["middleware"]:
+    for key in _runtime_middleware_keys(manifest):
         docs.append(
             "apiVersion: v1\n"
             "kind: PersistentVolumeClaim\n"
@@ -124,7 +124,7 @@ def _k8s_pvcs(manifest: dict) -> str:
 
 def _k8s_deployments(manifest: dict) -> str:
     docs = [_k8s_app_deployment(service) for service in _service_specs(manifest)]
-    docs.extend(_k8s_middleware_deployment(key, manifest) for key in manifest["middleware"])
+    docs.extend(_k8s_middleware_deployment(key, manifest) for key in _runtime_middleware_keys(manifest))
     return _join_yaml_docs(docs)
 
 
@@ -198,7 +198,7 @@ def _k8s_services(manifest: dict) -> str:
     docs = [_k8s_service(service["name"], service["namespace"], service["port"]) for service in _service_specs(manifest)]
     docs.extend(
         _k8s_service(key, _middleware_namespace(manifest), MIDDLEWARE_PORTS.get(key, DEFAULT_CONTAINER_PORT))
-        for key in manifest["middleware"]
+        for key in _runtime_middleware_keys(manifest)
     )
     return _join_yaml_docs(docs)
 
@@ -341,7 +341,7 @@ def _k8s_uninstall_script() -> str:
 
 def _compose_yaml(manifest: dict) -> str:
     services: list[str] = []
-    services.extend(_compose_middleware_service(key, manifest) for key in manifest["middleware"])
+    services.extend(_compose_middleware_service(key, manifest) for key in _runtime_middleware_keys(manifest))
     services.extend(_compose_app_service(service, manifest) for service in _service_specs(manifest))
     return (
         "services:\n"
@@ -351,7 +351,7 @@ def _compose_yaml(manifest: dict) -> str:
         "  middleware:\n"
         + "".join(f"  business-{item}:\n" for item in manifest["businessServices"])
         + "volumes:\n"
-        + "".join(f"  {key}-data:\n" for key in manifest["middleware"])
+        + "".join(f"  {key}-data:\n" for key in _runtime_middleware_keys(manifest))
     )
 
 
@@ -386,7 +386,7 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
         "    networks:\n"
         + "".join(f"      - {network}\n" for network in networks)
         + "    depends_on:\n"
-        + "".join(f"      - {key}\n" for key in manifest["middleware"])
+        + "".join(f"      - {key}\n" for key in _runtime_middleware_keys(manifest))
         + "    ports:\n"
         f"      - \"{service['hostPort']}:{service['port']}\"\n"
     )
@@ -677,7 +677,14 @@ def _middleware_image(key: str, manifest: dict) -> str:
     return _target_image_ref(source_ref, manifest["targetProfile"].get("registry", ""))
 
 
+def _runtime_middleware_keys(manifest: dict) -> list[str]:
+    keys = [manifest["database"], *manifest["middleware"]]
+    return list(dict.fromkeys(keys))
+
+
 def _middleware_source_ref(key: str, manifest: dict) -> str:
+    if key == manifest.get("database"):
+        return _with_default_tag(manifest["databaseImage"], manifest)
     for item in manifest["imageEntries"]:
         catalog_ref = item.get("catalogRef") or item["sourceRef"]
         if item["group"] == "middleware" and catalog_ref.startswith(f"{key}:"):
