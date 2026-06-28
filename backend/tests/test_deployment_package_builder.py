@@ -368,6 +368,41 @@ def test_build_deployment_package_exports_image_archives_with_runner(tmp_path) -
     assert all((root / "images" / "archives" / item["file"]).exists() for item in lock["archives"])
 
 
+def test_image_archive_uses_source_registry_separately_from_target_registry(tmp_path) -> None:
+    commands: list[list[str]] = []
+
+    def fake_docker_runner(command: Sequence[str]) -> None:
+        commands.append(list(command))
+        if command[:2] == ["docker", "save"]:
+            archive = Path(command[3])
+            archive.write_bytes(f"archive for {command[4]}".encode("utf-8"))
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s"],
+            platformServices=["iam", "gateway-frontend"],
+            businessServices=[],
+            database="postgres",
+            imageMode="image-archive",
+            targetProfile=TargetProfile(
+                sourceRegistry="harbor.internal/local-ai",
+                registry="harbor.prod/local-ai",
+            ),
+        ),
+        output_dir=tmp_path,
+        docker_runner=fake_docker_runner,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    lock = json.loads((root / "security" / "image-digest-lock.json").read_text(encoding="utf-8"))
+
+    assert any(command == ["docker", "pull", "harbor.internal/local-ai/postgres:16"] for command in commands)
+    assert all(item["sourceRef"].startswith("harbor.internal/local-ai/") for item in lock["images"])
+    assert all(item["targetRef"].startswith("harbor.prod/local-ai/") for item in lock["images"])
+    assert any(item["catalogRef"] == "postgres:16" for item in lock["images"])
+
+
 def test_check_image_export_environment_reports_available_docker(monkeypatch) -> None:
     calls: list[list[str]] = []
 

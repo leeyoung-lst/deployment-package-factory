@@ -664,7 +664,7 @@ def _service_specs(manifest: dict) -> list[dict]:
 
 def _image_entry_for_source(manifest: dict, source_ref: str) -> dict:
     for item in manifest["imageEntries"]:
-        if item["sourceRef"] == source_ref:
+        if item.get("catalogRef") == source_ref or item["sourceRef"] == source_ref:
             return item
     raise ValueError(f"Image entry not found for {source_ref}.")
 
@@ -672,18 +672,20 @@ def _image_entry_for_source(manifest: dict, source_ref: str) -> dict:
 def _middleware_image(key: str, manifest: dict) -> str:
     source_ref = _with_default_tag(manifest["databaseImage"], manifest) if key == manifest["database"] else _middleware_source_ref(key, manifest)
     for item in manifest["imageEntries"]:
-        if item["sourceRef"] == source_ref:
+        if item.get("catalogRef") == source_ref or item["sourceRef"] == source_ref:
             return item["targetRef"]
     return _target_image_ref(source_ref, manifest["targetProfile"].get("registry", ""))
 
 
 def _middleware_source_ref(key: str, manifest: dict) -> str:
     for item in manifest["imageEntries"]:
-        if item["group"] == "middleware" and item["sourceRef"].startswith(f"{key}:"):
-            return item["sourceRef"]
+        catalog_ref = item.get("catalogRef") or item["sourceRef"]
+        if item["group"] == "middleware" and catalog_ref.startswith(f"{key}:"):
+            return catalog_ref
     for item in manifest["imageEntries"]:
-        if item["group"] == "middleware" and key in item["sourceRef"]:
-            return item["sourceRef"]
+        catalog_ref = item.get("catalogRef") or item["sourceRef"]
+        if item["group"] == "middleware" and key in catalog_ref:
+            return catalog_ref
     raise ValueError(f"Middleware image entry not found for {key}.")
 
 

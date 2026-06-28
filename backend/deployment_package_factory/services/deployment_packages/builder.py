@@ -206,6 +206,7 @@ def _apply_project_build_defaults(request: PackageBuildRequest, catalog) -> tupl
         update={
             "env": request.target_profile.env or "prod",
             "domain": request.target_profile.domain if request.target_profile.domain != "prod.example.com" else project.domain,
+            "source_registry": request.target_profile.source_registry or project.registry,
             "registry": request.target_profile.registry or project.registry,
             "namespace_prefix": request.target_profile.namespace_prefix if request.target_profile.namespace_prefix != "prod" else project.namespace_prefix,
             "storage_class": request.target_profile.storage_class or project.storage_class,
@@ -251,17 +252,20 @@ def _readme(manifest: dict) -> str:
 def _image_entries(images: dict[str, list[str]], request: PackageBuildRequest, default_tag: str) -> list[dict]:
     entries: list[dict] = []
     seen: set[str] = set()
+    source_registry = request.target_profile.source_registry.strip().rstrip("/")
     registry = request.target_profile.registry.strip().rstrip("/")
     for group, values in images.items():
         for raw in values:
-            source_ref = _with_default_tag(raw, default_tag)
-            target_ref = _target_image_ref(source_ref, registry)
+            catalog_ref = _with_default_tag(raw, default_tag)
+            source_ref = _target_image_ref(catalog_ref, source_registry)
+            target_ref = _target_image_ref(catalog_ref, registry)
             if target_ref in seen:
                 continue
             seen.add(target_ref)
             entries.append(
                 {
                     "group": group,
+                    "catalogRef": catalog_ref,
                     "sourceRef": source_ref,
                     "targetRef": target_ref,
                     "archiveFile": f"{_safe_image_filename(target_ref)}.tar",

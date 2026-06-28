@@ -31,6 +31,7 @@ import styles from "./DeploymentPackageExportView.module.css";
 const DEFAULT_TARGET = {
   env: "prod",
   domain: "prod.example.com",
+  sourceRegistry: "",
   registry: "",
   namespacePrefix: "prod",
   storageClass: "",
@@ -244,6 +245,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         targetProfile: {
           env: values.env,
           domain: values.domain,
+          sourceRegistry: values.sourceRegistry || "",
           registry: values.registry || "",
           namespacePrefix: values.namespacePrefix,
           storageClass: values.storageClass || "",
@@ -508,8 +510,11 @@ export const DeploymentPackageExportView: React.FC = () => {
                 <Form.Item label="域名" name="domain" rules={[{ required: true, message: "请输入生产域名" }]}>
                   <Input />
                 </Form.Item>
+                <Form.Item label="源镜像仓库" name="sourceRegistry">
+                  <Input placeholder="可选，导包时从该仓库拉取镜像" />
+                </Form.Item>
                 <Form.Item label="镜像仓库" name="registry">
-                  <Input placeholder="registry.example.com/project" />
+                  <Input placeholder="生产部署目标镜像仓库" />
                 </Form.Item>
                 <Form.Item label="StorageClass" name="storageClass">
                   <Input placeholder="留空使用集群默认值" />
@@ -864,6 +869,7 @@ function CleanupPanel({
 
 function PreviewSummary({ preview, project, targetProfile }: { preview: PackagePreview; project: ProjectProfile | null; targetProfile: TargetDraft }) {
   const imageTag = project?.imageTag || "prod";
+  const sourceRegistry = `${targetProfile.sourceRegistry || project?.registry || ""}`.replace(/\/+$/, "");
   const registry = `${targetProfile.registry || project?.registry || ""}`.replace(/\/+$/, "");
   return (
     <div className={styles.page}>
@@ -894,7 +900,7 @@ function PreviewSummary({ preview, project, targetProfile }: { preview: PackageP
               <div className={styles.imageMapList}>
                 {images.map((image) => (
                   <div className={styles.imageMapRow} key={`${group}-${image}`}>
-                    <span className={styles.mono}>{image}</span>
+                    <span className={styles.mono}>{toTargetImage(image, sourceRegistry, imageTag)}</span>
                     <i className="ri-arrow-right-line" />
                     <span className={styles.mono}>{toTargetImage(image, registry, imageTag)}</span>
                   </div>

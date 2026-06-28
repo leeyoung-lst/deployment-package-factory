@@ -54,6 +54,7 @@ export interface PackageBuildRequest extends PackagePreviewRequest {
   targetProfile: {
     env: string;
     domain: string;
+    sourceRegistry: string;
     registry: string;
     namespacePrefix: string;
     storageClass: string;
