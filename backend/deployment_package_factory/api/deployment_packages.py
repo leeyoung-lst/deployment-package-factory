@@ -24,9 +24,8 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackagePreviewRequest,
     PackageTask,
 )
-from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
+from deployment_package_factory.services.deployment_packages.repositories import create_audit_repository, create_task_repository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,8 +35,8 @@ router = APIRouter(
     dependencies=[Depends(require_api_token)],
 )
 _SETTINGS = load_settings()
-_TASK_REPO = PackageTaskRepository(_SETTINGS.task_db_path)
-_AUDIT_REPO = AuditEventRepository(_SETTINGS.audit_db_path)
+_TASK_REPO = create_task_repository(database_url=_SETTINGS.database_url, sqlite_path=_SETTINGS.task_db_path)
+_AUDIT_REPO = create_audit_repository(database_url=_SETTINGS.database_url, sqlite_path=_SETTINGS.audit_db_path)
 _TASK_EXECUTOR = PackageTaskExecutor(
     _TASK_REPO,
     PackageTaskExecutorConfig(
@@ -49,11 +48,11 @@ _TASK_EXECUTOR = PackageTaskExecutor(
 )
 
 
-def get_task_repository() -> PackageTaskRepository:
+def get_task_repository():
     return _TASK_REPO
 
 
-def get_audit_repository() -> AuditEventRepository:
+def get_audit_repository():
     return _AUDIT_REPO
 
 

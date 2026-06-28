@@ -72,6 +72,7 @@ export DPF_BACKEND_IMAGE=registry.example.com/platform/deployment-package-factor
 export DPF_WORKER_IMAGE=registry.example.com/platform/deployment-package-factory-worker:2026.06
 export DPF_FRONTEND_IMAGE=registry.example.com/platform/deployment-package-factory-frontend:2026.06
 export DPF_HTTP_PORT=5186
+export DEPLOYMENT_PACKAGE_DATABASE_URL=postgresql://factory:replace-with-password@postgres.example.com:5432/deployment_package_factory
 export DEPLOYMENT_PACKAGE_API_TOKEN=replace-with-strong-random-token
 export DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL=
 export DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN=replace-with-strong-random-token
@@ -118,7 +119,7 @@ deployment-package-factory.example.com
 - `scripts/render-deploy-images.*` 生成的镜像地址。
 - `deploy/k8s/pvc.yaml` 中的存储大小和 StorageClass。
 - `deploy/k8s/configmap.yaml` 中的并发数、保留天数和容量上限。
-- 如需保护导包 API，复制 `deploy/k8s/secret.template.yaml` 为 `deploy/k8s/secret.yaml`，替换 `DEPLOYMENT_PACKAGE_API_TOKEN` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN` 后执行 `kubectl apply -f deploy/k8s/secret.yaml`。后端 Deployment 已配置 optional secretRef，Secret 不存在时默认不启用 API token。
+- 复制 `deploy/k8s/secret.template.yaml` 为 `deploy/k8s/secret.yaml`，替换 `DEPLOYMENT_PACKAGE_DATABASE_URL`、`DEPLOYMENT_PACKAGE_API_TOKEN` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN` 后执行 `kubectl apply -f deploy/k8s/secret.yaml`。K8s/生产部署必须使用外部 PostgreSQL 等生产关系库保存任务和审计元数据。
 
 前端镜像启动时会根据 `DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL` 和 `DEPLOYMENT_PACKAGE_FRONTEND_API_TOKEN` 生成 `/runtime-config.js`，因此同一个前端镜像可以复用于 dev、test、prod；受保护环境下前端 token 应与后端 API token 保持一致。后续接入 IAM/OIDC 后可改为登录态令牌。
 
@@ -148,7 +149,12 @@ prometheus.io/port: "8096"
 后端需要持久化以下内容：
 
 ```text
-/app/data/deployment-package-tasks.sqlite3
+/app/data/deployment-packages/
+```
+
+K8s 生产部署中，任务和审计元数据不写 SQLite 文件，而是通过 `DEPLOYMENT_PACKAGE_DATABASE_URL` 写入外部 PostgreSQL。PVC 只用于保存生成中的工作目录和最终 tar.gz 产物：
+
+```text
 /app/data/deployment-packages/
 ```
 

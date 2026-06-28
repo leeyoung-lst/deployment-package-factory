@@ -7,6 +7,7 @@ services:
       - "8096:8096"
     environment:
       DEPLOYMENT_PACKAGE_DATA_DIR: /app/data
+      DEPLOYMENT_PACKAGE_DATABASE_URL: ${DEPLOYMENT_PACKAGE_DATABASE_URL:-}
       DEPLOYMENT_PACKAGE_TASK_DB: /app/data/deployment-package-tasks.sqlite3
       DEPLOYMENT_PACKAGE_AUDIT_DB: /app/data/deployment-package-audit.sqlite3
       DEPLOYMENT_PACKAGE_OUTPUT_DIR: /app/data/deployment-packages

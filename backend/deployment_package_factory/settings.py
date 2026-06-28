@@ -11,6 +11,7 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 @dataclass(frozen=True)
 class DeploymentPackageSettings:
     data_dir: Path
+    database_url: str
     task_db_path: Path
     audit_db_path: Path
     output_dir: Path
@@ -35,6 +36,7 @@ def load_settings() -> DeploymentPackageSettings:
     output_dir = Path(os.getenv("DEPLOYMENT_PACKAGE_OUTPUT_DIR", str(data_dir / "deployment-packages"))).expanduser()
     return DeploymentPackageSettings(
         data_dir=data_dir,
+        database_url=os.getenv("DEPLOYMENT_PACKAGE_DATABASE_URL", "").strip(),
         task_db_path=task_db_path,
         audit_db_path=audit_db_path,
         output_dir=output_dir,

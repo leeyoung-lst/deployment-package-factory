@@ -9,8 +9,8 @@ from uuid import uuid4
 
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest
+from deployment_package_factory.services.deployment_packages.repositories import create_task_repository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 
 LOGGER = logging.getLogger("deployment_package_factory.worker")
@@ -19,7 +19,7 @@ LOGGER = logging.getLogger("deployment_package_factory.worker")
 async def run_worker(*, once: bool = False) -> None:
     settings = load_settings()
     worker_id = os.getenv("DEPLOYMENT_PACKAGE_WORKER_ID") or f"{socket.gethostname()}-{uuid4().hex[:8]}"
-    repo = PackageTaskRepository(settings.task_db_path)
+    repo = create_task_repository(database_url=settings.database_url, sqlite_path=settings.task_db_path)
     executor = PackageTaskExecutor(
         repo,
         PackageTaskExecutorConfig(
