@@ -448,7 +448,8 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
     by_catalog = {item["catalogRef"]: item for item in result.manifest["imageEntries"]}
 
     assert by_catalog["local-ai-eam-service:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-eam-service:k8s"
-    assert by_catalog["local-ai-eam-service:prod"]["sourceExportRef"] == "192.168.10.210/local-ai/local-ai-eam-service@sha256:eam"
+    assert by_catalog["local-ai-eam-service:prod"]["sourceExportRef"] == "192.168.10.210/local-ai/local-ai-eam-service:k8s"
+    assert by_catalog["local-ai-eam-service:prod"]["sourceImageId"] == "192.168.10.210/local-ai/local-ai-eam-service@sha256:eam"
     assert by_catalog["sub-app-eam:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-sub-app-eam:k8s"
     assert by_catalog["postgres:16"]["sourceRef"] == "postgres:16-alpine"
     assert by_catalog["local-ai-eam-service:prod"]["targetRef"] == "harbor.prod/local-ai/local-ai-eam-service:prod"

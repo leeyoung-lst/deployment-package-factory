@@ -429,8 +429,6 @@ def _image_registry_priority(image: str) -> int:
 def _source_export_ref(runtime_image: RuntimeSourceImage | None) -> str:
     if not runtime_image:
         return ""
-    if runtime_image.image_id and "@sha256:" in runtime_image.image_id:
-        return runtime_image.image_id
     return runtime_image.source_ref
 
 
