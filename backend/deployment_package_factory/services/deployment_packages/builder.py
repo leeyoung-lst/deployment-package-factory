@@ -129,7 +129,7 @@ def build_deployment_package(
     _write_text(package_root / "security" / "image-digest-lock.json", json.dumps(image_lock, ensure_ascii=False, indent=2) + "\n")
 
     if request.image_mode == "image-archive" or request.target_profile.export_images:
-        _export_image_archives(package_root, image_entries, docker_runner)
+        _export_image_archives(package_root, image_entries, docker_runner, source_tls_verify=not request.target_profile.source_registry_insecure)
         _write_text(
             package_root / "security" / "image-digest-lock.json",
             json.dumps({"images": image_entries, "archives": _archive_lock(package_root)}, ensure_ascii=False, indent=2) + "\n",
@@ -268,6 +268,7 @@ def _image_entries(images: dict[str, list[str]], request: PackageBuildRequest, d
                     "catalogRef": catalog_ref,
                     "sourceRef": source_ref,
                     "targetRef": target_ref,
+                    "sourceRegistryInsecure": request.target_profile.source_registry_insecure,
                     "archiveFile": f"{_safe_image_filename(target_ref)}.tar",
                 }
             )
@@ -350,7 +351,13 @@ def _load_images_script(image_entries: list[dict]) -> str:
     return "\n".join(commands) + "\n"
 
 
-def _export_image_archives(package_root: Path, image_entries: list[dict], docker_runner: DockerRunner | None = None) -> None:
+def _export_image_archives(
+    package_root: Path,
+    image_entries: list[dict],
+    docker_runner: DockerRunner | None = None,
+    *,
+    source_tls_verify: bool = True,
+) -> None:
     archive_dir = package_root / "images" / "archives"
     archive_dir.mkdir(parents=True, exist_ok=True)
     for item in image_entries:
@@ -361,21 +368,23 @@ def _export_image_archives(package_root: Path, image_entries: list[dict], docker
                 docker_runner(["docker", "pull", source_ref])
                 docker_runner(["docker", "save", "-o", str(archive_path), source_ref])
             else:
-                _run_image_export(source_ref, archive_path)
+                _run_image_export(source_ref, archive_path, source_tls_verify=source_tls_verify)
         except Exception as exc:
             raise PackageBuildError(f"Image export failed for {source_ref}: {exc}") from exc
 
 
-def _run_image_export(source_ref: str, archive_path: Path) -> None:
+def _run_image_export(source_ref: str, archive_path: Path, *, source_tls_verify: bool = True) -> None:
     if shutil.which("skopeo"):
-        _run_skopeo(source_ref, archive_path)
+        _run_skopeo(source_ref, archive_path, source_tls_verify=source_tls_verify)
         return
     _run_docker(["docker", "pull", source_ref])
     _run_docker(["docker", "save", "-o", str(archive_path), source_ref])
 
 
-def _run_skopeo(source_ref: str, archive_path: Path) -> None:
+def _run_skopeo(source_ref: str, archive_path: Path, *, source_tls_verify: bool = True) -> None:
     command = ["skopeo", "copy", f"docker://{source_ref}", f"docker-archive:{archive_path}:{source_ref}"]
+    if not source_tls_verify:
+        command.insert(2, "--src-tls-verify=false")
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
     except FileNotFoundError as exc:

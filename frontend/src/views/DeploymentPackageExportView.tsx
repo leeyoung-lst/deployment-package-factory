@@ -32,6 +32,7 @@ const DEFAULT_TARGET = {
   env: "prod",
   domain: "prod.example.com",
   sourceRegistry: "",
+  sourceRegistryInsecure: false,
   registry: "",
   namespacePrefix: "prod",
   storageClass: "",
@@ -246,6 +247,7 @@ export const DeploymentPackageExportView: React.FC = () => {
           env: values.env,
           domain: values.domain,
           sourceRegistry: values.sourceRegistry || "",
+          sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure),
           registry: values.registry || "",
           namespacePrefix: values.namespacePrefix,
           storageClass: values.storageClass || "",
@@ -512,6 +514,9 @@ export const DeploymentPackageExportView: React.FC = () => {
                 </Form.Item>
                 <Form.Item label="源镜像仓库" name="sourceRegistry">
                   <Input placeholder="可选，导包时从该仓库拉取镜像" />
+                </Form.Item>
+                <Form.Item name="sourceRegistryInsecure" valuePropName="checked">
+                  <Checkbox>源仓库使用自签证书</Checkbox>
                 </Form.Item>
                 <Form.Item label="镜像仓库" name="registry">
                   <Input placeholder="生产部署目标镜像仓库" />

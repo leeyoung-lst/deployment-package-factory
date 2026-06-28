@@ -90,6 +90,7 @@ class TargetProfile(BaseModel):
     env: str = "prod"
     domain: str = "prod.example.com"
     source_registry: str = Field(default="", alias="sourceRegistry")
+    source_registry_insecure: bool = Field(default=False, alias="sourceRegistryInsecure")
     registry: str = ""
     namespace_prefix: str = Field(default="prod", alias="namespacePrefix")
     storage_class: str = Field(default="", alias="storageClass")

@@ -55,6 +55,7 @@ export interface PackageBuildRequest extends PackagePreviewRequest {
     env: string;
     domain: string;
     sourceRegistry: string;
+    sourceRegistryInsecure: boolean;
     registry: string;
     namespacePrefix: string;
     storageClass: string;
