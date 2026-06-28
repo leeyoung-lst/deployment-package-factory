@@ -73,6 +73,7 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/k8s/uninstall.sh" in names
     assert f"{root}/k8s/dry-run.sh" in names
     assert f"{root}/docker-compose/docker-compose.yml" in names
+    assert f"{root}/docker-compose/.env" in names
     assert f"{root}/docker-compose/install.sh" in names
     assert f"{root}/docker-compose/uninstall.sh" in names
     assert f"{root}/docker-compose/dry-run.sh" in names
@@ -95,7 +96,14 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert all(mode & 0o111 for mode in script_modes.values())
 
 
-def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
+def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "source-db-password")
+    monkeypatch.setenv("REDIS_PASSWORD", "source-redis-password")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "source-minio-password")
+    monkeypatch.setenv("QDRANT_API_KEY", "source-qdrant-key")
+    monkeypatch.setenv("CAMUNDA_ADMIN_PASSWORD", "source-camunda-password")
+    monkeypatch.setenv("IOTDB_PASSWORD", "source-iotdb-password")
+
     result = build_deployment_package(
         PackageBuildRequest(
             sourceEnv="test",
@@ -111,6 +119,7 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     k8s_dry_run = (root / "k8s" / "dry-run.sh").read_text(encoding="utf-8")
     compose_install = (root / "docker-compose" / "install.sh").read_text(encoding="utf-8")
     compose_dry_run = (root / "docker-compose" / "dry-run.sh").read_text(encoding="utf-8")
+    compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
     root_install = (root / "install.sh").read_text(encoding="utf-8")
     root_install_ps1 = (root / "install.ps1").read_text(encoding="utf-8")
     quality_gate = (root / "quality-gate.sh").read_text(encoding="utf-8")
@@ -127,6 +136,13 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "kubectl apply --dry-run=client" in k8s_dry_run
     assert "docker compose --env-file" in compose_dry_run
     assert "docker-compose.yml\" config" in compose_dry_run
+    assert "DATABASE_PASSWORD=source-db-password" in compose_env
+    assert "REDIS_PASSWORD=source-redis-password" in compose_env
+    assert "MINIO_ROOT_PASSWORD=source-minio-password" in compose_env
+    assert "CAMUNDA_ADMIN_PASSWORD=source-camunda-password" in compose_env
+    assert "IOTDB_PASSWORD=source-iotdb-password" in compose_env
+    assert "__REPLACE_WITH_" not in compose_env
+    assert "_runtimeEnv" not in result.manifest
     assert "package-index.json" in root_install
     assert "--skip-verify" in root_install
     assert "--skip-dry-run" in root_install
@@ -151,6 +167,86 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path) -> None:
     assert "kubectl get pods" in health_check
     assert "docker compose" in health_check
     assert "run_sql \"postgres\"" in init_runner
+
+
+def test_build_deployment_package_keeps_placeholders_when_source_secrets_are_missing(tmp_path, monkeypatch) -> None:
+    for name in [
+        "DATABASE_PASSWORD",
+        "REDIS_PASSWORD",
+        "MINIO_ROOT_PASSWORD",
+        "QDRANT_API_KEY",
+        "CAMUNDA_ADMIN_PASSWORD",
+        "IOTDB_PASSWORD",
+    ]:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: [])
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            businessServices=[BusinessSelection(name="eam", profile="4x60")],
+            database="postgres",
+        ),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
+
+    assert "DATABASE_PASSWORD=__REPLACE_WITH_DATABASE_PASSWORD__" in compose_env
+    assert "REDIS_PASSWORD=__REPLACE_WITH_REDIS_PASSWORD__" in compose_env
+    assert "_runtimeEnv" not in json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+
+
+def test_build_deployment_package_resolves_qdrant_password_when_selected(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PASSWORD", "source-db-password")
+    monkeypatch.setenv("REDIS_PASSWORD", "source-redis-password")
+    monkeypatch.setenv("QDRANT_API_KEY", "source-qdrant-key")
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            platformServices=["ai-agent"],
+            businessServices=[],
+            database="postgres",
+        ),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
+
+    assert "QDRANT_API_KEY=source-qdrant-key" in compose_env
+
+
+def test_runtime_env_prefers_source_kubernetes_secret_over_process_env(monkeypatch) -> None:
+    monkeypatch.setenv("REDIS_PASSWORD", "process-env-password")
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: ["local-ai"])
+    monkeypatch.setattr(
+        builder,
+        "read_kubernetes_secret",
+        lambda namespace, name: {"REDIS_PASSWORD": "k8s-secret-password"} if (namespace, name) == ("local-ai", "local-ai-secrets") else {},
+    )
+
+    values = builder._resolve_runtime_env(
+        "test",
+        {
+            "redis": {
+                "envTemplate": {"REDIS_PASSWORD": "__REPLACE_WITH_REDIS_PASSWORD__"},
+                "envSources": {
+                    "REDIS_PASSWORD": {
+                        "env": "REDIS_PASSWORD",
+                        "secretNames": ["local-ai-secrets"],
+                        "secretKeys": ["REDIS_PASSWORD"],
+                    }
+                },
+            }
+        },
+    )
+
+    assert values["REDIS_PASSWORD"] == "k8s-secret-password"
 
 
 def test_build_deployment_package_includes_frontend_support_images_without_deploying_them(tmp_path) -> None:
@@ -257,6 +353,28 @@ def test_generated_powershell_verifier_rejects_unsigned_package_files(tmp_path) 
 
     assert tampered.returncode != 0
     assert "SHA256SUMS file set mismatch" in tampered.stderr + tampered.stdout
+
+
+def test_generated_powershell_verifier_allows_runtime_env_file(tmp_path) -> None:
+    if shutil.which("powershell") is None and shutil.which("pwsh") is None:
+        return
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    result = build_deployment_package(
+        PackageBuildRequest(projectKey="mes-lite"),
+        output_dir=tmp_path,
+    )
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    env_template = root / "docker-compose" / ".env.template"
+    env_file = root / "docker-compose" / ".env"
+    env_file.write_text(env_template.read_text(encoding="utf-8").replace("__REPLACE_WITH_", "local_"), encoding="utf-8")
+
+    verified = subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(root / "verify.ps1")],
+        capture_output=True,
+        text=True,
+    )
+
+    assert verified.returncode == 0, verified.stderr + verified.stdout
 
 
 def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_path) -> None:

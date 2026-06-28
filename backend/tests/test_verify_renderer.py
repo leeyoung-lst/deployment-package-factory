@@ -12,7 +12,8 @@ def test_render_package_verify_files_exports_shell_and_powershell_entries() -> N
     assert by_path["verify.sh"].executable is True
     assert by_path["verify.ps1"].executable is False
     assert 'VERIFIER_VERSION="1.0.0"' in by_path["verify.sh"].content
-    assert "sha256sum -c security/SHA256SUMS" in by_path["verify.sh"].content
+    assert "sha256sum -c" in by_path["verify.sh"].content
+    assert "SHA_CHECK_FILE" in by_path["verify.sh"].content
     assert "package-index.json" in by_path["verify.sh"].content
     assert "quality-gate.sh" in by_path["verify.sh"].content
     assert "docs/quality-report.md" in by_path["verify.sh"].content
@@ -25,5 +26,7 @@ def test_render_package_verify_files_exports_shell_and_powershell_entries() -> N
     assert "[System.Security.Cryptography.SHA256]::Create()" in by_path["verify.ps1"].content
     assert "ConvertFrom-Json" in by_path["verify.ps1"].content
     assert "quality-gate.ps1" in by_path["verify.ps1"].content
+    assert "docker-compose/.env" in by_path["verify.ps1"].content
+    assert "docs/quality-report.runtime.md" in by_path["verify.ps1"].content
     assert "SHA256SUMS file set mismatch" in by_path["verify.ps1"].content
     assert "package-index file set mismatch" in by_path["verify.ps1"].content

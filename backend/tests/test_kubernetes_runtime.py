@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+
 from deployment_package_factory.services.deployment_packages import kubernetes_runtime
 
 
@@ -56,3 +58,24 @@ def test_source_env_namespaces_includes_local_ai_labeled_namespaces(monkeypatch,
         "test-base-public",
         "test-biz-eam-4x60",
     ]
+
+
+def test_read_kubernetes_secret_decodes_data_and_string_data(monkeypatch, tmp_path) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN_PATH", str(token_path))
+
+    def fake_request_json(method: str, path: str, token: str, body: dict | None = None, content_type: str = "application/json") -> dict:
+        assert method == "GET"
+        assert path == "/api/v1/namespaces/local-ai/secrets/local-ai-secrets"
+        return {
+            "data": {"REDIS_PASSWORD": base64.b64encode(b"redis-secret").decode("ascii")},
+            "stringData": {"MINIO_ROOT_PASSWORD": "minio-secret"},
+        }
+
+    monkeypatch.setattr(kubernetes_runtime, "_request_json", fake_request_json)
+
+    assert kubernetes_runtime.read_kubernetes_secret("local-ai", "local-ai-secrets") == {
+        "REDIS_PASSWORD": "redis-secret",
+        "MINIO_ROOT_PASSWORD": "minio-secret",
+    }

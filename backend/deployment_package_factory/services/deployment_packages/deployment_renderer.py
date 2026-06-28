@@ -6,16 +6,6 @@ from pathlib import PurePosixPath
 
 
 DEFAULT_CONTAINER_PORT = 8080
-MIDDLEWARE_PORTS = {
-    "postgres": 5432,
-    "dm": 5236,
-    "redis": 6379,
-    "minio": 9000,
-    "qdrant": 6333,
-    "camunda": 8080,
-    "iotdb": 6667,
-    "monitoring": 9090,
-}
 
 
 @dataclass(frozen=True)
@@ -39,6 +29,7 @@ def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
         RenderedDeploymentFile(PurePosixPath("k8s/uninstall.sh"), _k8s_uninstall_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("k8s/dry-run.sh"), _k8s_dry_run_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("docker-compose/docker-compose.yml"), _compose_yaml(manifest)),
+        RenderedDeploymentFile(PurePosixPath("docker-compose/.env"), _env_defaults(manifest)),
         RenderedDeploymentFile(PurePosixPath("docker-compose/.env.template"), _env_template(manifest)),
         RenderedDeploymentFile(PurePosixPath("docker-compose/install.sh"), _compose_install_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("docker-compose/uninstall.sh"), _compose_uninstall_script(), executable=True),
@@ -85,6 +76,7 @@ def _k8s_configmaps(manifest: dict) -> str:
 
 def _k8s_secrets(manifest: dict) -> str:
     namespaces = sorted({service["namespace"] for service in _service_specs(manifest)} | {_middleware_namespace(manifest)})
+    string_data = _secret_string_data(manifest)
     docs = []
     for namespace in namespaces:
         docs.append(
@@ -95,9 +87,7 @@ def _k8s_secrets(manifest: dict) -> str:
             f"  namespace: {namespace}\n"
             "type: Opaque\n"
             "stringData:\n"
-            "  DATABASE_PASSWORD: __REPLACE_WITH_DATABASE_PASSWORD__\n"
-            "  REDIS_PASSWORD: __REPLACE_WITH_REDIS_PASSWORD__\n"
-            "  MINIO_ROOT_PASSWORD: __REPLACE_WITH_MINIO_ROOT_PASSWORD__\n"
+            f"{string_data}"
         )
     return _join_yaml_docs(docs)
 
@@ -161,7 +151,7 @@ def _k8s_app_deployment(service: dict) -> str:
 
 
 def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
-    port = MIDDLEWARE_PORTS.get(key, DEFAULT_CONTAINER_PORT)
+    port = _middleware_port(key, manifest)
     return (
         "apiVersion: apps/v1\n"
         "kind: Deployment\n"
@@ -186,7 +176,7 @@ def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
         f"            - containerPort: {port}\n"
         "          volumeMounts:\n"
         "            - name: data\n"
-        f"              mountPath: /var/lib/{key}\n"
+        f"              mountPath: {_middleware_data_path(key, manifest)}\n"
         "      volumes:\n"
         "        - name: data\n"
         "          persistentVolumeClaim:\n"
@@ -197,7 +187,7 @@ def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
 def _k8s_services(manifest: dict) -> str:
     docs = [_k8s_service(service["name"], service["namespace"], service["port"]) for service in _service_specs(manifest)]
     docs.extend(
-        _k8s_service(key, _middleware_namespace(manifest), MIDDLEWARE_PORTS.get(key, DEFAULT_CONTAINER_PORT))
+        _k8s_service(key, _middleware_namespace(manifest), _middleware_port(key, manifest))
         for key in _runtime_middleware_keys(manifest)
     )
     return _join_yaml_docs(docs)
@@ -356,18 +346,45 @@ def _compose_yaml(manifest: dict) -> str:
 
 
 def _compose_middleware_service(key: str, manifest: dict) -> str:
-    port = MIDDLEWARE_PORTS.get(key, DEFAULT_CONTAINER_PORT)
+    port = _middleware_port(key, manifest)
+    environment = _compose_middleware_environment(key, manifest)
+    command = _compose_middleware_command(key, manifest)
     return (
         f"  {key}:\n"
         f"    image: {_middleware_image(key, manifest)}\n"
         "    restart: unless-stopped\n"
+        "    env_file:\n"
+        "      - .env\n"
+        f"{environment}"
+        f"{command}"
         "    networks:\n"
         "      - middleware\n"
         "    ports:\n"
         f"      - \"{port}:{port}\"\n"
         "    volumes:\n"
-        f"      - {key}-data:/var/lib/{key}\n"
+        f"      - {key}-data:{_middleware_data_path(key, manifest)}\n"
     )
+
+
+def _compose_middleware_environment(key: str, manifest: dict) -> str:
+    values = _middleware_definition(key, manifest).get("composeEnvironment") or {}
+    if not values:
+        return ""
+    lines = ["    environment:"]
+    lines.extend(f"      {name}: {value}" for name, value in values.items())
+    return "\n".join(lines) + "\n"
+
+
+def _compose_middleware_command(key: str, manifest: dict) -> str:
+    command = _middleware_definition(key, manifest).get("composeCommand") or []
+    if not command:
+        return ""
+    values = ", ".join(f'"{_escape_compose_command_arg(item)}"' for item in command)
+    return f"    command: [{values}]\n"
+
+
+def _escape_compose_command_arg(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _compose_app_service(service: dict, manifest: dict) -> str:
@@ -625,14 +642,62 @@ def _health_check_script(manifest: dict) -> str:
 
 def _env_template(manifest: dict) -> str:
     registry = manifest["targetProfile"].get("registry") or "harbor.example.com/local-ai"
-    return (
-        f"REGISTRY={registry}\n"
-        "IMAGE_TAG=prod\n"
-        "FRONTEND_PORT=80\n"
-        "DATABASE_PASSWORD=__REPLACE_WITH_DATABASE_PASSWORD__\n"
-        "REDIS_PASSWORD=__REPLACE_WITH_REDIS_PASSWORD__\n"
-        "MINIO_ROOT_PASSWORD=__REPLACE_WITH_MINIO_ROOT_PASSWORD__\n"
+    return _env_file(
+        manifest,
+        {
+            "REGISTRY": registry,
+            "IMAGE_TAG": "prod",
+            "FRONTEND_PORT": "80",
+        },
+        "envTemplate",
     )
+
+
+def _secret_string_data(manifest: dict) -> str:
+    values: dict[str, str] = {}
+    for key in _runtime_middleware_keys(manifest):
+        values.update(_middleware_definition(key, manifest).get("envTemplate") or {})
+    secret_values = {
+        name: value
+        for name, value in values.items()
+        if "__REPLACE_WITH_" in str(value)
+    }
+    if not secret_values:
+        secret_values = {"DATABASE_PASSWORD": "__REPLACE_WITH_DATABASE_PASSWORD__"}
+    return "".join(f"  {name}: {value}\n" for name, value in secret_values.items())
+
+
+def _env_defaults(manifest: dict) -> str:
+    registry = manifest["targetProfile"].get("registry") or "harbor.example.com/local-ai"
+    values = {
+        "REGISTRY": registry,
+        "IMAGE_TAG": "prod",
+        "FRONTEND_PORT": "80",
+    }
+    values.update(manifest.get("_runtimeEnv") or {})
+    return _env_file(manifest, values, "envTemplate", keep_existing=True)
+
+
+def _env_file(manifest: dict, base_values: dict[str, str], field: str, *, keep_existing: bool = False) -> str:
+    values = dict(base_values)
+    for key in _runtime_middleware_keys(manifest):
+        for name, value in (_middleware_definition(key, manifest).get(field) or {}).items():
+            if keep_existing and name in values:
+                continue
+            values[name] = value
+    return "".join(f"{name}={value}\n" for name, value in values.items())
+
+
+def _middleware_definition(key: str, manifest: dict) -> dict:
+    return (manifest.get("middlewareConfig") or {}).get(key) or {}
+
+
+def _middleware_port(key: str, manifest: dict) -> int:
+    return int(_middleware_definition(key, manifest).get("port") or DEFAULT_CONTAINER_PORT)
+
+
+def _middleware_data_path(key: str, manifest: dict) -> str:
+    return _middleware_definition(key, manifest).get("dataPath") or f"/var/lib/{key}"
 
 
 def _join_yaml_docs(docs: list[str]) -> str:

@@ -16,6 +16,12 @@ def test_catalog_loads_default_capabilities() -> None:
     assert "dm" in catalog.database_options
     assert "standard-eam" in catalog.projects
     assert catalog.projects["mes-lite"].default_database == "dm"
+    assert catalog.middleware["redis"].port == 6379
+    assert catalog.middleware["redis"].compose_command == ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    assert catalog.middleware["redis"].env_template["REDIS_PASSWORD"] == "__REPLACE_WITH_REDIS_PASSWORD__"
+    assert catalog.middleware["redis"].env_sources["REDIS_PASSWORD"]["secretKeys"] == ["REDIS_PASSWORD"]
+    assert catalog.database_options["postgres"].compose_environment["POSTGRES_PASSWORD"] == "${DATABASE_PASSWORD}"
+    assert catalog.database_options["postgres"].env_sources["DATABASE_PASSWORD"]["secretKeys"] == ["DATABASE_PASSWORD", "POSTGRES_PASSWORD"]
 
 
 def test_eam_preview_resolves_platform_and_middleware_dependencies() -> None:

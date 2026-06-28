@@ -35,6 +35,7 @@ from deployment_package_factory.services.deployment_packages.kubernetes_runtime 
     create_image_export_pod,
     delete_pod,
     get_pod,
+    read_kubernetes_secret,
     read_kubernetes_pods,
     source_env_namespaces,
 )
@@ -132,10 +133,10 @@ def build_deployment_package(
     image_entries = _image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
     manifest = _manifest(package_id, request, preview, image_entries, project, image_tag)
 
-    _write_text(package_root / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    _write_text(package_root / "manifest.json", json.dumps(_public_manifest(manifest), ensure_ascii=False, indent=2) + "\n")
     _write_text(package_root / "README.md", _readme(manifest))
     _write_text(package_root / "docs" / "install-k8s.md", "# K8s 安装说明\n\n替换 `k8s/secrets.template.yaml` 后执行 `k8s/install.sh`。\n")
-    _write_text(package_root / "docs" / "install-docker-compose.md", "# Docker Compose 安装说明\n\n根据 `.env.template` 创建 `.env` 后执行 `docker-compose/install.sh`。\n")
+    _write_text(package_root / "docs" / "install-docker-compose.md", "# Docker Compose 安装说明\n\n导出时会尽量把来源环境的中间件密码写入 `docker-compose/.env`。如果 `.env` 中仍存在 `__REPLACE_WITH_` 占位符，请参考 `.env.template` 补齐后再执行 `docker-compose/install.sh`。\n")
     for rendered_file in render_root_install_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
@@ -194,7 +195,7 @@ def build_deployment_package(
         artifactSize=artifact_path.stat().st_size,
         validationSummary=_validation_summary(package_root, artifact_path, package_index, image_entries, request.image_mode),
         sha256=digest,
-        manifest=manifest,
+        manifest=_public_manifest(manifest),
     )
 
 
@@ -206,6 +207,8 @@ def _manifest(
     project: ProjectProfile | None,
     image_tag: str,
 ) -> dict:
+    middleware_config = _middleware_config(request, preview)
+    runtime_env = _resolve_runtime_env(request.source_env, middleware_config, _request_business_namespaces(request))
     return {
         "packageId": package_id,
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -222,10 +225,84 @@ def _manifest(
         "platformServices": [item.key for item in preview.platform_services],
         "businessServices": [item.key for item in preview.business_services],
         "middleware": [item.key for item in preview.middleware],
+        "middlewareConfig": middleware_config,
+        "_runtimeEnv": runtime_env,
         "targetProfile": request.target_profile.model_dump(by_alias=True),
         "images": preview.images,
         "imageEntries": image_entries,
     }
+
+
+def _middleware_config(request: PackageBuildRequest, preview) -> dict:
+    config = {
+        preview.database.key: preview.database.model_dump(by_alias=True),
+    }
+    catalog = load_catalog()
+    for item in preview.middleware:
+        if item.key == preview.database.key:
+            continue
+        option = catalog.middleware.get(item.key)
+        if option:
+            config[item.key] = option.model_dump(by_alias=True)
+    return config
+
+
+def _public_manifest(manifest: dict) -> dict:
+    return {key: value for key, value in manifest.items() if not key.startswith("_")}
+
+
+def _resolve_runtime_env(source_env: str, middleware_config: dict, business_namespaces: list[str] | None = None) -> dict[str, str]:
+    values: dict[str, str] = {}
+    secret_cache: dict[tuple[str, str], dict[str, str]] = {}
+    try:
+        namespaces = _source_env_namespaces(source_env, business_namespaces)
+    except TypeError:
+        namespaces = _source_env_namespaces(source_env)
+    for definition in middleware_config.values():
+        template = definition.get("envTemplate") or {}
+        sources = definition.get("envSources") or {}
+        for name, template_value in template.items():
+            source = sources.get(name) or {}
+            values[name] = _resolve_env_value(name, source, namespaces, secret_cache) or str(template_value)
+    return values
+
+
+def _resolve_env_value(
+    name: str,
+    source: dict,
+    namespaces: list[str],
+    secret_cache: dict[tuple[str, str], dict[str, str]],
+) -> str:
+    secret_names = _source_list(source.get("secretNames"))
+    secret_keys = _source_list(source.get("secretKeys")) or [name]
+    if not secret_names:
+        secret_names = ["local-ai-secrets", "platform-runtime-secret"]
+    for namespace in namespaces:
+        for secret_name in secret_names:
+            cache_key = (namespace, secret_name)
+            if cache_key not in secret_cache:
+                secret_cache[cache_key] = read_kubernetes_secret(namespace, secret_name)
+            secret_values = secret_cache[cache_key]
+            for secret_key in secret_keys:
+                value = secret_values.get(secret_key, "")
+                if value:
+                    return value
+    env_names = _source_list(source.get("env") or source.get("envVars")) or [name]
+    for env_name in env_names:
+        value = os.getenv(env_name, "")
+        if value:
+            return value
+    return ""
+
+
+def _source_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, Sequence):
+        return [str(item) for item in value if str(item)]
+    return [str(value)] if str(value) else []
 
 
 def _apply_project_build_defaults(request: PackageBuildRequest, catalog) -> tuple[PackageBuildRequest, ProjectProfile | None]:

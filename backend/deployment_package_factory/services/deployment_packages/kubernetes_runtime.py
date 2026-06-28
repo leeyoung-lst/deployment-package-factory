@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -168,6 +169,24 @@ def read_kubernetes_pods(namespace: str, token: str | None = None) -> dict:
         return _request_json("GET", f"/api/v1/namespaces/{quote(namespace, safe='')}/pods", access_token)
     except KubernetesRuntimeError:
         return {}
+
+
+def read_kubernetes_secret(namespace: str, name: str, token: str | None = None) -> dict[str, str]:
+    access_token = token or _service_account_token()
+    if not access_token:
+        return {}
+    try:
+        payload = _request_json("GET", f"/api/v1/namespaces/{quote(namespace, safe='')}/secrets/{quote(name, safe='')}", access_token)
+    except KubernetesRuntimeError:
+        return {}
+    values: dict[str, str] = {}
+    for key, value in (payload.get("data") or {}).items():
+        try:
+            values[str(key)] = base64.b64decode(str(value)).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+    values.update({str(key): str(value) for key, value in (payload.get("stringData") or {}).items()})
+    return values
 
 
 def create_image_export_pod(

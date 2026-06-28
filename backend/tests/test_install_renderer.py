@@ -31,6 +31,8 @@ def test_render_root_install_files_exports_shell_and_powershell_entries() -> Non
     assert "Invoke-DockerComposeInstall" in by_path["install.ps1"].content
     assert "docker compose --env-file" in by_path["install.ps1"].content
     assert "docker info" in by_path["install.ps1"].content
+    assert "Get-ComposeEnvFile -RequireConcreteEnv" in by_path["install.ps1"].content
+    assert "Test-SecretPlaceholders $envFile" in by_path["install.ps1"].content
     assert "bash (Join-Path $ScriptDir 'docker-compose" not in by_path["install.ps1"].content
 
 

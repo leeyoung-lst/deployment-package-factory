@@ -27,12 +27,26 @@ class DatabaseOption(BaseModel):
     domestic: bool
     image: str
     init_path: str = Field(alias="initPath")
+    port: int = 8080
+    data_path: str = Field(default="", alias="dataPath")
+    env_template: dict[str, str] = Field(default_factory=dict, alias="envTemplate")
+    env_sources: dict[str, dict] = Field(default_factory=dict, alias="envSources")
+    compose_environment: dict[str, str] = Field(default_factory=dict, alias="composeEnvironment")
+    compose_command: list[str] = Field(default_factory=list, alias="composeCommand")
 
 
 class MiddlewareOption(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     key: str
     name: str
     image: str
+    port: int = 8080
+    data_path: str = Field(default="", alias="dataPath")
+    env_template: dict[str, str] = Field(default_factory=dict, alias="envTemplate")
+    env_sources: dict[str, dict] = Field(default_factory=dict, alias="envSources")
+    compose_environment: dict[str, str] = Field(default_factory=dict, alias="composeEnvironment")
+    compose_command: list[str] = Field(default_factory=list, alias="composeCommand")
 
 
 class DeploymentCatalog(BaseModel):

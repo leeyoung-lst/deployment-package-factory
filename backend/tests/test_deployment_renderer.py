@@ -10,6 +10,7 @@ def test_render_deployment_files_declares_expected_paths_and_executable_flags() 
     assert "k8s/namespaces.yaml" in by_path
     assert "k8s/install.sh" in by_path
     assert "docker-compose/docker-compose.yml" in by_path
+    assert "docker-compose/.env" in by_path
     assert "docker-compose/dry-run.sh" in by_path
     assert "scripts/secret-check.sh" in by_path
     assert not by_path["k8s/namespaces.yaml"].executable
@@ -27,6 +28,16 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "name: prod-business-eam" in by_path["k8s/namespaces.yaml"]
     assert "harbor.example.com/prod/local-ai-eam-service:prod" in by_path["k8s/deployments.yaml"]
     assert "harbor.example.com/prod/postgres:16" in by_path["docker-compose/docker-compose.yml"]
+    assert "DATABASE_PASSWORD=source-db-password" in by_path["docker-compose/.env"]
+    assert "MINIO_ROOT_PASSWORD=source-minio-password" in by_path["docker-compose/.env"]
+    assert "QDRANT_API_KEY=source-qdrant-key" in by_path["docker-compose/.env"]
+    assert "__REPLACE_WITH_" not in by_path["docker-compose/.env"]
+    assert "__REPLACE_WITH_DATABASE_PASSWORD__" in by_path["docker-compose/.env.template"]
+    assert "__REPLACE_WITH_QDRANT_API_KEY__" in by_path["docker-compose/.env.template"]
+    assert "DATABASE_PASSWORD: __REPLACE_WITH_DATABASE_PASSWORD__" in by_path["k8s/secrets.template.yaml"]
+    assert "QDRANT_API_KEY: __REPLACE_WITH_QDRANT_API_KEY__" in by_path["k8s/secrets.template.yaml"]
+    assert "POSTGRES_PASSWORD: ${DATABASE_PASSWORD}" in by_path["docker-compose/docker-compose.yml"]
+    assert 'command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]' in by_path["docker-compose/docker-compose.yml"]
     assert "name: init-scripts" in by_path["k8s/jobs/init-db.yaml"]
     assert "command: [\"/bin/sh\", \"/init/run-init.sh\"]" in by_path["k8s/jobs/init-db.yaml"]
     assert '"${PACKAGE_ROOT}/scripts/secret-check.sh" k8s' in by_path["k8s/install.sh"]
@@ -51,7 +62,58 @@ def _manifest() -> dict:
         "imageMode": "image-manifest",
         "platformServices": ["iam", "gateway"],
         "businessServices": ["eam"],
-        "middleware": ["postgres", "redis"],
+        "middleware": ["postgres", "redis", "minio", "qdrant"],
+        "middlewareConfig": {
+            "postgres": {
+                "port": 5432,
+                "dataPath": "/var/lib/postgresql/data",
+                "envTemplate": {
+                    "DATABASE_USER": "local_ai",
+                    "DATABASE_NAME": "local_ai",
+                    "DATABASE_PASSWORD": "__REPLACE_WITH_DATABASE_PASSWORD__",
+                },
+                "composeEnvironment": {
+                    "POSTGRES_USER": "${DATABASE_USER}",
+                    "POSTGRES_PASSWORD": "${DATABASE_PASSWORD}",
+                    "POSTGRES_DB": "${DATABASE_NAME}",
+                },
+            },
+            "redis": {
+                "port": 6379,
+                "dataPath": "/data",
+                "envTemplate": {"REDIS_PASSWORD": "__REPLACE_WITH_REDIS_PASSWORD__"},
+                "composeEnvironment": {"REDIS_PASSWORD": "${REDIS_PASSWORD}"},
+                "composeCommand": ["redis-server", "--requirepass", "${REDIS_PASSWORD}"],
+            },
+            "minio": {
+                "port": 9000,
+                "dataPath": "/data",
+                "envTemplate": {
+                    "MINIO_ROOT_USER": "local-ai",
+                    "MINIO_ROOT_PASSWORD": "__REPLACE_WITH_MINIO_ROOT_PASSWORD__",
+                },
+                "composeEnvironment": {
+                    "MINIO_ROOT_USER": "${MINIO_ROOT_USER}",
+                    "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}",
+                },
+                "composeCommand": ["server", "/data", "--console-address", ":9001"],
+            },
+            "qdrant": {
+                "port": 6333,
+                "dataPath": "/qdrant/storage",
+                "envTemplate": {"QDRANT_API_KEY": "__REPLACE_WITH_QDRANT_API_KEY__"},
+                "composeEnvironment": {"QDRANT__SERVICE__API_KEY": "${QDRANT_API_KEY}"},
+            },
+        },
+        "_runtimeEnv": {
+            "DATABASE_USER": "local_ai",
+            "DATABASE_NAME": "local_ai",
+            "DATABASE_PASSWORD": "source-db-password",
+            "REDIS_PASSWORD": "source-redis-password",
+            "MINIO_ROOT_USER": "local-ai",
+            "MINIO_ROOT_PASSWORD": "source-minio-password",
+            "QDRANT_API_KEY": "source-qdrant-key",
+        },
         "targetProfile": {
             "env": "prod",
             "registry": "harbor.example.com/prod",
@@ -63,7 +125,7 @@ def _manifest() -> dict:
         "images": {
             "platform": ["local-ai-iam-service:prod", "local-ai-frontend-shell:prod"],
             "business": ["local-ai-eam-service:prod"],
-            "middleware": ["postgres:16", "redis:7"],
+            "middleware": ["postgres:16", "redis:7", "minio/minio:latest", "qdrant/qdrant:latest"],
         },
         "imageEntries": [
             {
@@ -83,6 +145,18 @@ def _manifest() -> dict:
                 "sourceRef": "redis:7",
                 "targetRef": "harbor.example.com/prod/redis:7",
                 "archiveFile": "redis_7.tar",
+            },
+            {
+                "group": "middleware",
+                "sourceRef": "minio/minio:latest",
+                "targetRef": "harbor.example.com/prod/minio/minio:latest",
+                "archiveFile": "minio_minio_latest.tar",
+            },
+            {
+                "group": "middleware",
+                "sourceRef": "qdrant/qdrant:latest",
+                "targetRef": "harbor.example.com/prod/qdrant/qdrant:latest",
+                "archiveFile": "qdrant_qdrant_latest.tar",
             },
             {
                 "group": "platform",
