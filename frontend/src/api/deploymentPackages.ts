@@ -219,3 +219,7 @@ export function cleanupDeploymentPackages(dryRun: boolean) {
 export function downloadDeploymentPackage(packageId: string) {
   return download(`/api/deployment-packages/${encodeURIComponent(packageId)}/download`);
 }
+
+export function downloadDeploymentPackageChecksum(packageId: string) {
+  return download(`/api/deployment-packages/${encodeURIComponent(packageId)}/checksum`);
+}

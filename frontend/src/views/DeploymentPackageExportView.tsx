@@ -6,6 +6,7 @@ import {
   cleanupDeploymentPackages,
   createDeploymentPackage,
   downloadDeploymentPackage,
+  downloadDeploymentPackageChecksum,
   getImageExportEnvironment,
   getDeploymentPackageOptions,
   getDeploymentPackageTask,
@@ -64,6 +65,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [imageEnvironmentLoading, setImageEnvironmentLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  const [checksumDownloadLoading, setChecksumDownloadLoading] = useState(false);
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
 
   const requiredPlatformKeys = useMemo(
@@ -328,6 +330,27 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   };
 
+  const downloadTaskChecksum = async () => {
+    if (!task?.result || !task.artifactAvailable) return;
+    setChecksumDownloadLoading(true);
+    try {
+      const blob = await downloadDeploymentPackageChecksum(task.result.packageId);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${task.result.packageId}.tar.gz.sha256`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      void refreshAuditEvents();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "校验文件下载失败");
+    } finally {
+      setChecksumDownloadLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!task || task.status === "completed" || task.status === "failed" || task.status === "canceled") return;
     const timer = window.setInterval(() => {
@@ -538,6 +561,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                     <span className={styles.muted}>产物路径</span>
                     <Space direction="vertical" size={4}>
                       <span className={styles.mono}>{task.result.artifactPath}</span>
+                      {task.result.checksumPath ? <span className={styles.mono}>{task.result.checksumPath}</span> : null}
                       <Tag color={task.artifactAvailable ? "green" : "default"}>{task.artifactAvailable ? "可下载" : "产物已清理"}</Tag>
                     </Space>
                   </div>
@@ -573,6 +597,14 @@ export const DeploymentPackageExportView: React.FC = () => {
                   onClick={() => void retryTask()}
                 >
                   重试任务
+                </Button>
+                <Button
+                  icon={<i className="ri-file-shield-2-line" />}
+                  loading={checksumDownloadLoading}
+                  onClick={() => void downloadTaskChecksum()}
+                  disabled={!task.result || !task.artifactAvailable}
+                >
+                  下载校验文件
                 </Button>
                 <Button
                   type="primary"
