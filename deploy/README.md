@@ -96,6 +96,39 @@ http://localhost:5186
 
 ## Kubernetes
 
+### 来源环境 namespace 结构
+
+导包工具自身部署在 `deployment-package-factory` namespace；被导出的 dev/test 业务来源环境需要先按标准结构创建 namespace：
+
+```text
+{env}-middleware-public
+{env}-base-public
+{env}-biz-{product}-{profile}
+```
+
+当前内置结构在 `deploy/source-environments/source-environments.yaml` 中维护，包含：
+
+```text
+dev-middleware-public / dev-base-public / dev-biz-eam-4x60 / dev-biz-mes-4x60 / dev-biz-mes-4x3
+test-middleware-public / test-base-public / test-biz-eam-4x60 / test-biz-mes-4x60 / test-biz-mes-4x3
+```
+
+渲染并安装：
+
+```bash
+scripts/render-source-environments.sh
+scripts/install-source-environments.sh
+```
+
+Windows PowerShell：
+
+```powershell
+.\scripts\render-source-environments.ps1
+.\scripts\install-source-environments.ps1
+```
+
+这一步只创建并标记 namespace，后续 Pod/容器分类器会基于 `local-ai.io/environment`、`local-ai.io/layer`、`local-ai.io/product`、`local-ai.io/profile` 等标签识别 middleware、base platform、business、support 和 unknown。
+
 部署：
 
 ```bash

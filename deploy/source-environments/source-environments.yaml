@@ -1,0 +1,22 @@
+schemaVersion: deployment-package-source-environments/v1
+environments:
+  - name: dev
+    middlewareNamespace: dev-middleware-public
+    baseNamespace: dev-base-public
+    business:
+      - product: eam
+        profile: 4x60
+      - product: mes
+        profile: 4x60
+      - product: mes
+        profile: 4x3
+  - name: test
+    middlewareNamespace: test-middleware-public
+    baseNamespace: test-base-public
+    business:
+      - product: eam
+        profile: 4x60
+      - product: mes
+        profile: 4x60
+      - product: mes
+        profile: 4x3

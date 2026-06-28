@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev-middleware-public
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: dev
+    local-ai.io/layer: middleware
+    deployment-package-factory.local-ai/environment: dev
+    deployment-package-factory.local-ai/namespace-type: middleware
+    deployment-package-factory.local-ai/status: active
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev-base-public
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: dev
+    local-ai.io/layer: base-platform
+    deployment-package-factory.local-ai/environment: dev
+    deployment-package-factory.local-ai/namespace-type: base-platform
+    deployment-package-factory.local-ai/status: active
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev-biz-eam-4x60
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: dev
+    local-ai.io/layer: business
+    deployment-package-factory.local-ai/environment: dev
+    deployment-package-factory.local-ai/namespace-type: business
+    deployment-package-factory.local-ai/status: active
+    local-ai.io/product: eam
+    deployment-package-factory.local-ai/business-key: eam
+    local-ai.io/profile: 4x60
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev-biz-mes-4x60
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: dev
+    local-ai.io/layer: business
+    deployment-package-factory.local-ai/environment: dev
+    deployment-package-factory.local-ai/namespace-type: business
+    deployment-package-factory.local-ai/status: active
+    local-ai.io/product: mes
+    deployment-package-factory.local-ai/business-key: mes
+    local-ai.io/profile: 4x60
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev-biz-mes-4x3
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: dev
+    local-ai.io/layer: business
+    deployment-package-factory.local-ai/environment: dev
+    deployment-package-factory.local-ai/namespace-type: business
+    deployment-package-factory.local-ai/status: active
+    local-ai.io/product: mes
+    deployment-package-factory.local-ai/business-key: mes
+    local-ai.io/profile: 4x3
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-middleware-public
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: test
+    local-ai.io/layer: middleware
+    deployment-package-factory.local-ai/environment: test
+    deployment-package-factory.local-ai/namespace-type: middleware
+    deployment-package-factory.local-ai/status: active
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-base-public
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: test
+    local-ai.io/layer: base-platform
+    deployment-package-factory.local-ai/environment: test
+    deployment-package-factory.local-ai/namespace-type: base-platform
+    deployment-package-factory.local-ai/status: active
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-biz-eam-4x60
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: test
+    local-ai.io/layer: business
+    deployment-package-factory.local-ai/environment: test
+    deployment-package-factory.local-ai/namespace-type: business
+    deployment-package-factory.local-ai/status: active
+    local-ai.io/product: eam
+    deployment-package-factory.local-ai/business-key: eam
+    local-ai.io/profile: 4x60
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-biz-mes-4x60
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: test
+    local-ai.io/layer: business
+    deployment-package-factory.local-ai/environment: test
+    deployment-package-factory.local-ai/namespace-type: business
+    deployment-package-factory.local-ai/status: active
+    local-ai.io/product: mes
+    deployment-package-factory.local-ai/business-key: mes
+    local-ai.io/profile: 4x60
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-biz-mes-4x3
+  labels:
+    app.kubernetes.io/managed-by: deployment-package-factory
+    local-ai.io/source-environment: 'true'
+    local-ai.io/environment: test
+    local-ai.io/layer: business
+    deployment-package-factory.local-ai/environment: test
+    deployment-package-factory.local-ai/namespace-type: business
+    deployment-package-factory.local-ai/status: active
+    local-ai.io/product: mes
+    deployment-package-factory.local-ai/business-key: mes
+    local-ai.io/profile: 4x3
