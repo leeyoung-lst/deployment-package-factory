@@ -284,6 +284,7 @@ POST /api/deployment-packages/cleanup
 
 ```http
 GET /api/deployment-packages/{packageId}/download
+GET /api/deployment-packages/{packageId}/checksum
 ```
 
 ## 项目模板

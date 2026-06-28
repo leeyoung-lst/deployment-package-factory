@@ -18,6 +18,7 @@ def test_cleanup_deletes_expired_artifact_and_work_dir(tmp_path) -> None:
     assert result.deleted_work_dirs == 1
     assert result.freed_bytes > 0
     assert not (tmp_path / "artifacts" / "old.tar.gz").exists()
+    assert not (tmp_path / "artifacts" / "old.tar.gz.sha256").exists()
     assert not (tmp_path / "work" / "old").exists()
     reloaded = repo.get(task.task_id)
     assert reloaded is not None
@@ -41,7 +42,7 @@ def test_cleanup_applies_total_size_limit_to_oldest_packages(tmp_path) -> None:
     _completed_task(repo, tmp_path, "older", age_days=5, artifact_bytes=40, work_bytes=40)
     _completed_task(repo, tmp_path, "newer", age_days=1, artifact_bytes=40, work_bytes=40)
 
-    result = cleanup_deployment_packages(repo, CleanupPolicy(retention_days=30, max_total_bytes=100))
+    result = cleanup_deployment_packages(repo, CleanupPolicy(retention_days=30, max_total_bytes=150))
 
     assert result.deleted_artifacts == 1
     assert not (tmp_path / "artifacts" / "older.tar.gz").exists()
@@ -62,6 +63,8 @@ def _completed_task(
     artifact.parent.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
     artifact.write_bytes(b"a" * artifact_bytes)
+    checksum = root / "artifacts" / f"{name}.tar.gz.sha256"
+    checksum.write_text("abc  package.tar.gz\n", encoding="utf-8")
     (work_dir / "file.txt").write_bytes(b"b" * work_bytes)
     task = repo.create(PackageBuildRequest())
     repo.mark_completed(
@@ -70,6 +73,7 @@ def _completed_task(
             packageId=f"pkg-{name}",
             workDir=str(work_dir),
             artifactPath=str(artifact),
+            checksumPath=str(checksum),
             sha256="abc",
             manifest={},
         ),

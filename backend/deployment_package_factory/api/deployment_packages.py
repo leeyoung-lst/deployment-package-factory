@@ -282,6 +282,36 @@ async def download_deployment_package(
         artifact,
         media_type="application/gzip",
         filename=artifact.name,
+        headers={"X-Deployment-Package-Sha256": task.result.sha256},
+    )
+
+
+@router.get("/{package_id}/checksum")
+async def download_deployment_package_checksum(
+    package_id: str,
+    request: Request,
+    x_deployment_package_operator: str | None = Header(default=None),
+) -> FileResponse:
+    task = _find_completed_task(package_id)
+    if task is None or task.result is None:
+        raise HTTPException(status_code=404, detail="Deployment package task not found")
+    checksum = _checksum_path(task.result)
+    if not checksum.exists():
+        raise HTTPException(status_code=404, detail="Deployment package checksum not found")
+    _audit(
+        request,
+        action="package.checksum.download",
+        status="completed",
+        target_id=task.result.package_id,
+        message="Deployment package checksum downloaded.",
+        operator=x_deployment_package_operator,
+        metadata={"taskId": task.task_id, "checksumPath": str(checksum)},
+    )
+    return FileResponse(
+        checksum,
+        media_type="text/plain",
+        filename=checksum.name,
+        headers={"X-Deployment-Package-Sha256": task.result.sha256},
     )
 
 
@@ -294,6 +324,13 @@ def _find_completed_task(package_or_task_id: str) -> PackageTask | None:
         if candidate.result and candidate.result.package_id == package_or_task_id and candidate.status == "completed":
             return candidate
     return None
+
+
+def _checksum_path(result: PackageBuildResult) -> Path:
+    if result.checksum_path:
+        return Path(result.checksum_path)
+    artifact = Path(result.artifact_path)
+    return artifact.with_name(f"{artifact.name}.sha256")
 
 
 def _audit(

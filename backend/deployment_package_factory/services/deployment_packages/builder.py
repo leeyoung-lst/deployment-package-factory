@@ -142,11 +142,14 @@ def build_deployment_package(
     with tarfile.open(artifact_path, "w:gz") as tar:
         tar.add(package_root, arcname=package_root.name, filter=_tar_metadata_filter)
     digest = _file_sha256(artifact_path)
+    checksum_path = artifact_path.with_name(f"{artifact_path.name}.sha256")
+    _write_text(checksum_path, f"{digest}  {artifact_path.name}\n")
 
     return PackageBuildResult(
         packageId=package_id,
         workDir=str(work_dir),
         artifactPath=str(artifact_path),
+        checksumPath=str(checksum_path),
         sha256=digest,
         manifest=manifest,
     )

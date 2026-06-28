@@ -24,8 +24,12 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     )
 
     artifact = tmp_path / "artifacts" / f"local-ai-prod-package-{result.package_id}.tar.gz"
+    checksum = tmp_path / "artifacts" / f"local-ai-prod-package-{result.package_id}.tar.gz.sha256"
     assert artifact.exists()
+    assert checksum.exists()
     assert result.sha256
+    assert result.checksum_path == str(checksum)
+    assert checksum.read_text(encoding="utf-8") == f"{result.sha256}  {artifact.name}\n"
     assert result.manifest["businessServices"] == ["eam"]
     assert result.manifest["database"] == "postgres"
 

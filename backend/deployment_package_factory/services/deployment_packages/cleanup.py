@@ -67,6 +67,7 @@ def _delete_task_outputs(repo: PackageTaskRepository, task: PackageTask, result:
     if task.result is None:
         return
     artifact = Path(task.result.artifact_path)
+    checksum = _checksum_path(task)
     work_dir = Path(task.result.work_dir)
     freed = 0
     if artifact.exists() and artifact.is_file():
@@ -75,6 +76,11 @@ def _delete_task_outputs(repo: PackageTaskRepository, task: PackageTask, result:
         result.deleted_paths.append(str(artifact))
         if not dry_run:
             artifact.unlink()
+    if checksum.exists() and checksum.is_file():
+        freed += checksum.stat().st_size
+        result.deleted_paths.append(str(checksum))
+        if not dry_run:
+            checksum.unlink()
     if work_dir.exists() and work_dir.is_dir():
         freed += _path_size(work_dir)
         result.deleted_work_dirs += 1
@@ -92,11 +98,23 @@ def _task_size(task: PackageTask) -> int:
     total = 0
     artifact = Path(task.result.artifact_path)
     work_dir = Path(task.result.work_dir)
+    checksum = _checksum_path(task)
     if artifact.exists() and artifact.is_file():
         total += artifact.stat().st_size
+    if checksum.exists() and checksum.is_file():
+        total += checksum.stat().st_size
     if work_dir.exists() and work_dir.is_dir():
         total += _path_size(work_dir)
     return total
+
+
+def _checksum_path(task: PackageTask) -> Path:
+    if task.result is None:
+        return Path()
+    if task.result.checksum_path:
+        return Path(task.result.checksum_path)
+    artifact = Path(task.result.artifact_path)
+    return artifact.with_name(f"{artifact.name}.sha256")
 
 
 def _path_size(path: Path) -> int:
