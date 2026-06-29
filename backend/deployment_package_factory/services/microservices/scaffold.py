@@ -11,14 +11,22 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from deployment_package_factory.services.microservices.templates import (
+    MIDDLEWARE,
+    PROJECT_KINDS,
+    TECH_STACKS,
+    TECH_STACK_PROJECT_KIND,
+    generic_required_files,
+    render_generic_template,
+)
+
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "microservice-projects"
 SUPPORTED_TECH_STACKS = {
-    "python-fastapi": "Python FastAPI",
+    key: name for key, name in TECH_STACKS.items()
 }
 SUPPORTED_MIDDLEWARE = {
-    "redis": "Redis",
-    "postgresql": "PostgreSQL",
+    key: name for key, name in MIDDLEWARE.items()
 }
 K8S_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 IMAGE_SEGMENT_RE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")
@@ -109,9 +117,14 @@ class MicroserviceScaffoldRequest(BaseModel):
     @field_validator("project_kind")
     @classmethod
     def validate_project_kind(cls, value: str) -> str:
-        if value != "backend":
-            raise ValueError("Level 0 supports backend projects only")
+        if value not in PROJECT_KINDS:
+            raise ValueError(f"Unsupported projectKind: {value}")
         return value
+
+    def model_post_init(self, __context: object) -> None:
+        expected = TECH_STACK_PROJECT_KIND.get(self.tech_stack)
+        if expected and self.project_kind != expected:
+            raise ValueError(f"projectKind must be {expected} for techStack {self.tech_stack}")
 
     @field_validator("middleware")
     @classmethod
@@ -162,8 +175,8 @@ class RenderedFile:
 
 def scaffold_options() -> MicroserviceScaffoldOptions:
     return MicroserviceScaffoldOptions(
-        projectKinds=[{"key": "backend", "name": "后端微服务"}],
-        techStacks=[{"key": key, "name": name} for key, name in SUPPORTED_TECH_STACKS.items()],
+        projectKinds=[{"key": key, "name": name} for key, name in PROJECT_KINDS.items()],
+        techStacks=[{"key": key, "name": name, "projectKind": TECH_STACK_PROJECT_KIND[key]} for key, name in SUPPORTED_TECH_STACKS.items()],
         middleware=[{"key": key, "name": name} for key, name in SUPPORTED_MIDDLEWARE.items()],
     )
 
@@ -185,7 +198,7 @@ def create_microservice_scaffold(
         shutil.rmtree(project_root)
     project_root.mkdir(parents=True)
 
-    rendered_files = _render_python_fastapi(request)
+    rendered_files = _render_scaffold(request)
     for rendered_file in rendered_files:
         _write_file(project_root / Path(*rendered_file.path.parts), rendered_file.content, rendered_file.executable)
     _initialize_git(project_root)
@@ -195,7 +208,7 @@ def create_microservice_scaffold(
     with tarfile.open(artifact_path, "w:gz") as tar:
         tar.add(project_root, arcname=request.service_key)
     digest = _file_sha256(artifact_path)
-    validation = _validate_scaffold(project_root, artifact_path, rendered_files)
+    validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack)
 
     return MicroserviceScaffoldResult(
         projectId=project_id,
@@ -217,6 +230,12 @@ def create_microservice_scaffold(
         generatedFiles=sorted(str(file.path) for file in rendered_files),
         validation=validation,
     )
+
+
+def _render_scaffold(request: MicroserviceScaffoldRequest) -> list[RenderedFile]:
+    if request.tech_stack == "python-fastapi":
+        return _render_python_fastapi(request)
+    return [RenderedFile(item.path, item.content, item.executable) for item in render_generic_template(request)]
 
 
 def find_scaffold_artifact(project_id: str, *, output_dir: Path | None = None) -> Path | None:
@@ -314,8 +333,8 @@ def _write_file(path: Path, content: str, executable: bool = False) -> None:
         path.chmod(path.stat().st_mode | 0o111)
 
 
-def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile]) -> dict[str, object]:
-    required_files = [
+def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile], tech_stack: str = "python-fastapi") -> dict[str, object]:
+    required_files = generic_required_files(tech_stack) if tech_stack != "python-fastapi" else [
         "README.md",
         ".env.template",
         "Dockerfile",
@@ -352,7 +371,8 @@ def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: 
             compile(file_path.read_text(encoding="utf-8"), str(rendered_file.path), "exec")
         except SyntaxError as exc:
             syntax_errors.append(f"{rendered_file.path}:{exc.lineno}")
-    checks.append({"name": "python-syntax", "passed": not syntax_errors, "message": "Python 源码语法检查通过" if not syntax_errors else f"语法错误: {', '.join(syntax_errors)}"})
+    if tech_stack == "python-fastapi":
+        checks.append({"name": "python-syntax", "passed": not syntax_errors, "message": "Python 源码语法检查通过" if not syntax_errors else f"语法错误: {', '.join(syntax_errors)}"})
 
     archive_message = "项目压缩包可读取"
     archive_passed = True

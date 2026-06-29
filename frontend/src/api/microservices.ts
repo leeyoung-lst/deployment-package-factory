@@ -3,7 +3,7 @@ import type { SourceEnv } from "./deploymentPackages";
 
 export interface MicroserviceScaffoldOptions {
   projectKinds: Array<{ key: string; name: string }>;
-  techStacks: Array<{ key: string; name: string }>;
+  techStacks: Array<{ key: string; name: string; projectKind?: string }>;
   middleware: Array<{ key: string; name: string }>;
 }
 

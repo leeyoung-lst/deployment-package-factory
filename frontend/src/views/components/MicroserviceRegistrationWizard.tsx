@@ -63,13 +63,15 @@ function PlatformStep({ businessPlatforms, deploymentOptions, form, onValuesChan
   );
 }
 
-function ProjectStep({ options }: Props) {
+function ProjectStep({ form, options }: Props) {
+  const projectKind = Form.useWatch("projectKind", form);
+  const techStacks = (options?.techStacks ?? []).filter((item) => !item.projectKind || item.projectKind === projectKind);
   return (
     <div className={styles.stepGrid}>
       <Form.Item label="服务 Key" name="serviceKey" rules={[{ required: true }, { pattern: K8S_NAME_PATTERN, message: "仅支持小写字母、数字、中划线" }]}><Input placeholder="460mes-service" /></Form.Item>
       <Form.Item label="服务名称" name="serviceName" rules={[{ required: true }]}><Input placeholder="资产服务" /></Form.Item>
-      <Form.Item label="项目类型" name="projectKind" rules={[{ required: true }]}><Select options={(options?.projectKinds ?? []).map((item) => ({ value: item.key, label: item.name }))} /></Form.Item>
-      <Form.Item label="技术栈" name="techStack" rules={[{ required: true }]}><Select options={(options?.techStacks ?? []).map((item) => ({ value: item.key, label: item.name }))} /></Form.Item>
+      <Form.Item label="项目类型" name="projectKind" rules={[{ required: true }]}><Select options={(options?.projectKinds ?? []).map((item) => ({ value: item.key, label: item.name }))} onChange={(value) => { const first = (options?.techStacks ?? []).find((item) => item.projectKind === value); if (first) form.setFieldValue("techStack", first.key); }} /></Form.Item>
+      <Form.Item label="技术栈" name="techStack" rules={[{ required: true }]}><Select options={techStacks.map((item) => ({ value: item.key, label: item.name }))} /></Form.Item>
       <Form.Item className={styles.fullWidth} label="描述" name="description"><Input.TextArea rows={3} /></Form.Item>
     </div>
   );

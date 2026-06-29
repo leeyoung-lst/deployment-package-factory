@@ -158,6 +158,101 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert options.json()["microservices"][0]["serviceKey"] == "asset-service"
 
 
+def test_microservice_options_include_multi_stack_and_middleware() -> None:
+    response = _client().get("/api/microservices/options")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert {item["key"] for item in payload["projectKinds"]} == {"backend", "frontend", "microfrontend"}
+    assert {"nodejs-express", "java-spring-cloud-alibaba", "vue3-vite", "react-vite", "qiankun", "wujie"}.issubset(
+        {item["key"] for item in payload["techStacks"]}
+    )
+    assert {"redis", "dm", "postgresql", "iotdb", "mongodb", "kafka", "mq"}.issubset({item["key"] for item in payload["middleware"]})
+
+
+def test_register_microservice_generates_nodejs_project_with_extended_middleware(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-node",
+            "serviceName": "Asset Node",
+            "projectKind": "backend",
+            "techStack": "nodejs-express",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "middleware": ["redis", "mongodb", "kafka", "mq"],
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["validation"]["passed"] is True
+    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "artifact-archive"}
+    with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
+        names = set(tar.getnames())
+        assert "asset-node/src/domain/demo.ts" in names
+        assert "asset-node/src/application/useCases.ts" in names
+        assert "asset-node/src/interfaces/http/server.ts" in names
+        env_template = tar.extractfile("asset-node/.env.template").read().decode("utf-8")
+        middleware_yaml = tar.extractfile("asset-node/config/middleware.example.yaml").read().decode("utf-8")
+    assert "MONGODB_ENDPOINT=__REPLACE_WITH_MONGODB_ENDPOINT__" in env_template
+    assert "kafka:" in middleware_yaml
+    assert "mq:" in middleware_yaml
+
+
+def test_register_microservice_generates_java_and_frontend_projects(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+
+    java_response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-java",
+            "serviceName": "Asset Java",
+            "projectKind": "backend",
+            "techStack": "java-spring-cloud-alibaba",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "middleware": ["dm", "iotdb"],
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+    vue_response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-ui",
+            "serviceName": "Asset UI",
+            "projectKind": "frontend",
+            "techStack": "vue3-vite",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "middleware": [],
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+
+    assert java_response.status_code == 200, java_response.text
+    assert vue_response.status_code == 200, vue_response.text
+    with tarfile.open(Path(java_response.json()["artifactPath"]), "r:gz") as tar:
+        names = set(tar.getnames())
+        assert "asset-java/pom.xml" in names
+        assert "asset-java/src/main/java/com/example/domain/DemoItem.java" in names
+        assert "asset-java/src/main/resources/application.yml" in names
+    with tarfile.open(Path(vue_response.json()["artifactPath"]), "r:gz") as tar:
+        names = set(tar.getnames())
+        assert "asset-ui/package.json" in names
+        assert "asset-ui/src/main.ts" in names
+        assert "asset-ui/src/router/index.ts" in names
+
+
 def test_register_microservice_accepts_runtime_discovered_business_platform(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
     repo = InMemoryBusinessPlatformRepository()
@@ -320,3 +415,21 @@ def test_register_microservice_rejects_invalid_port(tmp_path, monkeypatch) -> No
 
     assert response.status_code == 422
     assert "port must be between 1 and 65535" in response.text
+
+
+def _register_platform(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    repo = InMemoryBusinessPlatformRepository()
+    microservice_repo = InMemoryMicroserviceRepository()
+    repo.upsert_registered(
+        RegisteredBusinessPlatform(
+            key="eam",
+            name="EAM",
+            profile="4x60",
+            namespace="test-biz-eam-4x60",
+            source_env="test",
+            status="active",
+        )
+    )
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
