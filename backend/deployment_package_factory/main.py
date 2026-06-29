@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from deployment_package_factory.api.deployment_packages import get_audit_repository, get_task_repository, router as deployment_packages_router
+from deployment_package_factory.api.microservices import router as microservices_router
 from deployment_package_factory.metrics import render_metrics
 
 
@@ -22,6 +23,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(deployment_packages_router)
+    app.include_router(microservices_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

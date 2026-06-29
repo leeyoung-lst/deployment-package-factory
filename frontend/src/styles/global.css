@@ -41,6 +41,16 @@ body {
   margin-top: 16px;
 }
 
+.app-tabs > .ant-tabs-nav {
+  margin: 0;
+  padding: 0 20px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.app-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
+  min-height: calc(100vh - 46px);
+}
+
 @media (max-width: 720px) {
   .panel {
     padding: 12px;
