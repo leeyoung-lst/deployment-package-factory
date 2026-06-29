@@ -301,8 +301,18 @@ export const MicroserviceRegistrationView: React.FC = () => {
 
           {currentStep === 1 ? (
             <div className={styles.stepGrid}>
-              <Form.Item label="服务 Key" name="serviceKey" rules={[{ required: true, message: "请输入服务 Key" }]}>
-                <Input placeholder="asset-service" />
+              <Form.Item
+                label="服务 Key"
+                name="serviceKey"
+                rules={[
+                  { required: true, message: "请输入服务 Key" },
+                  {
+                    pattern: /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+                    message: "仅支持小写字母、数字、中划线，首尾必须是字母或数字",
+                  },
+                ]}
+              >
+                <Input placeholder="460mes-service" />
               </Form.Item>
               <Form.Item label="服务名称" name="serviceName" rules={[{ required: true, message: "请输入服务名称" }]}>
                 <Input placeholder="资产服务" />

@@ -177,3 +177,43 @@ def test_register_microservice_accepts_runtime_discovered_business_platform(tmp_
     assert payload["businessPlatformName"] == "Test EAM 4x60"
     assert payload["businessPlatformNamespace"] == "test-biz-eam-4x60"
     assert repo.resolve("test", "eam", "4x60").namespace == "test-biz-eam-4x60"
+
+
+def test_register_microservice_accepts_numeric_prefix_service_key(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    repo = InMemoryBusinessPlatformRepository()
+    microservice_repo = InMemoryMicroserviceRepository()
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    repo.upsert_registered(
+        RegisteredBusinessPlatform(
+            key="eam",
+            name="EAM",
+            profile="4x60",
+            namespace="test-biz-eam-4x60",
+            source_env="test",
+            status="active",
+        ),
+    )
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "460mes-service",
+            "serviceName": "460Mes服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "middleware": ["redis", "postgresql"],
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["serviceKey"] == "460mes-service"
+    assert payload["cloneCommand"].endswith("&& cd 460mes-service")
+    registered = microservice_repo.get("test", "eam", "4x60", "460mes-service")
+    assert registered is not None
+    assert registered["image"] == "registry.local/business/460mes-service"

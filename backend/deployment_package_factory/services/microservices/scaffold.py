@@ -47,8 +47,8 @@ class MicroserviceScaffoldRequest(BaseModel):
     @classmethod
     def validate_service_key(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if not re.fullmatch(r"[a-z][a-z0-9-]{1,62}", normalized):
-            raise ValueError("serviceKey must start with a letter and contain only lowercase letters, numbers, and hyphens")
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", normalized):
+            raise ValueError("serviceKey must be a valid Kubernetes name: lowercase letters, numbers, and hyphens, starting and ending with a letter or number")
         return normalized
 
     @field_validator("tech_stack")
