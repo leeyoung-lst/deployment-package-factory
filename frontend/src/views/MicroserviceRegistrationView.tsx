@@ -27,6 +27,9 @@ const DEFAULT_VALUES = {
   imageNamespace: "business",
   k8sNamespace: "",
 };
+const K8S_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const IMAGE_PATH_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/;
+const REGISTRY_HOST_PATTERN = /^[^\s/]+$/;
 
 type WizardValues = typeof DEFAULT_VALUES;
 
@@ -101,6 +104,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
   };
 
   const goNext = async () => {
+    normalizeCurrentInputs();
     await form.validateFields(STEP_FIELDS[currentStep]);
     setFormValues(form.getFieldsValue(true));
     setCurrentStep((value) => Math.min(value + 1, STEP_FIELDS.length - 1));
@@ -113,6 +117,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
 
   const submit = async () => {
     try {
+      normalizeCurrentInputs();
       await form.validateFields();
       const values = form.getFieldsValue(true);
       const platform = parseBusinessPlatformValue(values.businessPlatform);
@@ -146,8 +151,12 @@ export const MicroserviceRegistrationView: React.FC = () => {
   };
 
   const copyCommand = async (value: string) => {
-    await navigator.clipboard.writeText(value);
-    message.success("已复制");
+    try {
+      await navigator.clipboard.writeText(value);
+      message.success("已复制");
+    } catch {
+      message.error("复制失败，请手动复制命令");
+    }
   };
 
   const refreshServices = async () => {
@@ -156,6 +165,19 @@ export const MicroserviceRegistrationView: React.FC = () => {
     } catch (error) {
       message.error(error instanceof Error ? error.message : "微服务列表刷新失败");
     }
+  };
+
+  const normalizeCurrentInputs = () => {
+    const values = form.getFieldsValue(true);
+    const normalized = {
+      serviceKey: normalizeK8sName(values.serviceKey),
+      gitGroup: normalizePathValue(values.gitGroup),
+      imageRegistry: normalizeRegistry(values.imageRegistry),
+      imageNamespace: normalizePathValue(values.imageNamespace),
+      k8sNamespace: normalizeK8sName(values.k8sNamespace),
+    };
+    form.setFieldsValue(normalized);
+    setFormValues(form.getFieldsValue(true));
   };
 
   return (
@@ -307,7 +329,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
                 rules={[
                   { required: true, message: "请输入服务 Key" },
                   {
-                    pattern: /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+                    pattern: K8S_NAME_PATTERN,
                     message: "仅支持小写字母、数字、中划线，首尾必须是字母或数字",
                   },
                 ]}
@@ -334,16 +356,41 @@ export const MicroserviceRegistrationView: React.FC = () => {
               <Form.Item label="端口" name="port" rules={[{ required: true, message: "请输入端口" }]}>
                 <InputNumber min={1} max={65535} className={styles.fullControl} />
               </Form.Item>
-              <Form.Item label="Git 分组" name="gitGroup" rules={[{ required: true, message: "请输入 Git 分组" }]}>
-                <Input />
+              <Form.Item
+                label="Git 分组"
+                name="gitGroup"
+                rules={[
+                  { required: true, message: "请输入 Git 分组" },
+                  { pattern: IMAGE_PATH_PATTERN, message: "仅支持小写路径片段，可用 / 分级" },
+                ]}
+              >
+                <Input placeholder="business-services" />
               </Form.Item>
-              <Form.Item label="镜像仓库" name="imageRegistry" rules={[{ required: true, message: "请输入镜像仓库" }]}>
-                <Input />
+              <Form.Item
+                label="镜像仓库"
+                name="imageRegistry"
+                rules={[
+                  { required: true, message: "请输入镜像仓库" },
+                  { pattern: REGISTRY_HOST_PATTERN, message: "请输入仓库 Host，可带端口，不要包含路径" },
+                ]}
+              >
+                <Input placeholder="registry.local 或 registry.local:5000" />
               </Form.Item>
-              <Form.Item label="镜像命名空间" name="imageNamespace" rules={[{ required: true, message: "请输入镜像命名空间" }]}>
-                <Input />
+              <Form.Item
+                label="镜像命名空间"
+                name="imageNamespace"
+                rules={[
+                  { required: true, message: "请输入镜像命名空间" },
+                  { pattern: IMAGE_PATH_PATTERN, message: "仅支持小写镜像路径片段，可用 / 分级" },
+                ]}
+              >
+                <Input placeholder="business 或 business/eam" />
               </Form.Item>
-              <Form.Item label="K8s namespace" name="k8sNamespace">
+              <Form.Item
+                label="K8s namespace"
+                name="k8sNamespace"
+                rules={[{ pattern: K8S_NAME_PATTERN, message: "仅支持小写字母、数字、中划线，首尾必须是字母或数字" }]}
+              >
                 <Input placeholder="留空使用业务平台 namespace" />
               </Form.Item>
               <Form.Item className={styles.fullWidth} label="中间件" name="middleware">
@@ -395,4 +442,16 @@ function businessPlatformValue(item: DeploymentServiceOption) {
 function parseBusinessPlatformValue(value: string) {
   const [key, profile = ""] = value.split("::", 2);
   return { key, profile };
+}
+
+function normalizeK8sName(value: string) {
+  return (value || "").trim().toLowerCase();
+}
+
+function normalizePathValue(value: string) {
+  return (value || "").trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+}
+
+function normalizeRegistry(value: string) {
+  return (value || "").trim().replace(/\/+$/g, "");
 }

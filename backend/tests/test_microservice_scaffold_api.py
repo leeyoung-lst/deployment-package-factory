@@ -217,3 +217,85 @@ def test_register_microservice_accepts_numeric_prefix_service_key(tmp_path, monk
     registered = microservice_repo.get("test", "eam", "4x60", "460mes-service")
     assert registered is not None
     assert registered["image"] == "registry.local/business/460mes-service"
+
+
+def test_register_microservice_normalizes_scaffold_inputs(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    repo = InMemoryBusinessPlatformRepository()
+    microservice_repo = InMemoryMicroserviceRepository()
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    repo.upsert_registered(
+        RegisteredBusinessPlatform(
+            key="eam",
+            name="EAM",
+            profile="4x60",
+            namespace="test-biz-eam-4x60",
+            source_env="test",
+            status="active",
+        ),
+    )
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "  EAM-Asset-Service  ",
+            "serviceName": "资产服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "gitGroup": " /Business-Services/EAM/ ",
+            "imageRegistry": " registry.local:5000/ ",
+            "imageNamespace": " /Business/EAM/ ",
+            "k8sNamespace": " Test-Biz-EAM-Asset ",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["serviceKey"] == "eam-asset-service"
+    registered = microservice_repo.get("test", "eam", "4x60", "eam-asset-service")
+    assert registered is not None
+    assert registered["gitGroup"] == "business-services/eam"
+    assert registered["image"] == "registry.local:5000/business/eam/eam-asset-service"
+    assert registered["k8sNamespace"] == "test-biz-eam-asset"
+
+
+def test_register_microservice_rejects_registry_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-service",
+            "serviceName": "资产服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "imageRegistry": "registry.local/business",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "imageRegistry must be a registry host" in response.text
+
+
+def test_register_microservice_rejects_invalid_port(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-service",
+            "serviceName": "资产服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "port": 70000,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "port must be between 1 and 65535" in response.text

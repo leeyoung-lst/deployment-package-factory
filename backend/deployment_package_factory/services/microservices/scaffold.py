@@ -20,6 +20,8 @@ SUPPORTED_MIDDLEWARE = {
     "redis": "Redis",
     "postgresql": "PostgreSQL",
 }
+K8S_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+IMAGE_SEGMENT_RE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")
 
 
 class MicroserviceScaffoldRequest(BaseModel):
@@ -47,8 +49,47 @@ class MicroserviceScaffoldRequest(BaseModel):
     @classmethod
     def validate_service_key(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", normalized):
+        if not K8S_NAME_RE.fullmatch(normalized):
             raise ValueError("serviceKey must be a valid Kubernetes name: lowercase letters, numbers, and hyphens, starting and ending with a letter or number")
+        return normalized
+
+    @field_validator("git_group")
+    @classmethod
+    def validate_git_group(cls, value: str) -> str:
+        normalized = value.strip().strip("/").lower()
+        if not normalized:
+            raise ValueError("gitGroup is required")
+        segments = normalized.split("/")
+        if any(not IMAGE_SEGMENT_RE.fullmatch(segment) for segment in segments):
+            raise ValueError("gitGroup must contain lowercase path segments separated by slash")
+        return normalized
+
+    @field_validator("image_registry")
+    @classmethod
+    def validate_image_registry(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            raise ValueError("imageRegistry is required")
+        if "/" in normalized or any(char.isspace() for char in normalized):
+            raise ValueError("imageRegistry must be a registry host, optionally with port")
+        return normalized
+
+    @field_validator("image_namespace")
+    @classmethod
+    def validate_image_namespace(cls, value: str) -> str:
+        normalized = value.strip().strip("/").lower()
+        if not normalized:
+            raise ValueError("imageNamespace is required")
+        if any(not IMAGE_SEGMENT_RE.fullmatch(segment) for segment in normalized.split("/")):
+            raise ValueError("imageNamespace must contain lowercase image path segments")
+        return normalized
+
+    @field_validator("k8s_namespace")
+    @classmethod
+    def validate_k8s_namespace(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized and not K8S_NAME_RE.fullmatch(normalized):
+            raise ValueError("k8sNamespace must be a valid Kubernetes namespace")
         return normalized
 
     @field_validator("tech_stack")
@@ -56,6 +97,13 @@ class MicroserviceScaffoldRequest(BaseModel):
     def validate_tech_stack(cls, value: str) -> str:
         if value not in SUPPORTED_TECH_STACKS:
             raise ValueError(f"Unsupported techStack: {value}")
+        return value
+
+    @field_validator("port")
+    @classmethod
+    def validate_port(cls, value: int) -> int:
+        if value < 1 or value > 65535:
+            raise ValueError("port must be between 1 and 65535")
         return value
 
     @field_validator("project_kind")
