@@ -21,6 +21,7 @@ from deployment_package_factory.services.microservices.scaffold import (
     find_scaffold_artifact,
     scaffold_options,
 )
+from deployment_package_factory.services.settings import SystemSettings, create_system_settings_repository
 router = APIRouter(
     prefix="/api/microservices",
     tags=["microservices"],
@@ -30,6 +31,13 @@ router = APIRouter(
 
 def _output_dir() -> Path:
     return load_settings().data_dir / "microservice-projects"
+
+
+def _system_settings():
+    settings = load_settings()
+    if not settings.database_url:
+        return SystemSettings()
+    return create_system_settings_repository(database_url=settings.database_url).get()
 
 
 @router.get("/options", response_model=MicroserviceScaffoldOptions)
@@ -45,13 +53,16 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
         raise HTTPException(status_code=404, detail="Business platform is not registered.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    defaults = _system_settings()
     enriched = payload.model_copy(
         update={
             "business_platform_name": platform.name,
             "business_platform_profile": platform.profile,
             "business_platform_namespace": platform.namespace,
             "k8s_namespace": payload.k8s_namespace or platform.namespace,
-            "image_namespace": payload.image_namespace or platform.key,
+            "git_group": _field_or_default(payload, "git_group", defaults.git.group),
+            "image_registry": _field_or_default(payload, "image_registry", defaults.harbor.registry),
+            "image_namespace": _field_or_default(payload, "image_namespace", defaults.harbor.project or platform.key),
         }
     )
     result = create_microservice_scaffold(enriched, output_dir=_output_dir())
@@ -78,6 +89,12 @@ def _resolve_business_platform(payload: MicroserviceScaffoldRequest) -> Register
             get_business_platform_repository().upsert_registered(platform)
             return platform
     raise KeyError(payload.business_platform_key)
+
+
+def _field_or_default(payload: MicroserviceScaffoldRequest, field_name: str, default: str) -> str:
+    if field_name in payload.model_fields_set:
+        return str(getattr(payload, field_name))
+    return default
 
 
 @router.get("")

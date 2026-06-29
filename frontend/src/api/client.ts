@@ -24,13 +24,17 @@ const buildEnv = readRuntimeEnv();
 export const BASE = runtimeConfig.apiBaseUrl ?? buildEnv.VITE_API_BASE_URL ?? "";
 const API_TOKEN = runtimeConfig.apiToken ?? buildEnv.VITE_DEPLOYMENT_PACKAGE_API_TOKEN ?? "";
 
+export function authHeaders(): Record<string, string> {
+  return API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {};
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+      ...authHeaders(),
       ...(init?.headers ?? {}),
     },
   });

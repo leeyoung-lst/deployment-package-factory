@@ -40,9 +40,9 @@ class MicroserviceScaffoldRequest(BaseModel):
     business_platform_profile: str = Field(default="", alias="businessPlatformProfile")
     business_platform_name: str = Field(default="", alias="businessPlatformName")
     business_platform_namespace: str = Field(default="", alias="businessPlatformNamespace")
-    git_group: str = Field(default="business-services", alias="gitGroup")
-    image_registry: str = Field(default="registry.local", alias="imageRegistry")
-    image_namespace: str = Field(default="business", alias="imageNamespace")
+    git_group: str = Field(default="", alias="gitGroup")
+    image_registry: str = Field(default="", alias="imageRegistry")
+    image_namespace: str = Field(default="", alias="imageNamespace")
     k8s_namespace: str = Field(default="", alias="k8sNamespace")
 
     @field_validator("service_key")
@@ -58,7 +58,7 @@ class MicroserviceScaffoldRequest(BaseModel):
     def validate_git_group(cls, value: str) -> str:
         normalized = value.strip().strip("/").lower()
         if not normalized:
-            raise ValueError("gitGroup is required")
+            return normalized
         segments = normalized.split("/")
         if any(not IMAGE_SEGMENT_RE.fullmatch(segment) for segment in segments):
             raise ValueError("gitGroup must contain lowercase path segments separated by slash")
@@ -69,7 +69,7 @@ class MicroserviceScaffoldRequest(BaseModel):
     def validate_image_registry(cls, value: str) -> str:
         normalized = value.strip().rstrip("/")
         if not normalized:
-            raise ValueError("imageRegistry is required")
+            return normalized
         if "/" in normalized or any(char.isspace() for char in normalized):
             raise ValueError("imageRegistry must be a registry host, optionally with port")
         return normalized
@@ -79,7 +79,7 @@ class MicroserviceScaffoldRequest(BaseModel):
     def validate_image_namespace(cls, value: str) -> str:
         normalized = value.strip().strip("/").lower()
         if not normalized:
-            raise ValueError("imageNamespace is required")
+            return normalized
         if any(not IMAGE_SEGMENT_RE.fullmatch(segment) for segment in normalized.split("/")):
             raise ValueError("imageNamespace must contain lowercase image path segments")
         return normalized

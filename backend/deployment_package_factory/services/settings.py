@@ -41,6 +41,7 @@ class HarborSettings(BaseModel):
     registry: str = "registry.local"
     project: str = "business"
     username: str = ""
+    password: str = ""
     insecure: bool = False
 
     @field_validator("registry")
@@ -63,7 +64,7 @@ class HarborSettings(BaseModel):
             raise ValueError("harbor.project must contain lowercase path segments")
         return normalized
 
-    @field_validator("username")
+    @field_validator("username", "password")
     @classmethod
     def trim_username(cls, value: str) -> str:
         return value.strip()
@@ -75,8 +76,12 @@ class JenkinsSettings(BaseModel):
     base_url: str = Field(default="", alias="baseUrl")
     folder: str = "business-services"
     username: str = ""
+    password: str = ""
+    deploy_job: str = Field(default="", alias="deployJob")
+    registry_credential_id: str = Field(default="dpf-registry-credentials", alias="registryCredentialId")
+    kubeconfig_credential_id: str = Field(default="dpf-kubeconfig", alias="kubeconfigCredentialId")
 
-    @field_validator("base_url", "username")
+    @field_validator("base_url", "username", "password", "deploy_job", "registry_credential_id", "kubeconfig_credential_id")
     @classmethod
     def trim_text(cls, value: str) -> str:
         return value.strip()
@@ -90,12 +95,66 @@ class JenkinsSettings(BaseModel):
         return normalized
 
 
+class KubernetesSettings(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    cluster_name: str = Field(default="local-ai", alias="clusterName")
+    ingress_vip: str = Field(default="", alias="ingressVip")
+    factory_namespace: str = Field(default="deployment-package-factory", alias="factoryNamespace")
+    default_namespace: str = Field(default="local-ai", alias="defaultNamespace")
+    kubeconfig_path: str = Field(default="/opt/jenkins/kube/config", alias="kubeconfigPath")
+    storage_class: str = Field(default="", alias="storageClass")
+
+    @field_validator("cluster_name", "ingress_vip", "factory_namespace", "default_namespace", "kubeconfig_path", "storage_class")
+    @classmethod
+    def trim_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class MiddlewareEndpointSettings(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool = False
+    host: str = ""
+    port: int | None = None
+    username: str = ""
+    password: str = ""
+    database: str = ""
+    namespace: str = ""
+    notes: str = ""
+
+    @field_validator("host", "username", "password", "database", "namespace", "notes")
+    @classmethod
+    def trim_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("port")
+    @classmethod
+    def validate_port(cls, value: int | None) -> int | None:
+        if value is not None and (value < 1 or value > 65535):
+            raise ValueError("middleware port must be between 1 and 65535")
+        return value
+
+
+class MiddlewareSettings(BaseModel):
+    redis: MiddlewareEndpointSettings = Field(default_factory=lambda: MiddlewareEndpointSettings(enabled=True, host="redis", port=6379))
+    postgresql: MiddlewareEndpointSettings = Field(default_factory=lambda: MiddlewareEndpointSettings(enabled=True, host="postgresql", port=5432, database="app"))
+    dm: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
+    iotdb: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
+    mongodb: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
+    kafka: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
+    mq: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
+    nacos: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
+
+
 class SystemSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     git: GitSettings = Field(default_factory=GitSettings)
     harbor: HarborSettings = Field(default_factory=HarborSettings)
     jenkins: JenkinsSettings = Field(default_factory=JenkinsSettings)
+    kubernetes: KubernetesSettings = Field(default_factory=KubernetesSettings)
+    middleware: MiddlewareSettings = Field(default_factory=MiddlewareSettings)
     updated_at: str = Field(default="", alias="updatedAt")
 
 
