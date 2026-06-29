@@ -72,6 +72,32 @@ def test_deployment_package_options_returns_only_runtime_services(monkeypatch: p
     assert [item["key"] for item in payload["projects"]] == ["test-eam-4x60"]
 
 
+def test_deployment_package_options_discovers_kubernetes_business_namespaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch, seed_business=False)
+    monkeypatch.setattr(
+        deployment_packages,
+        "list_registered_business_platforms",
+        lambda include_disabled=False: [
+            RegisteredBusinessPlatform(
+                key="eam",
+                name="EAM",
+                profile="4x60",
+                namespace="test-biz-eam-4x60",
+                source_env="test",
+                status="active",
+            )
+        ],
+    )
+
+    response = _client().get("/api/deployment-packages/options")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["sourceEnvs"] == ["test"]
+    assert payload["businessServices"][0]["namespace"] == "test-biz-eam-4x60"
+    assert payload["projects"][0]["key"] == "test-eam-4x60"
+
+
 def test_deployment_package_api_requires_token_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
 
@@ -182,8 +208,22 @@ def test_register_and_disable_business_platform_api(monkeypatch: pytest.MonkeyPa
     assert "business-platform.disable" in actions
 
 
-def test_preview_rejects_runtime_business_without_db_registration(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preview_allows_kubernetes_discovered_business_without_db_registration(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch, seed_business=False)
+    monkeypatch.setattr(
+        deployment_packages,
+        "list_registered_business_platforms",
+        lambda include_disabled=False: [
+            RegisteredBusinessPlatform(
+                key="eam",
+                name="EAM",
+                profile="4x60",
+                namespace="test-biz-eam-4x60",
+                source_env="test",
+                status="active",
+            )
+        ],
+    )
 
     response = _client().post(
         "/api/deployment-packages/preview",
@@ -195,8 +235,8 @@ def test_preview_rejects_runtime_business_without_db_registration(monkeypatch: p
         },
     )
 
-    assert response.status_code == 400
-    assert "Business platform is not registered" in response.text
+    assert response.status_code == 200, response.text
+    assert response.json()["businessServices"][0]["key"] == "eam"
 
 
 def test_deployment_package_preview_rejects_unknown_database() -> None:

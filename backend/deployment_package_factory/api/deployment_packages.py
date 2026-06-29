@@ -20,6 +20,7 @@ from deployment_package_factory.services.deployment_packages.kubernetes_runtime 
     KubernetesRuntimeError,
     RegisteredBusinessPlatform,
     disable_business_platform,
+    list_registered_business_platforms,
     register_business_platform,
 )
 from deployment_package_factory.services.deployment_packages.models import (
@@ -424,7 +425,7 @@ def _iter_file_chunks(path: Path, chunk_size: int = DOWNLOAD_CHUNK_SIZE):
 
 
 def _registered_business_platforms() -> list[RegisteredBusinessPlatform]:
-    return [
+    platforms = [
         RegisteredBusinessPlatform(
             key=item.key,
             name=item.name,
@@ -435,6 +436,16 @@ def _registered_business_platforms() -> list[RegisteredBusinessPlatform]:
         )
         for item in get_business_platform_repository().list(include_disabled=True)
     ]
+    existing_keys = {(item.source_env, item.key, item.profile) for item in platforms}
+    try:
+        for item in list_registered_business_platforms(include_disabled=True):
+            key = (item.source_env, item.key, item.profile)
+            if key not in existing_keys:
+                platforms.append(item)
+                existing_keys.add(key)
+    except KubernetesRuntimeError as exc:
+        LOGGER.warning("Failed to discover business platforms from Kubernetes namespaces: %s", exc)
+    return sorted(platforms, key=lambda item: (item.source_env, item.key, item.profile, item.namespace))
 
 
 def _request_business_namespaces(request: PackageBuildRequest, platforms: list[RegisteredBusinessPlatform]) -> list[str]:

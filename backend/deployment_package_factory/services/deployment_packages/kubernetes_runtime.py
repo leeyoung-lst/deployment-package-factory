@@ -21,6 +21,10 @@ BUSINESS_PROFILE_ANNOTATION = f"{DPF_LABEL_PREFIX}/business-profile"
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "deployment-package-factory"
 LOCAL_AI_ENV_LABEL = "local-ai.io/environment"
+LOCAL_AI_LAYER_LABEL = "local-ai.io/layer"
+LOCAL_AI_PROJECT_LABEL = "local-ai.io/project"
+LOCAL_AI_PROFILE_LABEL = "local-ai.io/profile"
+LOCAL_AI_DISPLAY_NAME_ANNOTATION = "local-ai.io/display-name"
 
 
 class KubernetesRuntimeError(RuntimeError):
@@ -44,11 +48,7 @@ def source_env_namespaces(source_env: str, business_namespaces: list[str] | None
     if not raw:
         raw = os.getenv("DEPLOYMENT_PACKAGE_SOURCE_NAMESPACES", "").strip()
     if not raw:
-        defaults = {
-            "dev": "local-ai-dev",
-            "test": "local-ai",
-        }
-        raw = defaults.get(normalized_env, "")
+        raw = ""
     namespaces = [item.strip() for item in raw.split(",") if item.strip()]
     try:
         namespaces.extend(_list_namespaces_by_label(LOCAL_AI_ENV_LABEL, normalized_env))
@@ -71,45 +71,32 @@ def list_registered_business_platforms(source_env: str | None = None, *, include
     token = _service_account_token()
     if not token:
         return []
-    selector_parts = [
-        f"{MANAGED_BY_LABEL}={MANAGED_BY_VALUE}",
-        f"{NAMESPACE_TYPE_LABEL}=business",
-    ]
-    if source_env:
-        selector_parts.append(f"{ENV_LABEL}={source_env}")
-    payload = _request_json("GET", f"/api/v1/namespaces?labelSelector={quote(','.join(selector_parts), safe='=,./-')}", token)
-    result: list[RegisteredBusinessPlatform] = []
-    for item in payload.get("items", []):
-        metadata = item.get("metadata") or {}
-        labels = metadata.get("labels") or {}
-        annotations = metadata.get("annotations") or {}
-        status = labels.get(STATUS_LABEL) or "active"
-        if status == "disabled" and not include_disabled:
+    result: dict[tuple[str, str, str], RegisteredBusinessPlatform] = {}
+    for item in _list_business_namespaces(token, source_env, managed_by_dpf=True):
+        platform = _business_platform_from_namespace(item, prefer_dpf_labels=True)
+        if platform and (include_disabled or platform.status != "disabled"):
+            result[(platform.source_env, platform.key, platform.profile)] = platform
+    for item in _list_business_namespaces(token, source_env, managed_by_dpf=False):
+        platform = _business_platform_from_namespace(item, prefer_dpf_labels=False)
+        if not platform:
             continue
-        key = labels.get(BUSINESS_KEY_LABEL) or _business_key_from_namespace(metadata.get("name", ""))
-        if not key:
+        key = (platform.source_env, platform.key, platform.profile)
+        if key in result:
             continue
-        result.append(
-            RegisteredBusinessPlatform(
-                key=key,
-                name=annotations.get(BUSINESS_NAME_ANNOTATION) or key.upper(),
-                profile=annotations.get(BUSINESS_PROFILE_ANNOTATION) or "",
-                namespace=metadata.get("name", ""),
-                source_env=labels.get(ENV_LABEL) or "",
-                status=status,
-            )
-        )
-    return sorted(result, key=lambda item: (item.source_env, item.key, item.namespace))
+        if include_disabled or platform.status != "disabled":
+            result[key] = platform
+    return sorted(result.values(), key=lambda item: (item.source_env, item.key, item.namespace))
 
 
 def register_business_platform(source_env: str, key: str, name: str = "", profile: str = "") -> RegisteredBusinessPlatform:
     normalized_env = _dns_label(source_env)
     normalized_key = _dns_label(key)
-    namespace = business_namespace(normalized_env, normalized_key, profile)
+    normalized_profile = _dns_label(profile) if profile else ""
+    namespace = business_namespace(normalized_env, normalized_key, normalized_profile)
     token = _require_service_account_token()
     existing = _get_namespace(namespace, token)
-    labels = _business_namespace_labels(normalized_env, normalized_key, "active")
-    annotations = _business_namespace_annotations(name or normalized_key.upper(), profile)
+    labels = _business_namespace_labels(normalized_env, normalized_key, "active", normalized_profile)
+    annotations = _business_namespace_annotations(name or normalized_key.upper(), normalized_profile)
     if existing:
         _patch_namespace_metadata(namespace, labels, annotations, token)
     else:
@@ -117,7 +104,7 @@ def register_business_platform(source_env: str, key: str, name: str = "", profil
     return RegisteredBusinessPlatform(
         key=normalized_key,
         name=name or normalized_key.upper(),
-        profile=profile,
+        profile=normalized_profile,
         namespace=namespace,
         source_env=normalized_env,
         status="active",
@@ -127,7 +114,8 @@ def register_business_platform(source_env: str, key: str, name: str = "", profil
 def disable_business_platform(source_env: str, key: str, profile: str = "") -> RegisteredBusinessPlatform:
     normalized_env = _dns_label(source_env)
     normalized_key = _dns_label(key)
-    namespace = business_namespace(normalized_env, normalized_key, profile)
+    normalized_profile = _dns_label(profile) if profile else ""
+    namespace = business_namespace(normalized_env, normalized_key, normalized_profile)
     token = _require_service_account_token()
     existing = _get_namespace(namespace, token)
     if not existing:
@@ -159,6 +147,53 @@ def _list_namespaces_by_label(label_key: str, label_value: str) -> list[str]:
         for item in payload.get("items", [])
         if (item.get("metadata") or {}).get("name")
     ]
+
+
+def _list_business_namespaces(token: str, source_env: str | None, *, managed_by_dpf: bool) -> list[dict]:
+    if managed_by_dpf:
+        selector_parts = [
+            f"{MANAGED_BY_LABEL}={MANAGED_BY_VALUE}",
+            f"{NAMESPACE_TYPE_LABEL}=business",
+        ]
+        if source_env:
+            selector_parts.append(f"{ENV_LABEL}={source_env}")
+    else:
+        selector_parts = [f"{LOCAL_AI_LAYER_LABEL}=business"]
+        if source_env:
+            selector_parts.append(f"{LOCAL_AI_ENV_LABEL}={source_env}")
+    selector = quote(",".join(selector_parts), safe="=,./-")
+    payload = _request_json("GET", f"/api/v1/namespaces?labelSelector={selector}", token)
+    return list(payload.get("items") or [])
+
+
+def _business_platform_from_namespace(item: dict, *, prefer_dpf_labels: bool) -> RegisteredBusinessPlatform | None:
+    metadata = item.get("metadata") or {}
+    labels = metadata.get("labels") or {}
+    annotations = metadata.get("annotations") or {}
+    namespace = metadata.get("name", "")
+    if not namespace:
+        return None
+    status = labels.get(STATUS_LABEL) or "active"
+    if prefer_dpf_labels:
+        source_env = labels.get(ENV_LABEL) or labels.get(LOCAL_AI_ENV_LABEL) or _env_from_namespace(namespace)
+        key = labels.get(BUSINESS_KEY_LABEL) or labels.get(LOCAL_AI_PROJECT_LABEL) or _business_key_from_namespace(namespace)
+        profile = annotations.get(BUSINESS_PROFILE_ANNOTATION) or labels.get(LOCAL_AI_PROFILE_LABEL) or _profile_from_namespace(namespace)
+        name = annotations.get(BUSINESS_NAME_ANNOTATION) or annotations.get(LOCAL_AI_DISPLAY_NAME_ANNOTATION) or key.upper()
+    else:
+        source_env = labels.get(LOCAL_AI_ENV_LABEL) or labels.get(ENV_LABEL) or _env_from_namespace(namespace)
+        key = labels.get(LOCAL_AI_PROJECT_LABEL) or labels.get(BUSINESS_KEY_LABEL) or _business_key_from_namespace(namespace)
+        profile = labels.get(LOCAL_AI_PROFILE_LABEL) or annotations.get(BUSINESS_PROFILE_ANNOTATION) or _profile_from_namespace(namespace)
+        name = annotations.get(LOCAL_AI_DISPLAY_NAME_ANNOTATION) or annotations.get(BUSINESS_NAME_ANNOTATION) or key.upper()
+    if not source_env or not key:
+        return None
+    return RegisteredBusinessPlatform(
+        key=key,
+        name=name,
+        profile=profile,
+        namespace=namespace,
+        source_env=source_env,
+        status=status,
+    )
 
 
 def read_kubernetes_pods(namespace: str, token: str | None = None) -> dict:
@@ -266,13 +301,17 @@ def delete_pod(namespace: str, name: str) -> None:
             raise
 
 
-def _business_namespace_labels(source_env: str, key: str, status: str) -> dict[str, str]:
+def _business_namespace_labels(source_env: str, key: str, status: str, profile: str = "") -> dict[str, str]:
     return {
         MANAGED_BY_LABEL: MANAGED_BY_VALUE,
         ENV_LABEL: source_env,
         NAMESPACE_TYPE_LABEL: "business",
         BUSINESS_KEY_LABEL: key,
         STATUS_LABEL: status,
+        LOCAL_AI_ENV_LABEL: source_env,
+        LOCAL_AI_LAYER_LABEL: "business",
+        LOCAL_AI_PROJECT_LABEL: key,
+        LOCAL_AI_PROFILE_LABEL: profile,
     }
 
 
@@ -280,6 +319,7 @@ def _business_namespace_annotations(name: str, profile: str) -> dict[str, str]:
     return {
         BUSINESS_NAME_ANNOTATION: name,
         BUSINESS_PROFILE_ANNOTATION: profile,
+        LOCAL_AI_DISPLAY_NAME_ANNOTATION: name,
     }
 
 
@@ -371,6 +411,21 @@ def _business_key_from_namespace(namespace: str) -> str:
     if "-business-" not in namespace:
         return ""
     return namespace.rsplit("-business-", 1)[-1]
+
+
+def _env_from_namespace(namespace: str) -> str:
+    if "-biz-" in namespace:
+        return namespace.split("-biz-", 1)[0]
+    if namespace.endswith("-middleware-public"):
+        return namespace.removesuffix("-middleware-public")
+    if namespace.endswith("-base-public"):
+        return namespace.removesuffix("-base-public")
+    return ""
+
+
+def _profile_from_namespace(namespace: str) -> str:
+    match = re.match(r"^[a-z0-9-]+-biz-[a-z0-9-]+-([0-9]+x[0-9]+)$", namespace)
+    return match.group(1) if match else ""
 
 
 def _dns_label(value: str) -> str:

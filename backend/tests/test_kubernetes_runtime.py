@@ -53,10 +53,52 @@ def test_source_env_namespaces_includes_local_ai_labeled_namespaces(monkeypatch,
     monkeypatch.setattr(kubernetes_runtime, "list_registered_business_platforms", lambda source_env: [])
 
     assert kubernetes_runtime.source_env_namespaces("test") == [
-        "local-ai",
         "test-middleware-public",
         "test-base-public",
         "test-biz-eam-4x60",
+    ]
+
+
+def test_list_registered_business_platforms_discovers_local_ai_business_namespaces(monkeypatch, tmp_path) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN_PATH", str(token_path))
+
+    def fake_request_json(method: str, path: str, token: str, body: dict | None = None, content_type: str = "application/json") -> dict:
+        if "app.kubernetes.io/managed-by=deployment-package-factory" in path:
+            return {"items": []}
+        if "local-ai.io/layer=business" in path or "local-ai.io%2Flayer=business" in path:
+            return {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "test-biz-eam-4x60",
+                            "labels": {
+                                "local-ai.io/environment": "test",
+                                "local-ai.io/layer": "business",
+                                "local-ai.io/project": "eam",
+                                "local-ai.io/profile": "4x60",
+                            },
+                            "annotations": {"local-ai.io/display-name": "Test EAM 4x60"},
+                        }
+                    }
+                ]
+            }
+        return {"items": []}
+
+    monkeypatch.setattr(kubernetes_runtime, "_request_json", fake_request_json)
+
+    platforms = kubernetes_runtime.list_registered_business_platforms("test")
+
+    assert platforms == [
+        kubernetes_runtime.RegisteredBusinessPlatform(
+            key="eam",
+            name="Test EAM 4x60",
+            profile="4x60",
+            namespace="test-biz-eam-4x60",
+            source_env="test",
+            status="active",
+        )
     ]
 
 
