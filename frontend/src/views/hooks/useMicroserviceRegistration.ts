@@ -46,7 +46,7 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
     try {
       const [scaffoldOptions, packageOptions, services, settings] = await Promise.all([getMicroserviceScaffoldOptions(), getDeploymentPackageOptions(), listMicroservices(), getSystemSettings()]);
       const firstPlatform = packageOptions.businessServices.find((item) => item.registered && item.status !== "disabled");
-      const values = { ...DEFAULT_MICROSERVICE_VALUES, sourceEnv: firstPlatform?.sourceEnv || packageOptions.sourceEnvs[0] || "test", businessPlatform: firstPlatform ? businessPlatformValue(firstPlatform) : "", gitGroup: settings.git.group, imageRegistry: settings.harbor.registry, imageNamespace: settings.harbor.project };
+      const values = { ...DEFAULT_MICROSERVICE_VALUES, sourceEnv: firstPlatform?.sourceEnv || packageOptions.sourceEnvs[0] || "test", businessPlatform: firstPlatform ? businessPlatformValue(firstPlatform) : "", gitGroup: settings.git.group, imageRegistry: settings.harbor.registry, imageNamespace: settings.harbor.project, k8sNamespace: settings.kubernetes.defaultNamespace };
       setOptions(scaffoldOptions); setDeploymentOptions(packageOptions); setRegisteredServices(services); setSystemSettings(settings); setFormValues(values); form.setFieldsValue(values);
     } catch (error) {
       notifyError(error instanceof Error ? error.message : "微服务注册选项加载失败");

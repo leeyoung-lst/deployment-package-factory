@@ -40,10 +40,11 @@ export function useDeploymentPackageState(form: FormInstance) {
     setBusinessServices(project.defaultBusinessServices.map((item) => businessOptionValue({ key: item.name, profile: item.profile })).filter((value) => businessOptionsForEnv(sourceOptions?.businessServices ?? [], projectSourceEnv).some((item) => businessOptionValue(item) === value)));
     const projectDatabases = serviceOptionsForEnv(sourceOptions?.databaseOptions ?? [], projectSourceEnv);
     setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
-    const nextTarget = { domain: project.domain, registry: defaultTargetRegistry(project, settingsOverride), namespacePrefix: project.namespacePrefix, storageClass: project.storageClass };
+    const settings = settingsOverride ?? systemSettings;
+    const nextTarget = { domain: project.domain, registry: defaultTargetRegistry(project, settings), namespacePrefix: project.namespacePrefix, storageClass: project.storageClass || settings?.kubernetes.storageClass || "" };
     form.setFieldsValue(nextTarget);
     setTargetDraft((current) => ({ ...current, ...nextTarget }));
-  }, [defaultTargetRegistry, form, options]);
+  }, [defaultTargetRegistry, form, options, systemSettings]);
 
   const makePreviewPayload = useCallback((): PackagePreviewRequest => {
     const selectedBusiness: BusinessSelection[] = businessServices.map((value) => {
