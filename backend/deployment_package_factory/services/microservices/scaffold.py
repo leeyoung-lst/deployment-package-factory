@@ -187,25 +187,36 @@ def _render_python_fastapi(request: MicroserviceScaffoldRequest) -> list[Rendere
         RenderedFile(PurePosixPath("Jenkinsfile"), _jenkinsfile(context)),
         RenderedFile(PurePosixPath("build.sh"), _build_sh(context), executable=True),
         RenderedFile(PurePosixPath("build.ps1"), _build_ps1(context)),
+        RenderedFile(PurePosixPath("run-local.sh"), _run_local_sh(context), executable=True),
+        RenderedFile(PurePosixPath("run-local.ps1"), _run_local_ps1(context)),
+        RenderedFile(PurePosixPath("test.sh"), _test_sh(), executable=True),
+        RenderedFile(PurePosixPath("test.ps1"), _test_ps1()),
         RenderedFile(PurePosixPath("src/app/__init__.py"), ""),
         RenderedFile(PurePosixPath("src/app/main.py"), _fastapi_main(context)),
         RenderedFile(PurePosixPath("src/app/config.py"), _fastapi_config(context)),
-        RenderedFile(PurePosixPath("src/app/api/__init__.py"), ""),
-        RenderedFile(PurePosixPath("src/app/api/routes.py"), _fastapi_routes(context)),
-        RenderedFile(PurePosixPath("src/app/services/__init__.py"), ""),
-        RenderedFile(PurePosixPath("src/app/services/health.py"), _health_service(context)),
+        RenderedFile(PurePosixPath("src/app/domain/__init__.py"), ""),
+        RenderedFile(PurePosixPath("src/app/domain/models.py"), _domain_models()),
+        RenderedFile(PurePosixPath("src/app/domain/services.py"), _domain_services()),
+        RenderedFile(PurePosixPath("src/app/application/__init__.py"), ""),
+        RenderedFile(PurePosixPath("src/app/application/health.py"), _health_service(context)),
+        RenderedFile(PurePosixPath("src/app/application/use_cases.py"), _application_use_cases()),
+        RenderedFile(PurePosixPath("src/app/infrastructure/__init__.py"), ""),
+        RenderedFile(PurePosixPath("src/app/interfaces/__init__.py"), ""),
+        RenderedFile(PurePosixPath("src/app/interfaces/http/__init__.py"), ""),
+        RenderedFile(PurePosixPath("src/app/interfaces/http/routes.py"), _fastapi_routes(context)),
+        RenderedFile(PurePosixPath("tests/__init__.py"), ""),
+        RenderedFile(PurePosixPath("tests/test_api.py"), _api_tests(context)),
         RenderedFile(PurePosixPath("deploy/k8s/deployment.yaml"), _k8s_deployment(context)),
         RenderedFile(PurePosixPath("deploy/k8s/service.yaml"), _k8s_service(context)),
         RenderedFile(PurePosixPath("deploy/k8s/configmap.yaml"), _k8s_configmap(context)),
         RenderedFile(PurePosixPath("deploy/k8s/secret.template.yaml"), _k8s_secret(context)),
     ]
     if "redis" in request.middleware:
-        files.append(RenderedFile(PurePosixPath("src/app/services/redis_client.py"), _redis_client()))
+        files.append(RenderedFile(PurePosixPath("src/app/infrastructure/redis_client.py"), _redis_client()))
     if "postgresql" in request.middleware:
         files.extend(
             [
-                RenderedFile(PurePosixPath("src/app/repositories/__init__.py"), ""),
-                RenderedFile(PurePosixPath("src/app/repositories/postgres.py"), _postgres_repository()),
+                RenderedFile(PurePosixPath("src/app/infrastructure/postgres_repository.py"), _postgres_repository()),
                 RenderedFile(PurePosixPath("db/init/001_items.sql"), _postgres_init_sql()),
             ]
         )
@@ -289,6 +300,16 @@ def _readme(context: dict[str, object]) -> str:
 
 {context['description']}
 
+## Structure
+
+```text
+src/app/
+  domain/          # Domain model and domain service, no framework dependency
+  application/     # Use cases and orchestration
+  infrastructure/  # Redis/PostgreSQL adapters and external integrations
+  interfaces/http/ # FastAPI routes
+```
+
 ## Local development
 
 ```bash
@@ -296,7 +317,25 @@ python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
 cp .env.template .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port {context['port']}
+./run-local.sh
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\\.venv\\Scripts\\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.template .env
+.\\run-local.ps1
+```
+
+## Smoke test
+
+```bash
+./test.sh
+curl http://127.0.0.1:{context['port']}/health
+curl -X POST http://127.0.0.1:{context['port']}/api/v1/items/demo-item
 ```
 
 ## Build image
@@ -308,6 +347,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port {context['port']}
 ## Middleware
 
 Enabled middleware: {middleware}
+
+Middleware checks are non-blocking in local development. If Redis or PostgreSQL is not running, `/api/v1/runtime` returns a clear `ok: false` status instead of crashing the service.
 
 ## Business platform
 
@@ -328,7 +369,13 @@ kubectl apply -f deploy/k8s/service.yaml
 
 
 def _requirements(context: dict[str, object]) -> str:
-    dependencies = ["fastapi>=0.115.0", "uvicorn[standard]>=0.30.0", "pydantic-settings>=2.5.0"]
+    dependencies = [
+        "fastapi>=0.115.0",
+        "uvicorn[standard]>=0.30.0",
+        "pydantic-settings>=2.5.0",
+        "pytest>=8.0.0",
+        "httpx>=0.27.0",
+    ]
     if "redis" in context["middleware"]:
         dependencies.append("redis>=5.0.0")
     if "postgresql" in context["middleware"]:
@@ -360,6 +407,11 @@ def _jenkinsfile(context: dict[str, object]) -> str:
     stage('Install') {{
       steps {{
         sh 'python -m pip install -r requirements.txt'
+      }}
+    }}
+    stage('Test') {{
+      steps {{
+        sh 'PYTHONPATH=src pytest -q'
       }}
     }}
     stage('Build Image') {{
@@ -399,10 +451,41 @@ docker build -t $Image .
 """
 
 
+def _run_local_sh(context: dict[str, object]) -> str:
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONPATH="${{PYTHONPATH:-src}}"
+uvicorn app.main:app --reload --host 0.0.0.0 --port "${{APP_PORT:-{context['port']}}}"
+"""
+
+
+def _run_local_ps1(context: dict[str, object]) -> str:
+    return f"""$ErrorActionPreference = "Stop"
+$env:PYTHONPATH = if ($env:PYTHONPATH) {{ $env:PYTHONPATH }} else {{ "src" }}
+$port = if ($env:APP_PORT) {{ $env:APP_PORT }} else {{ "{context['port']}" }}
+uvicorn app.main:app --reload --host 0.0.0.0 --port $port
+"""
+
+
+def _test_sh() -> str:
+    return """#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONPATH="${PYTHONPATH:-src}"
+pytest -q
+"""
+
+
+def _test_ps1() -> str:
+    return """$ErrorActionPreference = "Stop"
+$env:PYTHONPATH = if ($env:PYTHONPATH) { $env:PYTHONPATH } else { "src" }
+pytest -q
+"""
+
+
 def _fastapi_main(context: dict[str, object]) -> str:
     return f"""from fastapi import FastAPI
 
-from app.api.routes import router
+from app.interfaces.http.routes import router
 from app.config import settings
 
 app = FastAPI(title="{context['service_name']}", version="0.1.0")
@@ -438,22 +521,78 @@ def _fastapi_config(context: dict[str, object]) -> str:
 
 
 def _fastapi_routes(context: dict[str, object]) -> str:
-    imports = ["from fastapi import APIRouter", "", "from app.services.health import collect_health"]
+    imports = [
+        "from fastapi import APIRouter",
+        "",
+        "from app.application.health import collect_health",
+        "from app.application.use_cases import create_demo_item",
+    ]
     body = [
         "",
-        "router = APIRouter(prefix=\"/api\")",
+        'router = APIRouter(prefix="/api/v1")',
         "",
         "",
-        "@router.get(\"/hello\")",
+        '@router.get("/hello")',
         "def hello():",
         f"    return {{\"message\": \"hello from {context['service_key']}\"}}",
         "",
         "",
-        "@router.get(\"/runtime\")",
+        '@router.post("/items/{name}")',
+        "def create_item(name: str):",
+        "    return create_demo_item(name).model_dump()",
+        "",
+        "",
+        '@router.get("/runtime")',
         "def runtime():",
         "    return collect_health()",
     ]
     return "\n".join(imports + body) + "\n"
+
+
+def _domain_models() -> str:
+    return """from dataclasses import dataclass
+from datetime import datetime, timezone
+
+
+@dataclass(frozen=True)
+class DemoItem:
+    name: str
+    normalized_name: str
+    created_at: datetime
+
+    def model_dump(self) -> dict:
+        return {
+            "name": self.name,
+            "normalizedName": self.normalized_name,
+            "createdAt": self.created_at.isoformat(),
+        }
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+"""
+
+
+def _domain_services() -> str:
+    return """import re
+
+from app.domain.models import DemoItem, utc_now
+
+
+def build_demo_item(name: str) -> DemoItem:
+    normalized = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
+    return DemoItem(name=name, normalized_name=normalized or "item", created_at=utc_now())
+"""
+
+
+def _application_use_cases() -> str:
+    return """from app.domain.models import DemoItem
+from app.domain.services import build_demo_item
+
+
+def create_demo_item(name: str) -> DemoItem:
+    return build_demo_item(name)
+"""
 
 
 def _health_service(context: dict[str, object]) -> str:
@@ -464,12 +603,17 @@ def _health_service(context: dict[str, object]) -> str:
         '        "namespace": settings.business_platform_namespace,',
     ]
     if "redis" in context["middleware"]:
-        imports.append("from app.services.redis_client import ping_redis")
+        imports.append("from app.infrastructure.redis_client import check_redis")
         checks.append('        "redis": ping_redis(),')
     if "postgresql" in context["middleware"]:
-        imports.append("from app.repositories.postgres import ping_postgres")
+        imports.append("from app.infrastructure.postgres_repository import check_postgres")
         checks.append('        "postgresql": ping_postgres(),')
-    return "\n".join(imports) + "\n\n\ndef collect_health():\n    return {\n" + "\n".join(checks) + "\n    }\n"
+    body = "\n".join(imports)
+    if "redis" in context["middleware"]:
+        body += "\n\n\ndef ping_redis() -> dict:\n    return check_redis()"
+    if "postgresql" in context["middleware"]:
+        body += "\n\n\ndef ping_postgres() -> dict:\n    return check_postgres()"
+    return body + "\n\n\ndef collect_health():\n    return {\n" + "\n".join(checks) + "\n    }\n"
 
 
 def _redis_client() -> str:
@@ -478,9 +622,12 @@ def _redis_client() -> str:
 from app.config import settings
 
 
-def ping_redis() -> bool:
-    client = Redis.from_url(settings.redis_url, socket_connect_timeout=1)
-    return bool(client.ping())
+def check_redis() -> dict:
+    try:
+        client = Redis.from_url(settings.redis_url, socket_connect_timeout=1)
+        return {"ok": bool(client.ping()), "url": settings.redis_url}
+    except Exception as exc:
+        return {"ok": False, "url": settings.redis_url, "error": str(exc)}
 """
 
 
@@ -490,11 +637,15 @@ def _postgres_repository() -> str:
 from app.config import settings
 
 
-def ping_postgres() -> bool:
-    with psycopg.connect(settings.postgres_dsn, connect_timeout=1) as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("select 1")
-            return cursor.fetchone()[0] == 1
+def check_postgres() -> dict:
+    try:
+        with psycopg.connect(settings.postgres_dsn, connect_timeout=1) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("select 1")
+                ok = cursor.fetchone()[0] == 1
+        return {"ok": ok}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 """
 
 
@@ -504,6 +655,30 @@ def _postgres_init_sql() -> str:
   name varchar(128) not null,
   created_at timestamp default current_timestamp
 );
+"""
+
+
+def _api_tests(context: dict[str, object]) -> str:
+    return f"""from fastapi.testclient import TestClient
+
+from app.main import app
+
+
+client = TestClient(app)
+
+
+def test_health_endpoint():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["service"] == "{context['service_key']}"
+
+
+def test_create_demo_item():
+    response = client.post("/api/v1/items/Demo Item")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "Demo Item"
+    assert payload["normalizedName"] == "demo-item"
 """
 
 

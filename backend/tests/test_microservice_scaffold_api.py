@@ -86,18 +86,39 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         assert "asset-service/Dockerfile" in names
         assert "asset-service/Jenkinsfile" in names
         assert "asset-service/.env.template" in names
+        assert "asset-service/run-local.sh" in names
+        assert "asset-service/test.sh" in names
         assert "asset-service/src/app/main.py" in names
-        assert "asset-service/src/app/services/redis_client.py" in names
-        assert "asset-service/src/app/repositories/postgres.py" in names
+        assert "asset-service/src/app/domain/models.py" in names
+        assert "asset-service/src/app/application/use_cases.py" in names
+        assert "asset-service/src/app/infrastructure/redis_client.py" in names
+        assert "asset-service/src/app/infrastructure/postgres_repository.py" in names
+        assert "asset-service/src/app/interfaces/http/routes.py" in names
+        assert "asset-service/tests/test_api.py" in names
         assert "asset-service/deploy/k8s/deployment.yaml" in names
         readme = tar.extractfile("asset-service/README.md").read().decode("utf-8")
         env_template = tar.extractfile("asset-service/.env.template").read().decode("utf-8")
         deployment = tar.extractfile("asset-service/deploy/k8s/deployment.yaml").read().decode("utf-8")
+        routes = tar.extractfile("asset-service/src/app/interfaces/http/routes.py").read().decode("utf-8")
+        python_sources = {
+            name: tar.extractfile(name).read().decode("utf-8")
+            for name in names
+            if name.startswith("asset-service/src/app/") and name.endswith(".py")
+        }
 
     assert "Platform: EAM (eam)" in readme
+    assert "domain/" in readme
+    assert "application/" in readme
+    assert "infrastructure/" in readme
+    assert "interfaces/http/" in readme
+    assert "curl -X POST http://127.0.0.1:8000/api/v1/items/demo-item" in readme
     assert "BUSINESS_PLATFORM_KEY=eam" in env_template
     assert "BUSINESS_PLATFORM_NAMESPACE=test-biz-eam-4x60" in env_template
     assert "business-platform: eam" in deployment
+    assert 'router = APIRouter(prefix="/api/v1")' in routes
+    assert "create_demo_item" in routes
+    for name, source in python_sources.items():
+        compile(source, name, "exec")
 
     listed = _client().get("/api/microservices?source_env=test&business_platform_key=eam&business_platform_profile=4x60")
 
