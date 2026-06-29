@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Checkbox, Drawer, Empty, Form, Popconfirm, Space, Spin, Tabs, Tag } from "antd";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { App, Button, Checkbox, Drawer, Empty, Form, Space, Spin, Tabs, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
   cancelDeploymentPackageTask,
@@ -17,23 +17,20 @@ import {
   retryDeploymentPackageTask,
   disableBusinessPlatform,
   type AuditEvent,
-  type BusinessSelection,
   type CleanupResult,
-  type DeployMode,
   type DeploymentPackageOptions,
   type DeploymentServiceOption,
   type ImageExportEnvironmentCheck,
   type PackagePreview,
-  type PackagePreviewRequest,
   type PackageTask,
   type ProjectProfile,
   type SourceEnv,
 } from "../api/deploymentPackages";
-import { getSystemSettings, type SystemSettings } from "../api/settings";
+import { getSystemSettings } from "../api/settings";
 import { BusinessPlatformRegistrationModal } from "./components/BusinessPlatformRegistrationModal";
-import { DependencyGraph } from "./components/DeploymentDependencyGraph";
 import { DeploymentPackageWizardModal } from "./components/DeploymentPackageWizardModal";
 import { DraftItem } from "./components/DeploymentPackageWizardSteps";
+import { PreviewSummary } from "./components/DeploymentPreviewSummary";
 import {
   ActionTile,
   AuditPanel,
@@ -43,24 +40,23 @@ import {
   TaskListPanel,
   TaskStatusPanel,
 } from "./components/DeploymentTaskPanels";
+import { PlatformRegistryPanel } from "./components/PlatformRegistryPanel";
 import {
-  auditStatusColor,
   businessOptionsForEnv,
   businessOptionValue,
   businessPlatformRowKey,
-  exportDrawerTitle,
-  DEFAULT_IMAGE_MODE,
   DEFAULT_TARGET,
+  DEFAULT_IMAGE_MODE,
   EXPORT_WIZARD_STEPS,
+  exportDrawerTitle,
   formatBytes,
   mergeTaskIntoList,
-  parseBusinessOptionValue,
   serviceOptionsForEnv,
-  taskStatusColor,
   triggerBrowserDownload,
   type ExportDrawerKey,
   type TargetDraft,
 } from "./components/deploymentPackageUtils";
+import { useDeploymentPackageState } from "./hooks/useDeploymentPackageState";
 import styles from "./DeploymentPackageExportView.module.css";
 
 
@@ -68,14 +64,6 @@ export const DeploymentPackageExportView: React.FC = () => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [registerForm] = Form.useForm();
-  const [options, setOptions] = useState<DeploymentPackageOptions | null>(null);
-  const [projectKey, setProjectKey] = useState("");
-  const [productVersion, setProductVersion] = useState("");
-  const [sourceEnv, setSourceEnv] = useState<SourceEnv>("test");
-  const [deployMode, setDeployMode] = useState<DeployMode>("k8s");
-  const [platformServices, setPlatformServices] = useState<string[]>([]);
-  const [businessServices, setBusinessServices] = useState<string[]>([]);
-  const [database, setDatabase] = useState("");
   const [preview, setPreview] = useState<PackagePreview | null>(null);
   const [task, setTask] = useState<PackageTask | null>(null);
   const [tasks, setTasks] = useState<PackageTask[]>([]);
@@ -98,133 +86,39 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [exportStep, setExportStep] = useState(0);
   const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
   const [disablingBusinessKey, setDisablingBusinessKey] = useState("");
-  const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
-  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
-
-  const requiredPlatformKeys = useMemo(
-    () => options?.platformServices.filter((item) => item.required).map((item) => item.key) ?? [],
-    [options],
-  );
-  const selectedProject = useMemo(
-    () => options?.projects.find((item) => item.key === projectKey) ?? null,
-    [options?.projects, projectKey],
-  );
-  const businessOptionsForSourceEnv = useMemo(
-    () => businessOptionsForEnv(options?.businessServices ?? [], sourceEnv),
-    [options?.businessServices, sourceEnv],
-  );
-  const platformOptionsForSourceEnv = useMemo(
-    () => serviceOptionsForEnv(options?.platformServices ?? [], sourceEnv),
-    [options?.platformServices, sourceEnv],
-  );
-  const databaseOptionsForSourceEnv = useMemo(
-    () => serviceOptionsForEnv(options?.databaseOptions ?? [], sourceEnv),
-    [options?.databaseOptions, sourceEnv],
-  );
-  const registeredBusinessOptions = useMemo(
-    () => (options?.businessServices ?? []).filter((item) => item.registered && item.status !== "disabled"),
-    [options?.businessServices],
-  );
-  const selectedPlatformOptions = useMemo(
-    () => platformOptionsForSourceEnv.filter((item) => platformServices.includes(item.key)),
-    [platformOptionsForSourceEnv, platformServices],
-  );
-  const selectedBusinessOptions = useMemo(
-    () => businessServices
-      .map((value) => options?.businessServices.find((item) => businessOptionValue(item) === value))
-      .filter((item): item is DeploymentServiceOption => Boolean(item)),
-    [businessServices, options?.businessServices],
-  );
-  const selectedDatabaseOption = useMemo(
-    () => databaseOptionsForSourceEnv.find((item) => item.key === database) ?? null,
-    [database, databaseOptionsForSourceEnv],
-  );
-  const defaultTargetRegistry = useCallback(
-    (project?: ProjectProfile | null, settingsOverride?: SystemSettings | null) => project?.registry || settingsOverride?.harbor.registry || systemSettings?.harbor.registry || "",
-    [systemSettings?.harbor.registry],
-  );
-
-  const makePreviewPayload = useCallback((): PackagePreviewRequest => {
-    const selectedBusiness: BusinessSelection[] = businessServices.map((value) => {
-      const item = options?.businessServices.find((candidate) => businessOptionValue(candidate) === value);
-      const fallback = parseBusinessOptionValue(value);
-      return { name: item?.key || fallback.key, profile: item?.profile || fallback.profile };
-    });
-    const { imageMode, ...previewTargetProfile } = targetDraft;
-    return {
-      projectKey,
-      productVersion,
-      sourceEnv,
-      deployModes: [deployMode],
-      platformServices,
-      businessServices: selectedBusiness,
-      database,
-      targetProfile: {
-        ...previewTargetProfile,
-        exportImages: imageMode === "image-archive",
-      },
-    };
-  }, [businessServices, database, deployMode, options?.businessServices, platformServices, productVersion, projectKey, sourceEnv, targetDraft]);
-
-  const applyProjectDefaults = useCallback((key: string, sourceOptions = options) => {
-    const project = sourceOptions?.projects.find((item) => item.key === key);
-    setProjectKey(key);
-    if (!project) return;
-    setProductVersion(project.defaultVersion || project.versions[0] || "");
-    setSourceEnv(project.defaultSourceEnv);
-    setDeployMode(project.defaultDeployModes[0] || "k8s");
-    setPlatformServices(project.defaultPlatformServices.filter((key) => serviceOptionsForEnv(sourceOptions?.platformServices ?? [], project.defaultSourceEnv).some((item) => item.key === key)));
-    setBusinessServices(
-      project.defaultBusinessServices
-        .map((item) => businessOptionValue({ key: item.name, profile: item.profile }))
-        .filter((value) => businessOptionsForEnv(sourceOptions?.businessServices ?? [], project.defaultSourceEnv).some((item) => businessOptionValue(item) === value)),
-    );
-    const projectDatabases = serviceOptionsForEnv(sourceOptions?.databaseOptions ?? [], project.defaultSourceEnv);
-    setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
-    form.setFieldsValue({
-      domain: project.domain,
-      registry: defaultTargetRegistry(project),
-      namespacePrefix: project.namespacePrefix,
-      storageClass: project.storageClass,
-    });
-    setTargetDraft((current) => ({
-      ...current,
-      domain: project.domain,
-      registry: defaultTargetRegistry(project),
-      namespacePrefix: project.namespacePrefix,
-      storageClass: project.storageClass,
-    }));
-  }, [defaultTargetRegistry, form, options]);
-
-  const applyProjectDefaultsFromOptions = useCallback((key: string, sourceOptions: DeploymentPackageOptions, settingsOverride?: SystemSettings | null) => {
-    const project = sourceOptions.projects.find((item) => item.key === key);
-    setProjectKey(key);
-    if (!project) return;
-    setProductVersion(project.defaultVersion || project.versions[0] || "");
-    setSourceEnv(project.defaultSourceEnv);
-    setDeployMode(project.defaultDeployModes[0] || "k8s");
-    setPlatformServices(project.defaultPlatformServices.filter((key) => serviceOptionsForEnv(sourceOptions.platformServices, project.defaultSourceEnv).some((item) => item.key === key)));
-    setBusinessServices(
-      project.defaultBusinessServices
-        .map((item) => businessOptionValue({ key: item.name, profile: item.profile }))
-        .filter((value) => businessOptionsForEnv(sourceOptions.businessServices, project.defaultSourceEnv).some((item) => businessOptionValue(item) === value)),
-    );
-    const projectDatabases = serviceOptionsForEnv(sourceOptions.databaseOptions, project.defaultSourceEnv);
-    setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
-    form.setFieldsValue({
-      domain: project.domain,
-      registry: defaultTargetRegistry(project, settingsOverride),
-      namespacePrefix: project.namespacePrefix,
-      storageClass: project.storageClass,
-    });
-    setTargetDraft((current) => ({
-      ...current,
-      domain: project.domain,
-      registry: defaultTargetRegistry(project, settingsOverride),
-      namespacePrefix: project.namespacePrefix,
-      storageClass: project.storageClass,
-    }));
-  }, [defaultTargetRegistry, form]);
+  const deploymentState = useDeploymentPackageState(form);
+  const {
+    applyProjectDefaults,
+    businessOptionsForSourceEnv,
+    businessServices,
+    database,
+    databaseOptionsForSourceEnv,
+    deployMode,
+    makePreviewPayload,
+    options,
+    platformOptionsForSourceEnv,
+    platformServices,
+    productVersion,
+    projectKey,
+    registeredBusinessOptions,
+    requiredPlatformKeys,
+    selectedBusinessOptions,
+    selectedDatabaseOption,
+    selectedPlatformOptions,
+    selectedProject,
+    setBusinessServices,
+    setDatabase,
+    setDeployMode,
+    setOptions,
+    setPlatformServices,
+    setProductVersion,
+    setProjectKey,
+    setSourceEnv,
+    setSystemSettings,
+    setTargetDraft,
+    sourceEnv,
+    targetDraft,
+  } = deploymentState;
 
   const loadOptions = useCallback(async () => {
     setLoadingOptions(true);
@@ -248,7 +142,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         setDatabase("");
       }
       if (payload.projects[0]) {
-        applyProjectDefaultsFromOptions(payload.projects[0].key, payload, settingsPayload);
+        applyProjectDefaults(payload.projects[0].key, payload, settingsPayload);
       } else {
         setProjectKey("");
         setProductVersion("");
@@ -258,7 +152,7 @@ export const DeploymentPackageExportView: React.FC = () => {
     } finally {
       setLoadingOptions(false);
     }
-  }, [applyProjectDefaultsFromOptions, message, sourceEnv]);
+  }, [applyProjectDefaults, message, sourceEnv, setOptions, setProductVersion, setProjectKey, setSourceEnv, setSystemSettings, setPlatformServices, setBusinessServices, setDatabase]);
 
   const refreshImageEnvironment = useCallback(async () => {
     setImageEnvironmentLoading(true);
@@ -821,152 +715,3 @@ export const DeploymentPackageExportView: React.FC = () => {
     </section>
   );
 };
-
-function PlatformRegistryPanel({
-  options,
-  loading,
-  registeredBusinessOptions,
-  onRefresh,
-  onRegister,
-  onDisable,
-  disablingBusinessKey,
-}: {
-  options: DeploymentPackageOptions | null;
-  loading: boolean;
-  registeredBusinessOptions: DeploymentServiceOption[];
-  onRefresh: () => void;
-  onRegister: () => void;
-  onDisable: (item: DeploymentServiceOption) => void;
-  disablingBusinessKey: string;
-}) {
-  return (
-    <div className={styles.registryLayout}>
-      <div className={styles.resultPanel}>
-        <div className={styles.panelTitleRow}>
-          <div>
-            <h3 className={styles.sectionTitle}>业务平台 namespace</h3>
-            <span className={styles.muted}>业务平台按环境注册，一个环境下的业务平台对应一个 namespace。</span>
-          </div>
-          <Space>
-            <Button icon={<i className="ri-refresh-line" />} loading={loading} onClick={onRefresh}>刷新</Button>
-            <Button type="primary" icon={<i className="ri-add-circle-line" />} onClick={onRegister}>注册业务平台</Button>
-          </Space>
-        </div>
-        {registeredBusinessOptions.length ? (
-          <div className={styles.taskList}>
-            {registeredBusinessOptions.map((item) => (
-              <div key={`${item.sourceEnv}-${item.key}-${item.namespace}`} className={styles.taskItem}>
-                <span className={styles.taskItemMain}>
-                  <span>
-                    <strong>{item.name}</strong>
-                    <Tag color="blue" style={{ marginLeft: 8 }}>{item.sourceEnv}</Tag>
-                    <Tag color="green">{item.status || "active"}</Tag>
-                  </span>
-                  <span className={styles.mono}>{item.namespace}</span>
-                </span>
-                <Popconfirm
-                  title="注销业务平台？"
-                  description="注销只会标记 namespace 停用，不会物理删除业务资源。"
-                  onConfirm={() => onDisable(item)}
-                >
-                  <Button
-                    danger
-                    size="small"
-                    icon={<i className="ri-forbid-line" />}
-                    loading={disablingBusinessKey === businessPlatformRowKey(item)}
-                  >
-                    注销
-                  </Button>
-                </Popconfirm>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无已注册业务平台" />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PreviewSummary({ preview, project, targetProfile }: { preview: PackagePreview; project: ProjectProfile | null; targetProfile: TargetDraft }) {
-  const imageEntries = preview.imageEntries ?? [];
-  const groupedImageEntries = imageEntries.reduce<Record<string, typeof imageEntries>>((result, item) => {
-    result[item.group] = result[item.group] || [];
-    result[item.group].push(item);
-    return result;
-  }, {});
-  return (
-    <div className={styles.page}>
-      <div className={styles.previewGrid}>
-        <DependencyBlock title="基础平台" items={preview.platformServices} color="blue" />
-        <DependencyBlock title="业务平台" items={preview.businessServices} color="purple" />
-        <DependencyBlock title="中间件服务" items={preview.middleware} color="cyan" />
-        <div className={styles.previewBlock}>
-          <h3>数据库二选一</h3>
-          <Tag color={preview.database.domestic ? "red" : "blue"}>{preview.database.name}</Tag>
-          <div className={`${styles.mono} ${styles.imageList}`}>{preview.database.image}</div>
-        </div>
-      </div>
-      <DependencyGraph preview={preview} />
-      {preview.warnings.length ? (
-        <div className={styles.previewBlock}>
-          <h3>提示</h3>
-          <div className={styles.tagList}>
-            {preview.warnings.map((warning) => <Tag key={warning} color="warning">{warning}</Tag>)}
-          </div>
-        </div>
-      ) : null}
-      <div className={styles.previewBlock}>
-        <h3>镜像清单</h3>
-        <div className={styles.imageList}>
-          {Object.entries(groupedImageEntries).map(([group, images]) => (
-            <div className={styles.imageGroup} key={group}>
-              <strong>{group}</strong>
-              <div className={styles.imageMapList}>
-                {images.map((image) => (
-                  <div className={`${styles.imageMapRow} ${image.sourceMissing ? styles.imageMapRowMissing : ""}`} key={`${group}-${image.targetRef}`}>
-                    <span className={styles.mono}>
-                      {image.sourceRef}
-                      {image.sourceResolvedFrom === "kubernetes" ? <Tag color="green" style={{ marginLeft: 6 }}>K8s</Tag> : null}
-                      {image.sourceMissing ? <Tag color="red" style={{ marginLeft: 6 }}>未匹配</Tag> : null}
-                      {image.sourceMessage ? <span className={styles.imageMessage}>{image.sourceMessage}</span> : null}
-                    </span>
-                    <i className="ri-arrow-right-line" />
-                    <span className={styles.mono}>{image.targetRef}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className={styles.previewBlock}>
-        <h3>项目 Overlay</h3>
-        <div className={styles.summaryRow}>
-          <span className={styles.muted}>输出目录</span>
-          <span className={styles.mono}>overlays/{project?.key || "custom"}</span>
-        </div>
-        <div className={styles.summaryRow}>
-          <span className={styles.muted}>产物</span>
-          <span className={styles.mono}>values.json / kustomization.yaml / README.md</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DependencyBlock({ title, items, color }: { title: string; items: PackagePreview["middleware"]; color: string }) {
-  return (
-    <div className={styles.previewBlock}>
-      <h3>{title}</h3>
-      <div className={styles.tagList}>
-        {items.length ? items.map((item) => (
-          <Tag key={item.key} color={item.locked ? color : "default"}>
-            {item.name}
-          </Tag>
-        )) : <Tag>未选择</Tag>}
-      </div>
-    </div>
-  );
-}
