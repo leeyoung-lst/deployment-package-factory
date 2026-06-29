@@ -8,8 +8,20 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          if (id.includes("remixicon")) return "vendor-icons";
+          const normalizedId = id.replace(/\\/g, "/");
+          if (!normalizedId.includes("node_modules")) return undefined;
+          if (normalizedId.includes("/node_modules/.pnpm/remixicon@") || normalizedId.includes("/node_modules/remixicon/")) {
+            return "vendor-icons";
+          }
+          if (
+            normalizedId.includes("/node_modules/.pnpm/react@") ||
+            normalizedId.includes("/node_modules/.pnpm/react-dom@") ||
+            normalizedId.includes("/node_modules/react/") ||
+            normalizedId.includes("/node_modules/react-dom/") ||
+            normalizedId.includes("/node_modules/scheduler/")
+          ) {
+            return "vendor-react";
+          }
           return "vendor";
         },
       },
