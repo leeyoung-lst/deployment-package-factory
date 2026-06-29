@@ -142,6 +142,7 @@ class MicroserviceScaffoldResult(BaseModel):
     download_command: str = Field(alias="downloadCommand")
     clone_command: str = Field(alias="cloneCommand")
     generated_files: list[str] = Field(alias="generatedFiles")
+    validation: dict[str, object] = Field(default_factory=lambda: {"passed": False, "checks": [], "fileCount": 0})
 
 
 class MicroserviceScaffoldOptions(BaseModel):
@@ -194,6 +195,7 @@ def create_microservice_scaffold(
     with tarfile.open(artifact_path, "w:gz") as tar:
         tar.add(project_root, arcname=request.service_key)
     digest = _file_sha256(artifact_path)
+    validation = _validate_scaffold(project_root, artifact_path, rendered_files)
 
     return MicroserviceScaffoldResult(
         projectId=project_id,
@@ -213,6 +215,7 @@ def create_microservice_scaffold(
         downloadCommand=f"curl -fL /api/microservices/{project_id}/download -o {artifact_name}",
         cloneCommand=f"curl -fL /api/microservices/{project_id}/download -o {artifact_name} && tar -xzf {artifact_name} && cd {request.service_key}",
         generatedFiles=sorted(str(file.path) for file in rendered_files),
+        validation=validation,
     )
 
 
@@ -295,6 +298,59 @@ def _write_file(path: Path, content: str, executable: bool = False) -> None:
     path.write_text(content, encoding="utf-8", newline="\n")
     if executable:
         path.chmod(path.stat().st_mode | 0o111)
+
+
+def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile]) -> dict[str, object]:
+    required_files = [
+        "README.md",
+        ".env.template",
+        "Dockerfile",
+        "Jenkinsfile",
+        "build.sh",
+        "run-local.sh",
+        "test.sh",
+        "src/app/main.py",
+        "src/app/config.py",
+        "src/app/domain/models.py",
+        "src/app/application/use_cases.py",
+        "src/app/interfaces/http/routes.py",
+        "tests/test_api.py",
+        "deploy/k8s/deployment.yaml",
+        "deploy/k8s/service.yaml",
+        "deploy/k8s/configmap.yaml",
+        "deploy/k8s/secret.template.yaml",
+    ]
+    checks: list[dict[str, object]] = []
+    missing = [item for item in required_files if not (project_root / item).is_file()]
+    checks.append({"name": "required-files", "passed": not missing, "message": "关键文件已生成" if not missing else f"缺失文件: {', '.join(missing)}"})
+
+    syntax_errors: list[str] = []
+    for rendered_file in rendered_files:
+        if rendered_file.path.suffix != ".py":
+            continue
+        file_path = project_root / Path(*rendered_file.path.parts)
+        try:
+            compile(file_path.read_text(encoding="utf-8"), str(rendered_file.path), "exec")
+        except SyntaxError as exc:
+            syntax_errors.append(f"{rendered_file.path}:{exc.lineno}")
+    checks.append({"name": "python-syntax", "passed": not syntax_errors, "message": "Python 源码语法检查通过" if not syntax_errors else f"语法错误: {', '.join(syntax_errors)}"})
+
+    archive_message = "项目压缩包可读取"
+    archive_passed = True
+    try:
+        with tarfile.open(artifact_path, "r:gz") as tar:
+            tar.getmembers()
+    except (tarfile.TarError, OSError) as exc:
+        archive_passed = False
+        archive_message = f"项目压缩包不可读取: {exc}"
+    checks.append({"name": "artifact-archive", "passed": archive_passed, "message": archive_message})
+
+    passed = all(bool(item["passed"]) for item in checks)
+    return {
+        "passed": passed,
+        "checks": checks,
+        "fileCount": len(rendered_files),
+    }
 
 
 def _initialize_git(project_root: Path) -> None:

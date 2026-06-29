@@ -42,6 +42,11 @@ export interface MicroserviceScaffoldResult {
   downloadCommand: string;
   cloneCommand: string;
   generatedFiles: string[];
+  validation: {
+    passed: boolean;
+    fileCount: number;
+    checks: Array<{ name: string; passed: boolean; message: string }>;
+  };
 }
 
 export interface RegisteredMicroservice {

@@ -39,6 +39,22 @@ const STEP_FIELDS: Array<Array<keyof WizardValues>> = [
   ["port", "middleware", "gitGroup", "imageRegistry", "imageNamespace", "k8sNamespace"],
   [],
 ];
+const API_FIELD_STEPS: Record<string, number> = {
+  sourceEnv: 0,
+  businessPlatformKey: 0,
+  businessPlatformProfile: 0,
+  serviceKey: 1,
+  serviceName: 1,
+  projectKind: 1,
+  techStack: 1,
+  description: 1,
+  port: 2,
+  middleware: 2,
+  gitGroup: 2,
+  imageRegistry: 2,
+  imageNamespace: 2,
+  k8sNamespace: 2,
+};
 
 export const MicroserviceRegistrationView: React.FC = () => {
   const { message } = App.useApp();
@@ -144,6 +160,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
       setWizardOpen(false);
       message.success("微服务项目已生成");
     } catch (error) {
+      focusApiErrorStep(error);
       if (error instanceof Error) message.error(error.message);
     } finally {
       setSubmitting(false);
@@ -180,6 +197,17 @@ export const MicroserviceRegistrationView: React.FC = () => {
     setFormValues(form.getFieldsValue(true));
   };
 
+  const focusApiErrorStep = (error: unknown) => {
+    const details = parseApiErrorDetails(error);
+    const field = details
+      .map((item) => item.loc.at(-1))
+      .find((item): item is string => Boolean(item && API_FIELD_STEPS[item] !== undefined));
+    if (field) {
+      setCurrentStep(API_FIELD_STEPS[field]);
+      setWizardOpen(true);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <Spin spinning={loading}>
@@ -212,6 +240,20 @@ export const MicroserviceRegistrationView: React.FC = () => {
                 </ResultRow>
                 <ResultRow label="项目包"><span className={styles.mono}>{result.artifactName}</span></ResultRow>
                 <ResultRow label="SHA256"><span className={styles.mono}>{result.sha256}</span></ResultRow>
+                <ResultRow label="生成自检">
+                  <Space size={6} wrap>
+                    <Tag color={result.validation.passed ? "green" : "red"}>{result.validation.passed ? "通过" : "未通过"}</Tag>
+                    <span className={styles.muted}>{result.validation.fileCount} 个文件</span>
+                  </Space>
+                </ResultRow>
+                <div className={styles.validationList}>
+                  {result.validation.checks.map((item) => (
+                    <span key={item.name} className={item.passed ? styles.validationPassed : styles.validationFailed}>
+                      <i className={item.passed ? "ri-checkbox-circle-line" : "ri-close-circle-line"} />
+                      <span>{item.message}</span>
+                    </span>
+                  ))}
+                </div>
                 <ResultRow label="本地初始化">
                   <Space.Compact className={styles.commandBox}>
                     <Input className={styles.mono} value={result.cloneCommand} readOnly />
@@ -454,4 +496,17 @@ function normalizePathValue(value: string) {
 
 function normalizeRegistry(value: string) {
   return (value || "").trim().replace(/\/+$/g, "");
+}
+
+function parseApiErrorDetails(error: unknown): Array<{ loc: string[]; msg: string }> {
+  if (!(error instanceof Error)) return [];
+  try {
+    const payload = JSON.parse(error.message) as { detail?: Array<{ loc?: unknown[]; msg?: string }> };
+    return (payload.detail ?? []).map((item) => ({
+      loc: (item.loc ?? []).filter((part): part is string => typeof part === "string"),
+      msg: item.msg ?? "",
+    }));
+  } catch {
+    return [];
+  }
 }

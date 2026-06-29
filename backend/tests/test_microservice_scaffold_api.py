@@ -77,6 +77,9 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     payload = response.json()
     assert payload["businessPlatformKey"] == "eam"
     assert payload["businessPlatformNamespace"] == "test-biz-eam-4x60"
+    assert payload["validation"]["passed"] is True
+    assert payload["validation"]["fileCount"] == len(payload["generatedFiles"])
+    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "python-syntax", "artifact-archive"}
     artifact = Path(payload["artifactPath"])
     assert artifact.exists()
 
