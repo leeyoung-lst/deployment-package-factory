@@ -1227,26 +1227,30 @@ function PreviewSummary({ preview, project, targetProfile }: { preview: PackageP
 
 function DependencyGraph({ preview }: { preview: PackagePreview }) {
   const graph = useMemo(() => buildDependencyGraph(preview), [preview]);
-  const sideNodeWidth = 300;
+  const sideBoxWidth = 330;
+  const sideNodeWidth = 280;
   const bottomNodeWidth = 228;
   const nodeHeight = 48;
-  const sideGap = 10;
+  const sideGap = 12;
   const bottomGap = 14;
-  const topY = 34;
-  const laneTitleHeight = 24;
+  const framePadding = 16;
+  const topY = 24;
+  const frameTitleHeight = 38;
   const sideRows = Math.max(1, graph.platformNodes.length, graph.businessNodes.length);
   const bottomNodeCount = Math.max(1, graph.middlewareNodes.length);
   const bottomWidth = bottomNodeCount * bottomNodeWidth + (bottomNodeCount - 1) * bottomGap;
-  const graphWidth = Math.max(980, bottomWidth);
-  const rightX = graphWidth - sideNodeWidth;
-  const bottomStartX = Math.max(0, (graphWidth - bottomWidth) / 2);
-  const sideStartY = topY + laneTitleHeight;
-  const bottomTitleY = sideStartY + sideRows * (nodeHeight + sideGap) + 42;
-  const bottomY = bottomTitleY + laneTitleHeight;
-  const graphHeight = bottomY + nodeHeight + 26;
+  const graphWidth = Math.max(1080, bottomWidth + framePadding * 2, sideBoxWidth * 2 + 260);
+  const rightBoxX = graphWidth - sideBoxWidth;
+  const sideNodeStartY = topY + frameTitleHeight;
+  const sideBoxHeight = Math.max(260, frameTitleHeight + sideRows * (nodeHeight + sideGap) - sideGap + framePadding);
+  const bottomBoxY = topY + sideBoxHeight + 42;
+  const bottomBoxHeight = Math.max(126, frameTitleHeight + nodeHeight + framePadding);
+  const bottomY = bottomBoxY + frameTitleHeight;
+  const bottomStartX = Math.max(framePadding, (graphWidth - bottomWidth) / 2);
+  const graphHeight = bottomBoxY + bottomBoxHeight + 16;
   const nodePositions = new Map<string, { x: number; y: number; width: number; height: number; lane: "platform" | "business" | "middleware" }>();
-  graph.platformNodes.forEach((node, index) => nodePositions.set(node.id, { x: 0, y: sideStartY + index * (nodeHeight + sideGap), width: sideNodeWidth, height: nodeHeight, lane: "platform" }));
-  graph.businessNodes.forEach((node, index) => nodePositions.set(node.id, { x: rightX, y: sideStartY + index * (nodeHeight + sideGap), width: sideNodeWidth, height: nodeHeight, lane: "business" }));
+  graph.platformNodes.forEach((node, index) => nodePositions.set(node.id, { x: framePadding, y: sideNodeStartY + index * (nodeHeight + sideGap), width: sideNodeWidth, height: nodeHeight, lane: "platform" }));
+  graph.businessNodes.forEach((node, index) => nodePositions.set(node.id, { x: rightBoxX + sideBoxWidth - framePadding - sideNodeWidth, y: sideNodeStartY + index * (nodeHeight + sideGap), width: sideNodeWidth, height: nodeHeight, lane: "business" }));
   graph.middlewareNodes.forEach((node, index) => nodePositions.set(node.id, { x: bottomStartX + index * (bottomNodeWidth + bottomGap), y: bottomY, width: bottomNodeWidth, height: nodeHeight, lane: "middleware" }));
   const nodes = [
     ...graph.platformNodes.map((node) => ({ node, position: nodePositions.get(node.id) })),
@@ -1290,6 +1294,15 @@ function DependencyGraph({ preview }: { preview: PackagePreview }) {
       </div>
       <div className={styles.graphScroller}>
         <div className={styles.graphCanvas} style={{ width: graphWidth, height: graphHeight }}>
+          <div className={styles.graphRegion} style={{ left: 0, top: topY, width: sideBoxWidth, height: sideBoxHeight }}>
+            <span>基础平台</span>
+          </div>
+          <div className={styles.graphRegion} style={{ left: rightBoxX, top: topY, width: sideBoxWidth, height: sideBoxHeight }}>
+            <span>业务平台</span>
+          </div>
+          <div className={`${styles.graphRegion} ${styles.graphRegionMiddleware}`} style={{ left: 0, top: bottomBoxY, width: graphWidth, height: bottomBoxHeight }}>
+            <span>中间件 / 数据库</span>
+          </div>
           {graph.edges.length ? (
             <svg className={styles.graphEdges} viewBox={`0 0 ${graphWidth} ${graphHeight}`} preserveAspectRatio="none" aria-hidden="true">
               <defs>
@@ -1307,9 +1320,6 @@ function DependencyGraph({ preview }: { preview: PackagePreview }) {
               ))}
             </svg>
           ) : null}
-          <div className={styles.graphLaneTitle} style={{ left: 0, top: topY, width: sideNodeWidth }}>基础平台 Pod</div>
-          <div className={styles.graphLaneTitle} style={{ left: rightX, top: topY, width: sideNodeWidth }}>业务平台</div>
-          <div className={styles.graphLaneTitle} style={{ left: bottomStartX, top: bottomTitleY, width: bottomWidth }}>中间件 / 数据库</div>
           {nodes.map(({ node, position }) => position ? (
             <div
               className={styles.graphNodeSlot}
@@ -1319,8 +1329,8 @@ function DependencyGraph({ preview }: { preview: PackagePreview }) {
               <DependencyGraphNodeView node={node} />
             </div>
           ) : null)}
-          {graph.platformNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: 0, top: sideStartY, width: sideNodeWidth, height: nodeHeight }}>未选择</div>}
-          {graph.businessNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: rightX, top: sideStartY, width: sideNodeWidth, height: nodeHeight }}>未选择</div>}
+          {graph.platformNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: framePadding, top: sideNodeStartY, width: sideNodeWidth, height: nodeHeight }}>未选择</div>}
+          {graph.businessNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: rightBoxX + sideBoxWidth - framePadding - sideNodeWidth, top: sideNodeStartY, width: sideNodeWidth, height: nodeHeight }}>未选择</div>}
           {graph.middlewareNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: bottomStartX, top: bottomY, width: bottomNodeWidth, height: nodeHeight }}>未选择</div>}
         </div>
       </div>

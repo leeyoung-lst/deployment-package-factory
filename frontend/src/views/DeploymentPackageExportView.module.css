@@ -193,7 +193,7 @@
 .graphEdges {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -218,18 +218,32 @@
   stroke: rgba(8, 145, 178, 0.34);
 }
 
-.graphLaneTitle {
-  position: relative;
+.graphRegion {
+  position: absolute;
+  z-index: 0;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.graphRegion span {
+  position: absolute;
+  top: 11px;
+  left: 14px;
   z-index: 1;
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 650;
 }
 
+.graphRegionMiddleware {
+  background: rgba(248, 250, 252, 0.52);
+}
+
 .graphNodeSlot,
 .graphEmptySlot {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
 }
 
 .graphNode {
