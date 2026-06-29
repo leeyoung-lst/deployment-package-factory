@@ -8,7 +8,6 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from deployment_package_factory.services.deployment_packages.models import PackageTask
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 
 @dataclass(frozen=True)
@@ -30,7 +29,7 @@ class CleanupResult(BaseModel):
     deleted_paths: list[str] = Field(default_factory=list, alias="deletedPaths")
 
 
-def cleanup_deployment_packages(repo: PackageTaskRepository, policy: CleanupPolicy) -> CleanupResult:
+def cleanup_deployment_packages(repo, policy: CleanupPolicy) -> CleanupResult:
     result = CleanupResult(dry_run=policy.dry_run)
     candidates = _cleanup_candidates(repo)
     result.scanned_tasks = len(candidates)
@@ -59,11 +58,11 @@ def cleanup_deployment_packages(repo: PackageTaskRepository, policy: CleanupPoli
     return result
 
 
-def _cleanup_candidates(repo: PackageTaskRepository) -> list[PackageTask]:
+def _cleanup_candidates(repo) -> list[PackageTask]:
     return [task for task in repo.list(limit=10000) if task.status == "completed" and task.result is not None]
 
 
-def _delete_task_outputs(repo: PackageTaskRepository, task: PackageTask, result: CleanupResult, *, dry_run: bool) -> None:
+def _delete_task_outputs(repo, task: PackageTask, result: CleanupResult, *, dry_run: bool) -> None:
     if task.result is None:
         return
     artifact = Path(task.result.artifact_path)

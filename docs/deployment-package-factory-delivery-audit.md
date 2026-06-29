@@ -109,7 +109,7 @@ failed
 canceled
 ```
 
-任务元数据持久化到 SQLite，包含请求、进度、日志、结果、错误和产物可用性。
+任务元数据持久化到 PostgreSQL，包含请求、进度、日志、结果、错误和产物可用性。
 
 ### 3.4 部署包内容生成
 
@@ -183,7 +183,7 @@ PowerShell 校验器已包含 `Get-FileHash` 缺失时的 .NET SHA256 兜底。
 
 ```text
 DEPLOYMENT_PACKAGE_DATA_DIR
-DEPLOYMENT_PACKAGE_TASK_DB
+DEPLOYMENT_PACKAGE_DATABASE_URL
 DEPLOYMENT_PACKAGE_OUTPUT_DIR
 DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS
 DEPLOYMENT_PACKAGE_RETENTION_DAYS

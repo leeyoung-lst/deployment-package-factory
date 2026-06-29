@@ -1,57 +1,33 @@
 from __future__ import annotations
 
 import json
-import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
+from typing import Iterator
+
+import psycopg
+from psycopg.rows import dict_row
 
 from deployment_package_factory.services.microservices.scaffold import MicroserviceScaffoldRequest, MicroserviceScaffoldResult
 
 
 class MicroserviceRepository:
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, database_url: str) -> None:
+        self.database_url = database_url
         self._ensure_schema()
 
     def upsert(self, request: MicroserviceScaffoldRequest, result: MicroserviceScaffoldResult) -> dict:
         now = _now_iso()
         existing = self.get(request.source_env, request.business_platform_key, request.business_platform_profile, request.service_key)
         created_at = existing["createdAt"] if existing else now
-        row = {
-            "projectId": result.project_id,
-            "serviceKey": request.service_key,
-            "serviceName": request.service_name,
-            "description": request.description,
-            "projectKind": request.project_kind,
-            "techStack": request.tech_stack,
-            "port": request.port,
-            "middleware": request.middleware,
-            "sourceEnv": request.source_env,
-            "businessPlatformKey": request.business_platform_key,
-            "businessPlatformProfile": request.business_platform_profile,
-            "businessPlatformName": result.business_platform_name,
-            "businessPlatformNamespace": result.business_platform_namespace,
-            "gitGroup": request.git_group,
-            "imageRegistry": request.image_registry,
-            "imageNamespace": request.image_namespace,
-            "image": _image_ref(request),
-            "k8sNamespace": request.k8s_namespace or result.business_platform_namespace,
-            "artifactName": result.artifact_name,
-            "artifactPath": result.artifact_path,
-            "sha256": result.sha256,
-            "generatedFiles": result.generated_files,
-            "status": "registered",
-            "createdAt": created_at,
-            "updatedAt": now,
-        }
+        row = _microservice_payload(request, result, created_at, now)
         with self._connect() as conn:
             conn.execute(
                 """
                 insert into microservices(
                     source_env, business_platform_key, business_platform_profile,
                     service_key, payload_json, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?)
+                ) values (%s, %s, %s, %s, %s, %s, %s)
                 on conflict(source_env, business_platform_key, business_platform_profile, service_key)
                 do update set
                     payload_json = excluded.payload_json,
@@ -74,10 +50,10 @@ class MicroserviceRepository:
             row = conn.execute(
                 """
                 select payload_json from microservices
-                where source_env = ?
-                  and business_platform_key = ?
-                  and business_platform_profile = ?
-                  and service_key = ?
+                where source_env = %s
+                  and business_platform_key = %s
+                  and business_platform_profile = %s
+                  and service_key = %s
                 """,
                 (source_env, business_platform_key, business_platform_profile or "", service_key),
             ).fetchone()
@@ -93,13 +69,13 @@ class MicroserviceRepository:
         where: list[str] = []
         params: list[str] = []
         if source_env:
-            where.append("source_env = ?")
+            where.append("source_env = %s")
             params.append(source_env)
         if business_platform_key:
-            where.append("business_platform_key = ?")
+            where.append("business_platform_key = %s")
             params.append(business_platform_key)
         if business_platform_profile is not None:
-            where.append("business_platform_profile = ?")
+            where.append("business_platform_profile = %s")
             params.append(business_platform_profile)
         query = "select payload_json from microservices"
         if where:
@@ -127,10 +103,51 @@ class MicroserviceRepository:
             )
             conn.execute("create index if not exists idx_microservices_platform on microservices(source_env, business_platform_key)")
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    @contextmanager
+    def _connect(self) -> Iterator[psycopg.Connection]:
+        with psycopg.connect(self.database_url, row_factory=dict_row) as conn:
+            yield conn
+
+
+def create_microservice_repository(*, database_url: str = "") -> MicroserviceRepository:
+    if not database_url.strip():
+        raise RuntimeError("DEPLOYMENT_PACKAGE_DATABASE_URL is required for PostgreSQL persistence.")
+    return MicroserviceRepository(database_url.strip())
+
+
+def _microservice_payload(
+    request: MicroserviceScaffoldRequest,
+    result: MicroserviceScaffoldResult,
+    created_at: str,
+    updated_at: str,
+) -> dict:
+    return {
+        "projectId": result.project_id,
+        "serviceKey": request.service_key,
+        "serviceName": request.service_name,
+        "description": request.description,
+        "projectKind": request.project_kind,
+        "techStack": request.tech_stack,
+        "port": request.port,
+        "middleware": request.middleware,
+        "sourceEnv": request.source_env,
+        "businessPlatformKey": request.business_platform_key,
+        "businessPlatformProfile": request.business_platform_profile,
+        "businessPlatformName": result.business_platform_name,
+        "businessPlatformNamespace": result.business_platform_namespace,
+        "gitGroup": request.git_group,
+        "imageRegistry": request.image_registry,
+        "imageNamespace": request.image_namespace,
+        "image": _image_ref(request),
+        "k8sNamespace": request.k8s_namespace or result.business_platform_namespace,
+        "artifactName": result.artifact_name,
+        "artifactPath": result.artifact_path,
+        "sha256": result.sha256,
+        "generatedFiles": result.generated_files,
+        "status": "registered",
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }
 
 
 def _image_ref(request: MicroserviceScaffoldRequest) -> str:

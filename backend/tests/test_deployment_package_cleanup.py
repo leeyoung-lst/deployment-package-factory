@@ -4,11 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 from deployment_package_factory.services.deployment_packages.cleanup import CleanupPolicy, cleanup_deployment_packages
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
+from fakes import InMemoryTaskRepository
 
 
 def test_cleanup_deletes_expired_artifact_and_work_dir(tmp_path) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     task = _completed_task(repo, tmp_path, "old", age_days=40)
 
     result = cleanup_deployment_packages(repo, CleanupPolicy(retention_days=30, max_total_bytes=10_000))
@@ -26,7 +26,7 @@ def test_cleanup_deletes_expired_artifact_and_work_dir(tmp_path) -> None:
 
 
 def test_cleanup_dry_run_keeps_files(tmp_path) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     _completed_task(repo, tmp_path, "old", age_days=40)
 
     result = cleanup_deployment_packages(repo, CleanupPolicy(retention_days=30, max_total_bytes=10_000, dry_run=True))
@@ -38,7 +38,7 @@ def test_cleanup_dry_run_keeps_files(tmp_path) -> None:
 
 
 def test_cleanup_applies_total_size_limit_to_oldest_packages(tmp_path) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     _completed_task(repo, tmp_path, "older", age_days=5, artifact_bytes=40, work_bytes=40)
     _completed_task(repo, tmp_path, "newer", age_days=1, artifact_bytes=40, work_bytes=40)
 
@@ -50,7 +50,7 @@ def test_cleanup_applies_total_size_limit_to_oldest_packages(tmp_path) -> None:
 
 
 def _completed_task(
-    repo: PackageTaskRepository,
+    repo: InMemoryTaskRepository,
     root,
     name: str,
     *,
@@ -79,9 +79,5 @@ def _completed_task(
         ),
     )
     created_at = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
-    with repo._connect() as conn:
-        conn.execute(
-            "update package_tasks set created_at = ?, updated_at = ? where task_id = ?",
-            (created_at, created_at, task.task_id),
-        )
+    repo.set_created_at(task.task_id, created_at)
     return repo.get(task.task_id)

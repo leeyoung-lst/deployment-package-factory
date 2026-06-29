@@ -7,7 +7,6 @@ from pathlib import Path
 from deployment_package_factory.services.deployment_packages.builder import PackageBuildError, build_deployment_package
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageTask
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
 
 @dataclass(frozen=True)
@@ -19,7 +18,7 @@ class PackageTaskExecutorConfig:
 
 
 class PackageTaskExecutor:
-    def __init__(self, repo: PackageTaskRepository, config: PackageTaskExecutorConfig | None = None) -> None:
+    def __init__(self, repo, config: PackageTaskExecutorConfig | None = None) -> None:
         self.repo = repo
         self.config = config or PackageTaskExecutorConfig()
         self._semaphore = asyncio.Semaphore(max(1, self.config.max_concurrent_builds))

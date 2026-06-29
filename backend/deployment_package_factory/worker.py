@@ -19,7 +19,7 @@ LOGGER = logging.getLogger("deployment_package_factory.worker")
 async def run_worker(*, once: bool = False) -> None:
     settings = load_settings()
     worker_id = os.getenv("DEPLOYMENT_PACKAGE_WORKER_ID") or f"{socket.gethostname()}-{uuid4().hex[:8]}"
-    repo = create_task_repository(database_url=settings.database_url, sqlite_path=settings.task_db_path)
+    repo = create_task_repository(database_url=settings.database_url)
     executor = PackageTaskExecutor(
         repo,
         PackageTaskExecutorConfig(

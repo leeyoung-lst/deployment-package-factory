@@ -19,7 +19,6 @@ from deployment_package_factory.services.deployment_packages.models import (
     TaskStatus,
 )
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
-from deployment_package_factory.services.deployment_packages.task_repository import _artifact_available, _parse_iso
 
 T = TypeVar("T")
 
@@ -661,6 +660,22 @@ def _platform_from_row(row: dict) -> BusinessPlatform:
         createdAt=row["created_at"],
         updatedAt=row["updated_at"],
     )
+
+
+def _artifact_available(result_raw: str | None) -> bool:
+    if not result_raw:
+        return False
+    result = PackageBuildResult.model_validate_json(result_raw)
+    return Path(result.artifact_path).is_file()
+
+
+def _parse_iso(value: str) -> datetime:
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _now_iso() -> str:

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from deployment_package_factory.metrics import render_metrics
-from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
+from fakes import InMemoryAuditEventRepository, InMemoryTaskRepository
 
 
 def test_render_metrics_exports_task_and_audit_series(tmp_path) -> None:
-    task_repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
-    audit_repo = AuditEventRepository(tmp_path / "audit.sqlite3")
+    task_repo = InMemoryTaskRepository()
+    audit_repo = InMemoryAuditEventRepository()
     task = task_repo.create(PackageBuildRequest())
     task_repo.mark_failed(task.task_id, "failed")
     audit_repo.record(action='package."create"', status="accepted")

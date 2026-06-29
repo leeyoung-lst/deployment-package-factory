@@ -196,7 +196,7 @@ prometheus.io/port: "8096"
 /app/data/deployment-packages/
 ```
 
-K8s 生产部署中，任务和审计元数据不写 SQLite 文件，而是通过 `DEPLOYMENT_PACKAGE_DATABASE_URL` 写入外部 PostgreSQL。PVC 只用于保存生成中的工作目录和最终 tar.gz 产物：
+K8s 生产部署中，任务和审计元数据通过 `DEPLOYMENT_PACKAGE_DATABASE_URL` 写入外部 PostgreSQL。PVC 只用于保存生成中的工作目录和最终 tar.gz 产物：
 
 ```text
 /app/data/deployment-packages/

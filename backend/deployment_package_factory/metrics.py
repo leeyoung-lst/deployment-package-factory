@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
 
-
-def render_metrics(task_repo: PackageTaskRepository, audit_repo: AuditEventRepository) -> str:
+def render_metrics(task_repo, audit_repo) -> str:
     task_summary = task_repo.metrics_summary()
     audit_summary = audit_repo.metrics_summary()
     lines = [

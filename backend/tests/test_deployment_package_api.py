@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,28 +10,21 @@ import pytest
 
 from deployment_package_factory.api import deployment_packages
 from deployment_package_factory.services.deployment_packages import builder, runtime_options, task_executor
-from deployment_package_factory.services.deployment_packages.business_platform_repository import BusinessPlatformRepository
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, PackageBuildResult
-from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
-from deployment_package_factory.services.microservices.repository import MicroserviceRepository
 from deployment_package_factory.services.microservices.scaffold import MicroserviceScaffoldRequest, MicroserviceScaffoldResult
+from fakes import InMemoryAuditEventRepository, InMemoryBusinessPlatformRepository, InMemoryMicroserviceRepository, InMemoryTaskRepository
 
 
 @pytest.fixture(autouse=True)
 def _isolate_repositories(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(
-        deployment_packages,
-        "_BUSINESS_PLATFORM_REPO",
-        BusinessPlatformRepository(tmp_path / "business-platforms.sqlite3"),
-    )
-    monkeypatch.setattr(
-        deployment_packages,
-        "_MICROSERVICE_REPO",
-        MicroserviceRepository(tmp_path / "microservices.sqlite3"),
-    )
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+    monkeypatch.setattr(deployment_packages, "_TASK_REPO", None)
+    monkeypatch.setattr(deployment_packages, "_AUDIT_REPO", None)
+    monkeypatch.setattr(deployment_packages, "_TASK_EXECUTOR", None)
+    monkeypatch.setattr(builder, "_default_microservice_repository", deployment_packages.get_microservice_repository)
 
 
 def _client() -> TestClient:
@@ -238,7 +230,7 @@ def test_deployment_package_preview_can_select_observability(monkeypatch: pytest
 
 
 def test_register_and_disable_business_platform_api(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     registered = RegisteredBusinessPlatform(
         key="eam",
@@ -370,7 +362,7 @@ def test_image_export_environment_api_reports_docker_state(monkeypatch: pytest.M
 
 def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch)
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
         task_executor,
@@ -431,7 +423,7 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
 def test_download_deployment_package_accepts_query_token(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
     _mock_runtime_environment(monkeypatch)
-    task_repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    task_repo = InMemoryTaskRepository()
     _set_repo(monkeypatch, task_repo, tmp_path)
     monkeypatch.setattr(
         task_executor,
@@ -459,7 +451,7 @@ def test_download_deployment_package_accepts_query_token(tmp_path, monkeypatch: 
 
 def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch)
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(deployment_packages, "_SETTINGS", replace(deployment_packages._SETTINGS, execution_mode="worker"))
 
@@ -481,7 +473,7 @@ def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, mon
 
 def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch)
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
         task_executor,
@@ -523,7 +515,7 @@ def test_create_deployment_package_rejects_invalid_image_mode() -> None:
 
 
 def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     task = repo.create(deployment_packages.PackageBuildRequest())
 
@@ -537,7 +529,7 @@ def test_cancel_pending_deployment_package_task(tmp_path, monkeypatch: pytest.Mo
 
 
 def test_cleanup_deployment_package_outputs_api(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
 
     response = _client().post("/api/deployment-packages/cleanup?dry_run=true")
@@ -552,7 +544,7 @@ def test_cleanup_deployment_package_outputs_api(tmp_path, monkeypatch: pytest.Mo
 
 
 def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     monkeypatch.setattr(
         task_executor,
@@ -577,7 +569,7 @@ def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.Monk
 
 
 def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     _set_repo(monkeypatch, repo, tmp_path)
     task = repo.create(PackageBuildRequest())
     repo.mark_running(task.task_id)
@@ -607,7 +599,7 @@ def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pyte
 
 
 def test_list_deployment_package_tasks(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     _set_repo(monkeypatch, repo, tmp_path)
     repo.create(deployment_packages.PackageBuildRequest())
 
@@ -618,7 +610,7 @@ def test_list_deployment_package_tasks(tmp_path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_list_deployment_package_audit_events(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     audit_repo = _set_repo(monkeypatch, repo, tmp_path)
     audit_repo.record(action="package.create", status="accepted", target_id="task-1")
 
@@ -634,8 +626,8 @@ def _app() -> FastAPI:
     return app
 
 
-def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: PackageTaskRepository, output_dir) -> AuditEventRepository:
-    audit_repo = AuditEventRepository(output_dir / "audit.sqlite3")
+def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: InMemoryTaskRepository, output_dir) -> InMemoryAuditEventRepository:
+    audit_repo = InMemoryAuditEventRepository()
     monkeypatch.setattr(deployment_packages, "_TASK_REPO", repo)
     monkeypatch.setattr(deployment_packages, "_AUDIT_REPO", audit_repo)
     monkeypatch.setattr(
@@ -713,7 +705,7 @@ def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business:
     ]
 
     if seed_business:
-        repo = BusinessPlatformRepository(Path(tempfile.mkdtemp()) / "business.sqlite3")
+        repo = InMemoryBusinessPlatformRepository()
         for item in registered:
             repo.upsert_registered(item)
         monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)

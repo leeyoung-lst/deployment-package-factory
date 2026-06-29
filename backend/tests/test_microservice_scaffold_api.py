@@ -7,9 +7,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from deployment_package_factory.api import deployment_packages, microservices
-from deployment_package_factory.services.deployment_packages.business_platform_repository import BusinessPlatformRepository
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
-from deployment_package_factory.services.microservices.repository import MicroserviceRepository
+from fakes import InMemoryBusinessPlatformRepository, InMemoryMicroserviceRepository
 
 
 def _client() -> TestClient:
@@ -23,8 +22,9 @@ def test_register_microservice_requires_registered_business_platform(tmp_path, m
     monkeypatch.setattr(
         deployment_packages,
         "_BUSINESS_PLATFORM_REPO",
-        BusinessPlatformRepository(tmp_path / "business-platforms.sqlite3"),
+        InMemoryBusinessPlatformRepository(),
     )
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
 
     response = _client().post(
         "/api/microservices",
@@ -43,8 +43,8 @@ def test_register_microservice_requires_registered_business_platform(tmp_path, m
 
 def test_register_microservice_generates_fastapi_project_for_business_platform(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
-    repo = BusinessPlatformRepository(tmp_path / "business-platforms.sqlite3")
-    microservice_repo = MicroserviceRepository(tmp_path / "microservices.sqlite3")
+    repo = InMemoryBusinessPlatformRepository()
+    microservice_repo = InMemoryMicroserviceRepository()
     repo.upsert_registered(
         RegisteredBusinessPlatform(
             key="eam",
@@ -135,3 +135,45 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
 
     assert options.status_code == 200, options.text
     assert options.json()["microservices"][0]["serviceKey"] == "asset-service"
+
+
+def test_register_microservice_accepts_runtime_discovered_business_platform(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    repo = InMemoryBusinessPlatformRepository()
+    microservice_repo = InMemoryMicroserviceRepository()
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    monkeypatch.setattr(
+        deployment_packages,
+        "list_registered_business_platforms",
+        lambda include_disabled=False: [
+            RegisteredBusinessPlatform(
+                key="eam",
+                name="Test EAM 4x60",
+                profile="4x60",
+                namespace="test-biz-eam-4x60",
+                source_env="test",
+                status="active",
+            )
+        ],
+    )
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "mes-service",
+            "serviceName": "生产制造执行系统",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "middleware": ["redis", "postgresql"],
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["businessPlatformName"] == "Test EAM 4x60"
+    assert payload["businessPlatformNamespace"] == "test-biz-eam-4x60"
+    assert repo.resolve("test", "eam", "4x60").namespace == "test-biz-eam-4x60"

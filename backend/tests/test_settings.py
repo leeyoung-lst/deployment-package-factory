@@ -5,8 +5,6 @@ from deployment_package_factory.settings import load_settings
 
 def test_load_settings_uses_deployment_package_environment(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("DEPLOYMENT_PACKAGE_TASK_DB", str(tmp_path / "tasks.sqlite3"))
-    monkeypatch.setenv("DEPLOYMENT_PACKAGE_AUDIT_DB", str(tmp_path / "audit.sqlite3"))
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATABASE_URL", "postgresql://factory:secret@postgres:5432/factory")
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_OUTPUT_DIR", str(tmp_path / "packages"))
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
@@ -22,8 +20,6 @@ def test_load_settings_uses_deployment_package_environment(monkeypatch, tmp_path
 
     assert settings.data_dir == tmp_path / "data"
     assert settings.database_url == "postgresql://factory:secret@postgres:5432/factory"
-    assert settings.task_db_path == tmp_path / "tasks.sqlite3"
-    assert settings.audit_db_path == tmp_path / "audit.sqlite3"
     assert settings.output_dir == tmp_path / "packages"
     assert settings.api_token == "secret-token"
     assert settings.max_concurrent_builds == 3

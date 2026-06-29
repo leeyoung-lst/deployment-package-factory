@@ -12,8 +12,13 @@ import pytest
 from deployment_package_factory.services.deployment_packages import builder
 from deployment_package_factory.services.deployment_packages.builder import build_deployment_package
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, TargetProfile
-from deployment_package_factory.services.microservices.repository import MicroserviceRepository
 from deployment_package_factory.services.microservices.scaffold import MicroserviceScaffoldRequest, MicroserviceScaffoldResult
+from fakes import InMemoryMicroserviceRepository
+
+
+@pytest.fixture(autouse=True)
+def _empty_microservice_repository(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(builder, "_default_microservice_repository", lambda: InMemoryMicroserviceRepository())
 
 
 def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
@@ -111,7 +116,7 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
 
 
 def test_build_deployment_package_includes_registered_microservices(tmp_path, monkeypatch) -> None:
-    microservice_repo = MicroserviceRepository(tmp_path / "microservices.sqlite3")
+    microservice_repo = InMemoryMicroserviceRepository()
     microservice_repo.upsert(_microservice_request(), _microservice_result())
     monkeypatch.setattr(builder, "_default_microservice_repository", lambda: microservice_repo)
 

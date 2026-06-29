@@ -29,7 +29,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackageBuildResult,
     ProjectProfile,
 )
-from deployment_package_factory.services.microservices.repository import MicroserviceRepository
+from deployment_package_factory.services.microservices.repository import create_microservice_repository
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     KubernetesRuntimeError,
@@ -530,8 +530,9 @@ def _registered_microservices_for_request(request: PackageBuildRequest) -> list[
     return services
 
 
-def _default_microservice_repository() -> MicroserviceRepository:
-    return MicroserviceRepository(load_settings().microservice_db_path)
+def _default_microservice_repository():
+    settings = load_settings()
+    return create_microservice_repository(database_url=settings.database_url)
 
 
 def _source_env_namespaces(source_env: str, business_namespaces: list[str] | None = None) -> list[str]:

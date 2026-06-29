@@ -38,7 +38,7 @@ from deployment_package_factory.services.deployment_packages.repositories import
 from deployment_package_factory.services.deployment_packages.repositories import create_business_platform_repository
 from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime, with_runtime_projects
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
-from deployment_package_factory.services.microservices.repository import MicroserviceRepository
+from deployment_package_factory.services.microservices.repository import create_microservice_repository
 
 LOGGER = logging.getLogger(__name__)
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
@@ -49,41 +49,53 @@ router = APIRouter(
     dependencies=[Depends(require_api_token)],
 )
 _SETTINGS = load_settings()
-_TASK_REPO = create_task_repository(database_url=_SETTINGS.database_url, sqlite_path=_SETTINGS.task_db_path)
-_AUDIT_REPO = create_audit_repository(database_url=_SETTINGS.database_url, sqlite_path=_SETTINGS.audit_db_path)
-_BUSINESS_PLATFORM_REPO = create_business_platform_repository(
-    database_url=_SETTINGS.database_url,
-    sqlite_path=_SETTINGS.business_platform_db_path,
-)
-_MICROSERVICE_REPO = MicroserviceRepository(_SETTINGS.microservice_db_path)
-_TASK_EXECUTOR = PackageTaskExecutor(
-    _TASK_REPO,
-    PackageTaskExecutorConfig(
-        max_concurrent_builds=_SETTINGS.max_concurrent_builds,
-        output_dir=_SETTINGS.output_dir,
-        heartbeat_seconds=_SETTINGS.worker_heartbeat_seconds,
-        worker_id="api-background",
-    ),
-)
+_TASK_REPO = None
+_AUDIT_REPO = None
+_BUSINESS_PLATFORM_REPO = None
+_MICROSERVICE_REPO = None
+_TASK_EXECUTOR = None
 
 
 def get_task_repository():
+    global _TASK_REPO
+    if _TASK_REPO is None:
+        _TASK_REPO = create_task_repository(database_url=_SETTINGS.database_url)
     return _TASK_REPO
 
 
 def get_audit_repository():
+    global _AUDIT_REPO
+    if _AUDIT_REPO is None:
+        _AUDIT_REPO = create_audit_repository(database_url=_SETTINGS.database_url)
     return _AUDIT_REPO
 
 
 def get_business_platform_repository():
+    global _BUSINESS_PLATFORM_REPO
+    if _BUSINESS_PLATFORM_REPO is None:
+        _BUSINESS_PLATFORM_REPO = create_business_platform_repository(database_url=_SETTINGS.database_url)
     return _BUSINESS_PLATFORM_REPO
 
 
-def get_microservice_repository() -> MicroserviceRepository:
+def get_microservice_repository():
+    global _MICROSERVICE_REPO
+    if _MICROSERVICE_REPO is None:
+        _MICROSERVICE_REPO = create_microservice_repository(database_url=_SETTINGS.database_url)
     return _MICROSERVICE_REPO
 
 
 def get_task_executor() -> PackageTaskExecutor:
+    global _TASK_EXECUTOR
+    if _TASK_EXECUTOR is None:
+        _TASK_EXECUTOR = PackageTaskExecutor(
+            get_task_repository(),
+            PackageTaskExecutorConfig(
+                max_concurrent_builds=_SETTINGS.max_concurrent_builds,
+                output_dir=_SETTINGS.output_dir,
+                heartbeat_seconds=_SETTINGS.worker_heartbeat_seconds,
+                worker_id="api-background",
+            ),
+        )
     return _TASK_EXECUTOR
 
 

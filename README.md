@@ -44,9 +44,7 @@ docker compose up --build
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DEPLOYMENT_PACKAGE_DATA_DIR` | `data/` | 运行时数据根目录 |
-| `DEPLOYMENT_PACKAGE_DATABASE_URL` | 空 | 生产任务/审计数据库连接串；K8s 部署必须配置 PostgreSQL 连接 |
-| `DEPLOYMENT_PACKAGE_TASK_DB` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-package-tasks.sqlite3` | 本地开发 SQLite 任务库路径；仅在未配置 `DEPLOYMENT_PACKAGE_DATABASE_URL` 时使用 |
-| `DEPLOYMENT_PACKAGE_AUDIT_DB` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-package-audit.sqlite3` | 本地开发 SQLite 审计库路径；仅在未配置 `DEPLOYMENT_PACKAGE_DATABASE_URL` 时使用 |
+| `DEPLOYMENT_PACKAGE_DATABASE_URL` | 空 | 必填，PostgreSQL 连接串，用于任务、审计、业务平台和微服务注册元数据 |
 | `DEPLOYMENT_PACKAGE_OUTPUT_DIR` | `${DEPLOYMENT_PACKAGE_DATA_DIR}/deployment-packages` | 工作目录和 tar.gz 产物输出目录 |
 | `DEPLOYMENT_PACKAGE_API_TOKEN` | 空 | 可选 API 访问令牌；配置后 `/api/deployment-packages` 必须携带 Bearer token 或 `X-Deployment-Package-Token` |
 | `DEPLOYMENT_PACKAGE_FRONTEND_API_BASE_URL` | 空 | 前端容器启动时写入的 API 地址；空值表示使用同源 `/api` 代理 |
@@ -95,7 +93,7 @@ GET /metrics
 - 镜像归档模式在 K8s worker 中优先使用 `skopeo` 进行无 daemon 镜像导出，本地运行时可回退到 Docker CLI，将镜像 tar 写入 `images/archives/` 并记录 SHA256。
 - K8s 模式会生成 Namespace、ConfigMap、Secret 模板、PVC、Deployment、Service、Ingress、数据库初始化 Job、安装、卸载和 dry-run 脚本。
 - Docker Compose 模式会生成基础平台、业务平台、中间件服务、网络、卷、安装、卸载和 dry-run 脚本。
-- 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到生产关系库；本地开发未配置数据库连接时才使用 SQLite。
+- 导包请求采用后台任务模式执行，任务状态、进度、日志和失败原因会持久化到 PostgreSQL；本地开发也需要配置 `DEPLOYMENT_PACKAGE_DATABASE_URL`。
 - 导包创建、取消、重试、下载和清理会写入操作审计日志，前端可查看最近审计事件。
 - 导包任务支持取消和失败重试，后端默认同一进程内仅允许 1 个构建任务同时执行，其他任务会排队等待执行槽位。独立 worker 模式会记录 `workerId`、领取时间和心跳时间，进程崩溃后的 running 任务会按心跳超时转为 failed 以便重试。
 - 生成包会写入 `package-index.json`，按 root/docs/k8s/docker-compose/init/overlays/images/scripts/security 分区登记文件、大小、SHA256 和可执行标记。

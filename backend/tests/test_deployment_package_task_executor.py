@@ -6,11 +6,11 @@ from datetime import datetime, timedelta, timezone
 
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
+from fakes import InMemoryTaskRepository
 
 
 def test_task_executor_uses_configured_output_dir(tmp_path, monkeypatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     task = repo.create(PackageBuildRequest())
     seen = {}
 
@@ -40,7 +40,7 @@ def test_task_executor_uses_configured_output_dir(tmp_path, monkeypatch) -> None
 
 
 def test_task_executor_discards_result_after_cancel_request(tmp_path, monkeypatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     task = repo.create(PackageBuildRequest())
     repo.mark_running(task.task_id)
     repo.cancel(task.task_id)
@@ -67,7 +67,7 @@ def test_task_executor_discards_result_after_cancel_request(tmp_path, monkeypatc
 
 
 def test_task_executor_refreshes_heartbeat_while_building(tmp_path, monkeypatch) -> None:
-    repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    repo = InMemoryTaskRepository()
     task = repo.create(PackageBuildRequest())
     stale_at = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
 
@@ -94,11 +94,7 @@ def test_task_executor_refreshes_heartbeat_while_building(tmp_path, monkeypatch)
     async def run_and_age_heartbeat() -> None:
         running = asyncio.create_task(executor.run(task.task_id, PackageBuildRequest()))
         await asyncio.sleep(0.01)
-        with repo._connect() as conn:
-            conn.execute(
-                "update package_tasks set heartbeat_at = ?, updated_at = ? where task_id = ?",
-                (stale_at, stale_at, task.task_id),
-            )
+        repo.set_heartbeat_at(task.task_id, stale_at, stale_at)
         await running
 
     asyncio.run(run_and_age_heartbeat())

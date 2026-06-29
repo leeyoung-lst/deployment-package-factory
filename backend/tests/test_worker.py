@@ -5,17 +5,16 @@ from datetime import datetime, timedelta, timezone
 
 from deployment_package_factory import worker
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageBuildResult
-from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
+from fakes import InMemoryTaskRepository
 
 
 def test_worker_runs_one_pending_task(tmp_path, monkeypatch) -> None:
-    db_path = tmp_path / "tasks.sqlite3"
     output_dir = tmp_path / "packages"
-    repo = PackageTaskRepository(db_path)
+    repo = InMemoryTaskRepository()
     task = repo.create(PackageBuildRequest())
-    monkeypatch.setenv("DEPLOYMENT_PACKAGE_TASK_DB", str(db_path))
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_OUTPUT_DIR", str(output_dir))
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_WORKER_ID", "worker-test")
+    monkeypatch.setattr(worker, "create_task_repository", lambda database_url="": repo)
     monkeypatch.setattr(
         "deployment_package_factory.services.deployment_packages.task_executor.build_deployment_package",
         lambda payload, *, output_dir=None: PackageBuildResult(
@@ -39,18 +38,13 @@ def test_worker_runs_one_pending_task(tmp_path, monkeypatch) -> None:
 
 
 def test_worker_marks_stale_running_task_failed(tmp_path, monkeypatch) -> None:
-    db_path = tmp_path / "tasks.sqlite3"
-    repo = PackageTaskRepository(db_path)
+    repo = InMemoryTaskRepository()
     task = repo.create(PackageBuildRequest())
     repo.mark_running(task.task_id)
     stale_at = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
-    with repo._connect() as conn:
-        conn.execute(
-            "update package_tasks set updated_at = ? where task_id = ?",
-            (stale_at, task.task_id),
-        )
-    monkeypatch.setenv("DEPLOYMENT_PACKAGE_TASK_DB", str(db_path))
+    repo.set_updated_at(task.task_id, stale_at)
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES", "30")
+    monkeypatch.setattr(worker, "create_task_repository", lambda database_url="": repo)
 
     asyncio.run(worker.run_worker(once=True))
 

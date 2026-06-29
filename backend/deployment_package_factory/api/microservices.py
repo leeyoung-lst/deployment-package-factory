@@ -6,8 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from deployment_package_factory.auth import require_api_token
-from deployment_package_factory.api.deployment_packages import get_business_platform_repository, get_microservice_repository
+from deployment_package_factory.api.deployment_packages import (
+    _registered_business_platforms,
+    get_business_platform_repository,
+    get_microservice_repository,
+)
 from deployment_package_factory.settings import load_settings
+from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
 from deployment_package_factory.services.microservices.scaffold import (
     MicroserviceScaffoldOptions,
     MicroserviceScaffoldRequest,
@@ -35,11 +40,7 @@ async def get_microservice_scaffold_options() -> MicroserviceScaffoldOptions:
 @router.post("", response_model=MicroserviceScaffoldResult)
 async def register_microservice(payload: MicroserviceScaffoldRequest) -> MicroserviceScaffoldResult:
     try:
-        platform = get_business_platform_repository().resolve(
-            payload.source_env,
-            payload.business_platform_key,
-            payload.business_platform_profile,
-        )
+        platform = _resolve_business_platform(payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Business platform is not registered.") from exc
     except ValueError as exc:
@@ -56,6 +57,27 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
     result = create_microservice_scaffold(enriched, output_dir=_output_dir())
     get_microservice_repository().upsert(enriched, result)
     return result
+
+
+def _resolve_business_platform(payload: MicroserviceScaffoldRequest) -> RegisteredBusinessPlatform:
+    try:
+        return get_business_platform_repository().resolve(
+            payload.source_env,
+            payload.business_platform_key,
+            payload.business_platform_profile,
+        )
+    except KeyError:
+        pass
+    for platform in _registered_business_platforms():
+        if (
+            platform.source_env == payload.source_env
+            and platform.key == payload.business_platform_key
+            and platform.profile == (payload.business_platform_profile or "")
+            and platform.status != "disabled"
+        ):
+            get_business_platform_repository().upsert_registered(platform)
+            return platform
+    raise KeyError(payload.business_platform_key)
 
 
 @router.get("")
