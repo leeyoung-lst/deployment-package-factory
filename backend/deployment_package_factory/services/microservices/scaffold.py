@@ -238,6 +238,10 @@ def _render_python_fastapi(request: MicroserviceScaffoldRequest) -> list[Rendere
         RenderedFile(PurePosixPath("Jenkinsfile"), _jenkinsfile(context)),
         RenderedFile(PurePosixPath("build.sh"), _build_sh(context), executable=True),
         RenderedFile(PurePosixPath("build.ps1"), _build_ps1(context)),
+        RenderedFile(PurePosixPath("deploy.sh"), _deploy_sh(context), executable=True),
+        RenderedFile(PurePosixPath("deploy.ps1"), _deploy_ps1(context)),
+        RenderedFile(PurePosixPath("migrate.sh"), _migrate_sh(context), executable=True),
+        RenderedFile(PurePosixPath("migrate.ps1"), _migrate_ps1(context)),
         RenderedFile(PurePosixPath("run-local.sh"), _run_local_sh(context), executable=True),
         RenderedFile(PurePosixPath("run-local.ps1"), _run_local_ps1(context)),
         RenderedFile(PurePosixPath("test.sh"), _test_sh(), executable=True),
@@ -257,10 +261,20 @@ def _render_python_fastapi(request: MicroserviceScaffoldRequest) -> list[Rendere
         RenderedFile(PurePosixPath("src/app/interfaces/http/routes.py"), _fastapi_routes(context)),
         RenderedFile(PurePosixPath("tests/__init__.py"), ""),
         RenderedFile(PurePosixPath("tests/test_api.py"), _api_tests(context)),
+        RenderedFile(PurePosixPath("deploy/k8s/namespace.yaml"), _k8s_namespace(context)),
         RenderedFile(PurePosixPath("deploy/k8s/deployment.yaml"), _k8s_deployment(context)),
         RenderedFile(PurePosixPath("deploy/k8s/service.yaml"), _k8s_service(context)),
         RenderedFile(PurePosixPath("deploy/k8s/configmap.yaml"), _k8s_configmap(context)),
         RenderedFile(PurePosixPath("deploy/k8s/secret.template.yaml"), _k8s_secret(context)),
+        RenderedFile(PurePosixPath("deploy/k8s/ingress.template.yaml"), _k8s_ingress(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/Chart.yaml"), _helm_chart(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/values.yaml"), _helm_values(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/templates/_helpers.tpl"), _helm_helpers(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/templates/deployment.yaml"), _helm_deployment(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/templates/service.yaml"), _helm_service(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/templates/configmap.yaml"), _helm_configmap(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/templates/secret.yaml"), _helm_secret(context)),
+        RenderedFile(PurePosixPath(f"deploy/helm/{request.service_key}/templates/ingress.yaml"), _helm_ingress(context)),
     ]
     if "redis" in request.middleware:
         files.append(RenderedFile(PurePosixPath("src/app/infrastructure/redis_client.py"), _redis_client()))
@@ -307,6 +321,8 @@ def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: 
         "Dockerfile",
         "Jenkinsfile",
         "build.sh",
+        "deploy.sh",
+        "migrate.sh",
         "run-local.sh",
         "test.sh",
         "src/app/main.py",
@@ -315,13 +331,16 @@ def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: 
         "src/app/application/use_cases.py",
         "src/app/interfaces/http/routes.py",
         "tests/test_api.py",
+        "deploy/k8s/namespace.yaml",
         "deploy/k8s/deployment.yaml",
         "deploy/k8s/service.yaml",
         "deploy/k8s/configmap.yaml",
         "deploy/k8s/secret.template.yaml",
+        "deploy/k8s/ingress.template.yaml",
+        "deploy/helm",
     ]
     checks: list[dict[str, object]] = []
-    missing = [item for item in required_files if not (project_root / item).is_file()]
+    missing = [item for item in required_files if not (project_root / item).exists()]
     checks.append({"name": "required-files", "passed": not missing, "message": "关键文件已生成" if not missing else f"缺失文件: {', '.join(missing)}"})
 
     syntax_errors: list[str] = []
@@ -448,6 +467,17 @@ curl -X POST http://127.0.0.1:{context['port']}/api/v1/items/demo-item
 ./build.sh {context['image']}:dev
 ```
 
+## Git
+
+The generated archive contains an initialized Git repository when `git` is available on the factory host.
+If your extracted directory has no `.git`, run:
+
+```bash
+git init -b main
+git add .
+git commit -m "Initial scaffold"
+```
+
 ## Middleware
 
 Enabled middleware: {middleware}
@@ -461,14 +491,20 @@ Middleware checks are non-blocking in local development. If Redis or PostgreSQL 
 - Namespace: {context['business_platform_namespace']}
 - Source environment: {context['source_env']}
 
-## Kubernetes
+## Deploy
 
 ```bash
-kubectl apply -f deploy/k8s/configmap.yaml
-kubectl apply -f deploy/k8s/secret.template.yaml
-kubectl apply -f deploy/k8s/deployment.yaml
-kubectl apply -f deploy/k8s/service.yaml
+./migrate.sh
+./deploy.sh {context['image']}:dev
 ```
+
+`deploy.sh` uses Helm by default:
+
+```bash
+helm upgrade --install {context['service_key']} deploy/helm/{context['service_key']} --namespace {context['k8s_namespace']} --create-namespace
+```
+
+Plain Kubernetes YAML files are also generated under `deploy/k8s/` for debugging or restricted environments.
 """
 
 
@@ -495,6 +531,8 @@ ENV PYTHONPATH=/app/src
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY src ./src
+RUN groupadd -r app && useradd -r -g app -u 10001 app && chown -R app:app /app
+USER 10001
 EXPOSE {context['port']}
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "{context['port']}"]
 """
@@ -506,6 +544,8 @@ def _jenkinsfile(context: dict[str, object]) -> str:
   environment {{
     IMAGE = "{context['image']}:${{env.BUILD_NUMBER}}"
     K8S_NAMESPACE = "{context['k8s_namespace']}"
+    RELEASE_NAME = "{context['service_key']}"
+    CHART = "deploy/helm/{context['service_key']}"
   }}
   stages {{
     stage('Install') {{
@@ -530,7 +570,7 @@ def _jenkinsfile(context: dict[str, object]) -> str:
     }}
     stage('Deploy') {{
       steps {{
-        sh 'kubectl -n $K8S_NAMESPACE set image deployment/{context['service_key']} {context['service_key']}=$IMAGE || kubectl apply -f deploy/k8s'
+        sh './deploy.sh $IMAGE'
       }}
     }}
   }}
@@ -552,6 +592,71 @@ def _build_ps1(context: dict[str, object]) -> str:
 )
 $ErrorActionPreference = "Stop"
 docker build -t $Image .
+"""
+
+
+def _deploy_sh(context: dict[str, object]) -> str:
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+IMAGE="${{1:-{context['image']}:dev}}"
+RELEASE="${{RELEASE_NAME:-{context['service_key']}}}"
+NAMESPACE="${{K8S_NAMESPACE:-{context['k8s_namespace']}}}"
+CHART="${{CHART:-deploy/helm/{context['service_key']}}}"
+REPOSITORY="${{IMAGE%:*}}"
+TAG="${{IMAGE##*:}}"
+helm upgrade --install "${{RELEASE}}" "${{CHART}}" \\
+  --namespace "${{NAMESPACE}}" \\
+  --create-namespace \\
+  --set image.repository="${{REPOSITORY}}" \\
+  --set image.tag="${{TAG}}"
+"""
+
+
+def _deploy_ps1(context: dict[str, object]) -> str:
+    return f"""param(
+  [string]$Image = "{context['image']}:dev",
+  [string]$Release = "{context['service_key']}",
+  [string]$Namespace = "{context['k8s_namespace']}",
+  [string]$Chart = "deploy/helm/{context['service_key']}"
+)
+$ErrorActionPreference = "Stop"
+$lastColon = $Image.LastIndexOf(":")
+if ($lastColon -lt 0) {{ throw "Image must include tag: $Image" }}
+$repository = $Image.Substring(0, $lastColon)
+$tag = $Image.Substring($lastColon + 1)
+helm upgrade --install $Release $Chart --namespace $Namespace --create-namespace --set image.repository=$repository --set image.tag=$tag
+"""
+
+
+def _migrate_sh(context: dict[str, object]) -> str:
+    if "postgresql" not in context["middleware"]:
+        return """#!/usr/bin/env bash
+set -euo pipefail
+echo "No database migration is configured for this service."
+"""
+    return """#!/usr/bin/env bash
+set -euo pipefail
+NAMESPACE="${K8S_NAMESPACE:-""" + str(context["k8s_namespace"]) + """}"
+POSTGRES_POD="${POSTGRES_POD:-postgresql-0}"
+POSTGRES_DB="${POSTGRES_DB:-app}"
+POSTGRES_USER="${POSTGRES_USER:-app}"
+kubectl -n "${NAMESPACE}" exec -i "${POSTGRES_POD}" -- psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" < db/init/001_items.sql
+"""
+
+
+def _migrate_ps1(context: dict[str, object]) -> str:
+    if "postgresql" not in context["middleware"]:
+        return """$ErrorActionPreference = "Stop"
+Write-Host "No database migration is configured for this service."
+"""
+    return f"""param(
+  [string]$Namespace = "{context['k8s_namespace']}",
+  [string]$PostgresPod = "postgresql-0",
+  [string]$PostgresDb = "app",
+  [string]$PostgresUser = "app"
+)
+$ErrorActionPreference = "Stop"
+Get-Content db/init/001_items.sql | kubectl -n $Namespace exec -i $PostgresPod -- psql -U $PostgresUser -d $PostgresDb
 """
 
 
@@ -786,6 +891,17 @@ def test_create_demo_item():
 """
 
 
+def _k8s_namespace(context: dict[str, object]) -> str:
+    return f"""apiVersion: v1
+kind: Namespace
+metadata:
+  name: {context['k8s_namespace']}
+  labels:
+    business-platform: {context['business_platform_key']}
+    source-env: {context['source_env']}
+"""
+
+
 def _k8s_deployment(context: dict[str, object]) -> str:
     service_key = context["service_key"]
     return f"""apiVersion: apps/v1
@@ -797,6 +913,11 @@ metadata:
     business-platform: {context['business_platform_key']}
     source-env: {context['source_env']}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   replicas: 1
   selector:
     matchLabels:
@@ -808,9 +929,19 @@ spec:
         business-platform: {context['business_platform_key']}
         source-env: {context['source_env']}
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: {service_key}
           image: {context['image']}:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: {context['port']}
           envFrom:
@@ -822,6 +953,21 @@ spec:
             httpGet:
               path: /health
               port: {context['port']}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {context['port']}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
 """
 
 
@@ -841,6 +987,29 @@ spec:
     - name: http
       port: 80
       targetPort: {context['port']}
+"""
+
+
+def _k8s_ingress(context: dict[str, object]) -> str:
+    return f"""apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {context['service_key']}
+  namespace: {context['k8s_namespace']}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: __REPLACE_WITH_HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {context['service_key']}
+                port:
+                  number: 80
 """
 
 
@@ -879,3 +1048,195 @@ def _k8s_secret(context: dict[str, object]) -> str:
     else:
         lines.append("  PLACEHOLDER: replace-me")
     return "\n".join(lines) + "\n"
+
+
+def _helm_chart(context: dict[str, object]) -> str:
+    return f"""apiVersion: v2
+name: {context['service_key']}
+description: Helm chart for {context['service_name']}
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+"""
+
+
+def _helm_values(context: dict[str, object]) -> str:
+    repository, tag = str(context["image"]), "latest"
+    lines = [
+        "replicaCount: 1",
+        "",
+        "image:",
+        f"  repository: {repository}",
+        f"  tag: {tag}",
+        "  pullPolicy: IfNotPresent",
+        "",
+        "service:",
+        "  type: ClusterIP",
+        "  port: 80",
+        f"  targetPort: {context['port']}",
+        "",
+        "ingress:",
+        "  enabled: false",
+        "  className: nginx",
+        "  host: example.local",
+        "",
+        "env:",
+        f"  SERVICE_NAME: {context['service_key']}",
+        f"  BUSINESS_PLATFORM_KEY: {context['business_platform_key']}",
+        f"  BUSINESS_PLATFORM_NAMESPACE: {context['business_platform_namespace']}",
+        f"  SOURCE_ENV: {context['source_env']}",
+        f"  APP_PORT: \"{context['port']}\"",
+        "  LOG_LEVEL: INFO",
+    ]
+    if "redis" in context["middleware"]:
+        lines.append("  REDIS_URL: redis://redis:6379/0")
+    lines.extend(
+        [
+            "",
+            "secretEnv:",
+            "  POSTGRES_DSN: postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgresql:5432/app" if "postgresql" in context["middleware"] else "  PLACEHOLDER: replace-me",
+            "",
+            "resources:",
+            "  requests:",
+            "    cpu: 100m",
+            "    memory: 128Mi",
+            "  limits:",
+            "    cpu: 500m",
+            "    memory: 512Mi",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _helm_helpers(context: dict[str, object]) -> str:
+    return f"""{{{{- define "{context['service_key']}.name" -}}}}
+{context['service_key']}
+{{{{- end -}}}}
+"""
+
+
+def _helm_deployment(context: dict[str, object]) -> str:
+    return f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{{{ include "{context['service_key']}.name" . }}}}
+  labels:
+    app.kubernetes.io/name: {{{{ include "{context['service_key']}.name" . }}}}
+    business-platform: {context['business_platform_key']}
+    source-env: {context['source_env']}
+spec:
+  replicas: {{{{ .Values.replicaCount }}}}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{{{ include "{context['service_key']}.name" . }}}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{{{ include "{context['service_key']}.name" . }}}}
+        business-platform: {context['business_platform_key']}
+        source-env: {context['source_env']}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{{{ include "{context['service_key']}.name" . }}}}
+          image: "{{{{ .Values.image.repository }}}}:{{{{ .Values.image.tag }}}}"
+          imagePullPolicy: {{{{ .Values.image.pullPolicy }}}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: {{{{ .Values.service.targetPort }}}}
+          envFrom:
+            - configMapRef:
+                name: {{{{ include "{context['service_key']}.name" . }}}}-config
+            - secretRef:
+                name: {{{{ include "{context['service_key']}.name" . }}}}-secret
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{{{ .Values.service.targetPort }}}}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{{{ .Values.service.targetPort }}}}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+{{{{ toYaml .Values.resources | indent 12 }}}}
+"""
+
+
+def _helm_service(context: dict[str, object]) -> str:
+    return f"""apiVersion: v1
+kind: Service
+metadata:
+  name: {{{{ include "{context['service_key']}.name" . }}}}
+spec:
+  type: {{{{ .Values.service.type }}}}
+  selector:
+    app.kubernetes.io/name: {{{{ include "{context['service_key']}.name" . }}}}
+  ports:
+    - name: http
+      port: {{{{ .Values.service.port }}}}
+      targetPort: {{{{ .Values.service.targetPort }}}}
+"""
+
+
+def _helm_configmap(context: dict[str, object]) -> str:
+    return f"""apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{{{ include "{context['service_key']}.name" . }}}}-config
+data:
+{{{{- range $key, $value := .Values.env }}}}
+  {{{{ $key }}}}: {{{{ $value | quote }}}}
+{{{{- end }}}}
+"""
+
+
+def _helm_secret(context: dict[str, object]) -> str:
+    return f"""apiVersion: v1
+kind: Secret
+metadata:
+  name: {{{{ include "{context['service_key']}.name" . }}}}-secret
+type: Opaque
+stringData:
+{{{{- range $key, $value := .Values.secretEnv }}}}
+  {{{{ $key }}}}: {{{{ $value | quote }}}}
+{{{{- end }}}}
+"""
+
+
+def _helm_ingress(context: dict[str, object]) -> str:
+    return f"""{{{{- if .Values.ingress.enabled }}}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{{{ include "{context['service_key']}.name" . }}}}
+spec:
+  ingressClassName: {{{{ .Values.ingress.className }}}}
+  rules:
+    - host: {{{{ .Values.ingress.host }}}}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{{{ include "{context['service_key']}.name" . }}}}
+                port:
+                  number: {{{{ .Values.service.port }}}}
+{{{{- end }}}}
+"""

@@ -89,6 +89,8 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         assert "asset-service/Dockerfile" in names
         assert "asset-service/Jenkinsfile" in names
         assert "asset-service/.env.template" in names
+        assert "asset-service/deploy.sh" in names
+        assert "asset-service/migrate.sh" in names
         assert "asset-service/run-local.sh" in names
         assert "asset-service/test.sh" in names
         assert "asset-service/src/app/main.py" in names
@@ -98,10 +100,19 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         assert "asset-service/src/app/infrastructure/postgres_repository.py" in names
         assert "asset-service/src/app/interfaces/http/routes.py" in names
         assert "asset-service/tests/test_api.py" in names
+        assert "asset-service/deploy/k8s/namespace.yaml" in names
         assert "asset-service/deploy/k8s/deployment.yaml" in names
+        assert "asset-service/deploy/k8s/ingress.template.yaml" in names
+        assert "asset-service/deploy/helm/asset-service/Chart.yaml" in names
+        assert "asset-service/deploy/helm/asset-service/values.yaml" in names
+        assert "asset-service/deploy/helm/asset-service/templates/deployment.yaml" in names
         readme = tar.extractfile("asset-service/README.md").read().decode("utf-8")
+        dockerfile = tar.extractfile("asset-service/Dockerfile").read().decode("utf-8")
         env_template = tar.extractfile("asset-service/.env.template").read().decode("utf-8")
+        jenkinsfile = tar.extractfile("asset-service/Jenkinsfile").read().decode("utf-8")
+        deploy_sh = tar.extractfile("asset-service/deploy.sh").read().decode("utf-8")
         deployment = tar.extractfile("asset-service/deploy/k8s/deployment.yaml").read().decode("utf-8")
+        helm_values = tar.extractfile("asset-service/deploy/helm/asset-service/values.yaml").read().decode("utf-8")
         routes = tar.extractfile("asset-service/src/app/interfaces/http/routes.py").read().decode("utf-8")
         python_sources = {
             name: tar.extractfile(name).read().decode("utf-8")
@@ -115,9 +126,16 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert "infrastructure/" in readme
     assert "interfaces/http/" in readme
     assert "curl -X POST http://127.0.0.1:8000/api/v1/items/demo-item" in readme
+    assert "USER 10001" in dockerfile
     assert "BUSINESS_PLATFORM_KEY=eam" in env_template
     assert "BUSINESS_PLATFORM_NAMESPACE=test-biz-eam-4x60" in env_template
+    assert "./deploy.sh $IMAGE" in jenkinsfile
+    assert "helm upgrade --install" in deploy_sh
+    assert "helm upgrade --install asset-service deploy/helm/asset-service" in readme
     assert "business-platform: eam" in deployment
+    assert "resources:" in deployment
+    assert "livenessProbe:" in deployment
+    assert "repository: registry.local/business/asset-service" in helm_values
     assert 'router = APIRouter(prefix="/api/v1")' in routes
     assert "create_demo_item" in routes
     for name, source in python_sources.items():
