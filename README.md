@@ -71,6 +71,15 @@ docker compose up --build
 
 ## 可观测性
 
+后端提供基础存活和启动就绪检查：
+
+```http
+GET /health
+GET /health/ready
+```
+
+`/health/ready` 会检查 `DEPLOYMENT_PACKAGE_DATABASE_URL`、PostgreSQL 元数据仓库、产物输出目录写入能力和镜像导出工具状态。必需项失败时返回 503；镜像导出工具不可用时返回 `degraded`，用于提示离线镜像归档能力不可用。
+
 后端暴露 Prometheus 文本格式指标：
 
 ```http
