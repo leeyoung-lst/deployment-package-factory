@@ -271,7 +271,10 @@ def _dominant_registry(images: list[builder.RuntimeSourceImage]) -> str:
     for image in images:
         if not builder._has_registry(image.source_ref):
             continue
-        registry = image.source_ref.split("/", 1)[0]
+        parts = image.source_ref.split("/")
+        if len(parts) < 3:
+            continue
+        registry = "/".join(parts[:2])
         registries[registry] = registries.get(registry, 0) + 1
     if not registries:
         return ""

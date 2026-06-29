@@ -70,6 +70,7 @@ def test_deployment_package_options_returns_only_runtime_services(monkeypatch: p
     assert {item["key"] for item in payload["databaseOptions"]} == {"postgres"}
     assert {item["key"] for item in payload["middleware"]} == {"camunda", "iotdb", "minio", "redis"}
     assert [item["key"] for item in payload["projects"]] == ["test-eam-4x60"]
+    assert payload["projects"][0]["registry"] == "192.168.10.210/local-ai"
 
 
 def test_deployment_package_options_discovers_kubernetes_business_namespaces(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -265,6 +266,7 @@ def test_preview_accepts_runtime_discovered_project_key(monkeypatch: pytest.Monk
     assert payload["businessServices"][0]["key"] == "eam"
     by_catalog = {item["catalogRef"]: item for item in payload["imageEntries"]}
     assert by_catalog["local-ai-eam-service:k8s"]["sourceResolvedFrom"] == "kubernetes"
+    assert by_catalog["192.168.10.210/local-ai/nginx:1.27-alpine"]["sourceRef"] == "192.168.10.210/local-ai/nginx:1.27-alpine"
 
 
 def test_deployment_package_preview_rejects_unknown_database() -> None:
