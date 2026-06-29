@@ -1,27 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Form, Space, Spin, Tabs, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
-  cancelDeploymentPackageTask,
-  cleanupDeploymentPackages,
   createDeploymentPackage,
-  downloadDeploymentPackage,
-  downloadDeploymentPackageChecksum,
-  getImageExportEnvironment,
   getDeploymentPackageOptions,
-  getDeploymentPackageTask,
-  listDeploymentPackageAuditEvents,
-  listDeploymentPackageTasks,
-  previewDeploymentPackage,
   registerBusinessPlatform,
-  retryDeploymentPackageTask,
   disableBusinessPlatform,
-  type AuditEvent,
-  type CleanupResult,
   type DeploymentPackageOptions,
   type DeploymentServiceOption,
-  type ImageExportEnvironmentCheck,
-  type PackagePreview,
   type PackageTask,
   type ProjectProfile,
   type SourceEnv,
@@ -50,12 +36,11 @@ import {
   EXPORT_WIZARD_STEPS,
   exportDrawerTitle,
   formatBytes,
-  mergeTaskIntoList,
   serviceOptionsForEnv,
-  triggerBrowserDownload,
   type ExportDrawerKey,
   type TargetDraft,
 } from "./components/deploymentPackageUtils";
+import { useDeploymentPackageActions } from "./hooks/useDeploymentPackageActions";
 import { useDeploymentPackageState } from "./hooks/useDeploymentPackageState";
 import styles from "./DeploymentPackageExportView.module.css";
 
@@ -64,28 +49,17 @@ export const DeploymentPackageExportView: React.FC = () => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [registerForm] = Form.useForm();
-  const [preview, setPreview] = useState<PackagePreview | null>(null);
-  const [task, setTask] = useState<PackageTask | null>(null);
-  const [tasks, setTasks] = useState<PackageTask[]>([]);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
-  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
-  const [imageEnvironment, setImageEnvironment] = useState<ImageExportEnvironmentCheck | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
   const [building, setBuilding] = useState(false);
-  const [taskActionLoading, setTaskActionLoading] = useState(false);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [imageEnvironmentLoading, setImageEnvironmentLoading] = useState(false);
-  const [downloadLoading, setDownloadLoading] = useState(false);
-  const [checksumDownloadLoading, setChecksumDownloadLoading] = useState(false);
   const [registeringBusiness, setRegisteringBusiness] = useState(false);
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
   const [exportWizardOpen, setExportWizardOpen] = useState(false);
   const [exportStep, setExportStep] = useState(0);
   const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
   const [disablingBusinessKey, setDisablingBusinessKey] = useState("");
+  const notify = useMemo(() => ({ error: message.error, success: message.success }), [message]);
+  const actions = useDeploymentPackageActions(notify);
+  const { auditEvents, cancelTask, cleanupResult, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshSelectedTask, refreshTasks, retryTask, runCleanup, setTask, task, tasks } = actions;
   const deploymentState = useDeploymentPackageState(form);
   const {
     applyProjectDefaults,
@@ -154,23 +128,6 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   }, [applyProjectDefaults, message, sourceEnv, setOptions, setProductVersion, setProjectKey, setSourceEnv, setSystemSettings, setPlatformServices, setBusinessServices, setDatabase]);
 
-  const refreshImageEnvironment = useCallback(async () => {
-    setImageEnvironmentLoading(true);
-    try {
-      const payload = await getImageExportEnvironment();
-      setImageEnvironment(payload);
-    } catch (error) {
-      setImageEnvironment({
-        available: false,
-        exportTool: "",
-        toolVersion: "",
-        dockerVersion: "",
-        message: error instanceof Error ? error.message : "镜像导出环境检查失败",
-      });
-    } finally {
-      setImageEnvironmentLoading(false);
-    }
-  }, []);
   const loadOptionsRef = useRef(loadOptions);
   const refreshImageEnvironmentRef = useRef(refreshImageEnvironment);
 
@@ -182,59 +139,6 @@ export const DeploymentPackageExportView: React.FC = () => {
     refreshImageEnvironmentRef.current = refreshImageEnvironment;
   }, [refreshImageEnvironment]);
 
-  const refreshPreview = useCallback(async () => {
-    if (!options) return;
-    if (!options.sourceEnvs.includes(sourceEnv) || !database) {
-      setPreview(null);
-      return;
-    }
-    setPreviewing(true);
-    try {
-      const payload = await previewDeploymentPackage(makePreviewPayload());
-      setPreview(payload);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "部署包预览失败");
-    } finally {
-      setPreviewing(false);
-    }
-  }, [makePreviewPayload, message, options]);
-
-  const refreshTasks = useCallback(async () => {
-    setTasksLoading(true);
-    try {
-      const payload = await listDeploymentPackageTasks(20);
-      setTasks(payload);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "任务列表刷新失败");
-    } finally {
-      setTasksLoading(false);
-    }
-  }, [message]);
-
-  const refreshAuditEvents = useCallback(async () => {
-    setAuditLoading(true);
-    try {
-      const payload = await listDeploymentPackageAuditEvents(20);
-      setAuditEvents(payload);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "审计日志刷新失败");
-    } finally {
-      setAuditLoading(false);
-    }
-  }, [message]);
-
-  const refreshSelectedTask = useCallback(async (taskId: string) => {
-    try {
-      const payload = await getDeploymentPackageTask(taskId);
-      setTask(payload);
-      setTasks((current) => mergeTaskIntoList(current, payload));
-      return payload;
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "任务状态刷新失败");
-      return null;
-    }
-  }, [message]);
-
   useEffect(() => {
     queueMicrotask(() => void loadOptionsRef.current());
     queueMicrotask(() => void refreshImageEnvironmentRef.current());
@@ -242,9 +146,10 @@ export const DeploymentPackageExportView: React.FC = () => {
 
   useEffect(() => {
     if (!options) return;
-    const timer = window.setTimeout(() => void refreshPreview(), 240);
+    const payload = options.sourceEnvs.includes(sourceEnv) && database ? makePreviewPayload() : null;
+    const timer = window.setTimeout(() => void refreshPreview(payload), 240);
     return () => window.clearTimeout(timer);
-  }, [businessServices, database, deployMode, options, platformServices, productVersion, projectKey, refreshPreview, sourceEnv]);
+  }, [businessServices, database, deployMode, makePreviewPayload, options, platformServices, productVersion, projectKey, refreshPreview, sourceEnv]);
 
   const onPlatformChange = (checkedValues: Array<string | number | boolean>) => {
     const selected = checkedValues.map(String);
@@ -387,80 +292,6 @@ export const DeploymentPackageExportView: React.FC = () => {
     }
   };
 
-  const cancelTask = async () => {
-    if (!task) return;
-    setTaskActionLoading(true);
-    try {
-      const payload = await cancelDeploymentPackageTask(task.taskId);
-      setTask(payload);
-      void refreshTasks();
-      void refreshAuditEvents();
-      message.success(payload.status === "canceled" ? "任务已取消" : "已请求取消任务");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "任务取消失败");
-    } finally {
-      setTaskActionLoading(false);
-    }
-  };
-
-  const retryTask = async () => {
-    if (!task) return;
-    setTaskActionLoading(true);
-    try {
-      const payload = await retryDeploymentPackageTask(task.taskId);
-      setTask(payload);
-      void refreshTasks();
-      void refreshAuditEvents();
-      message.success("已创建重试任务");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "任务重试失败");
-    } finally {
-      setTaskActionLoading(false);
-    }
-  };
-
-  const runCleanup = async (dryRun: boolean) => {
-    setCleanupLoading(true);
-    try {
-      const payload = await cleanupDeploymentPackages(dryRun);
-      setCleanupResult(payload);
-      void refreshTasks();
-      void refreshAuditEvents();
-      if (task) void refreshSelectedTask(task.taskId);
-      message.success(dryRun ? "清理预演完成" : "清理完成");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "部署包清理失败");
-    } finally {
-      setCleanupLoading(false);
-    }
-  };
-
-  const downloadTaskArtifact = async () => {
-    if (!task?.result || !task.artifactAvailable) return;
-    setDownloadLoading(true);
-    try {
-      triggerBrowserDownload(downloadDeploymentPackage(task.result.packageId), `${task.result.packageId}.tar.gz`);
-      void refreshAuditEvents();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "部署包下载失败");
-    } finally {
-      setDownloadLoading(false);
-    }
-  };
-
-  const downloadTaskChecksum = async () => {
-    if (!task?.result || !task.artifactAvailable) return;
-    setChecksumDownloadLoading(true);
-    try {
-      triggerBrowserDownload(downloadDeploymentPackageChecksum(task.result.packageId), `${task.result.packageId}.tar.gz.sha256`);
-      void refreshAuditEvents();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "校验文件下载失败");
-    } finally {
-      setChecksumDownloadLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!task || task.status === "completed" || task.status === "failed" || task.status === "canceled") return;
     const timer = window.setInterval(() => {
@@ -494,8 +325,8 @@ export const DeploymentPackageExportView: React.FC = () => {
           <p>管理业务平台 namespace，并按真实环境镜像生成生产部署包</p>
         </div>
         <Space>
-          <Button icon={<i className="ri-list-check-3" />} loading={tasksLoading} onClick={() => void refreshTasks()}>刷新任务</Button>
-          <Button icon={<i className="ri-hard-drive-2-line" />} loading={imageEnvironmentLoading} onClick={() => void refreshImageEnvironment()}>检查镜像环境</Button>
+          <Button icon={<i className="ri-list-check-3" />} loading={loading.tasks} onClick={() => void refreshTasks()}>刷新任务</Button>
+          <Button icon={<i className="ri-hard-drive-2-line" />} loading={loading.imageEnvironment} onClick={() => void refreshImageEnvironment()}>检查镜像环境</Button>
           <Button icon={<i className="ri-refresh-line" />} loading={loadingOptions} onClick={() => void loadOptions()}>刷新选项</Button>
           <Button icon={<i className="ri-add-circle-line" />} onClick={openRegisterModal}>注册业务平台</Button>
           <Button type="primary" icon={<i className="ri-package-line" />} loading={building} onClick={openExportWizard}>创建导包任务</Button>
@@ -548,7 +379,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                       </div>
                       <Space wrap>
                         <Button type="primary" icon={<i className="ri-compass-3-line" />} onClick={openExportWizard}>打开导包向导</Button>
-                        <Button icon={<i className="ri-eye-line" />} loading={previewing} onClick={() => void refreshPreview()}>刷新预览</Button>
+                        <Button icon={<i className="ri-eye-line" />} loading={loading.preview} onClick={() => void refreshPreview(makePreviewPayload())}>刷新预览</Button>
                         <Button icon={<i className="ri-node-tree" />} disabled={!preview} onClick={() => setExportDrawer("preview")}>查看依赖图</Button>
                       </Space>
                     </div>
@@ -559,7 +390,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                       <div className={styles.panelTitleRow}>
                         <h3 className={styles.sectionTitle}>依赖预览</h3>
                         <Space>
-                          <Button size="small" icon={<i className="ri-eye-line" />} loading={previewing} onClick={() => void refreshPreview()}>预览</Button>
+                          <Button size="small" icon={<i className="ri-eye-line" />} loading={loading.preview} onClick={() => void refreshPreview(makePreviewPayload())}>预览</Button>
                           <Button size="small" icon={<i className="ri-node-tree" />} disabled={!preview} onClick={() => setExportDrawer("preview")}>详情</Button>
                         </Space>
                       </div>
@@ -568,9 +399,9 @@ export const DeploymentPackageExportView: React.FC = () => {
 
                     <TaskStatusPanel
                       task={task}
-                      taskActionLoading={taskActionLoading}
-                      downloadLoading={downloadLoading}
-                      checksumDownloadLoading={checksumDownloadLoading}
+                      taskActionLoading={loading.taskAction}
+                      downloadLoading={loading.download}
+                      checksumDownloadLoading={loading.checksum}
                       onOpenDetail={() => setExportDrawer("task")}
                       onCancel={() => void cancelTask()}
                       onRetry={() => void retryTask()}
@@ -584,7 +415,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                         title="最近任务"
                         value={`${tasks.length} 条`}
                         actionLabel="打开"
-                        loading={tasksLoading}
+                        loading={loading.tasks}
                         onAction={() => setExportDrawer("tasks")}
                       />
                       <ActionTile
@@ -592,7 +423,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                         title="产物清理"
                         value={cleanupResult ? `释放 ${formatBytes(cleanupResult.freedBytes)}` : "待预演"}
                         actionLabel="打开"
-                        loading={cleanupLoading}
+                        loading={loading.cleanup}
                         onAction={() => setExportDrawer("cleanup")}
                       />
                       <ActionTile
@@ -600,7 +431,7 @@ export const DeploymentPackageExportView: React.FC = () => {
                         title="最近审计"
                         value={`${auditEvents.length} 条`}
                         actionLabel="打开"
-                        loading={auditLoading}
+                        loading={loading.audit}
                         onAction={() => setExportDrawer("audit")}
                       />
                     </div>
@@ -625,9 +456,9 @@ export const DeploymentPackageExportView: React.FC = () => {
         {exportDrawer === "task" ? (
           <TaskDetailPanel
             task={task}
-            taskActionLoading={taskActionLoading}
-            downloadLoading={downloadLoading}
-            checksumDownloadLoading={checksumDownloadLoading}
+            taskActionLoading={loading.taskAction}
+            downloadLoading={loading.download}
+            checksumDownloadLoading={loading.checksum}
             onCancel={() => void cancelTask()}
             onRetry={() => void retryTask()}
             onDownloadChecksum={() => void downloadTaskChecksum()}
@@ -637,7 +468,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         {exportDrawer === "tasks" ? (
           <TaskListPanel
             tasks={tasks}
-            loading={tasksLoading}
+            loading={loading.tasks}
             selectedTaskId={task?.taskId}
             onSelect={(item) => {
               setTask(item);
@@ -649,7 +480,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         {exportDrawer === "cleanup" ? (
           <CleanupPanel
             result={cleanupResult}
-            loading={cleanupLoading}
+            loading={loading.cleanup}
             onDryRun={() => void runCleanup(true)}
             onCleanup={() => void runCleanup(false)}
           />
@@ -657,7 +488,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         {exportDrawer === "audit" ? (
           <AuditPanel
             events={auditEvents}
-            loading={auditLoading}
+            loading={loading.audit}
             onRefresh={() => void refreshAuditEvents()}
           />
         ) : null}
@@ -672,13 +503,13 @@ export const DeploymentPackageExportView: React.FC = () => {
         deployMode={deployMode}
         form={form}
         imageEnvironment={imageEnvironment}
-        imageEnvironmentLoading={imageEnvironmentLoading}
+        imageEnvironmentLoading={loading.imageEnvironment}
         open={exportWizardOpen}
         options={options}
         platformOptionsForSourceEnv={platformOptionsForSourceEnv}
         platformServices={platformServices}
         preview={preview}
-        previewing={previewing}
+        previewing={loading.preview}
         productVersion={productVersion}
         projectKey={projectKey}
         selectedBusinessOptions={selectedBusinessOptions}
@@ -698,7 +529,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         onPrevious={goPreviousExportStep}
         onProductVersionChange={setProductVersion}
         onProjectChange={applyProjectDefaults}
-        onRefreshPreview={() => void refreshPreview()}
+        onRefreshPreview={() => void refreshPreview(makePreviewPayload())}
         onRequiredPlatformClick={onRequiredPlatformClick}
         onSourceEnvChange={setSourceEnv}
         onTargetDraftChange={setTargetDraft}
