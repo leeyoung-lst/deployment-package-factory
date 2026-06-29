@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Checkbox, Divider, Drawer, Empty, Form, Input, Modal, Popconfirm, Progress, Radio, Select, Space, Spin, Tabs, Tag } from "antd";
+import { App, Button, Checkbox, Drawer, Empty, Form, Input, Modal, Popconfirm, Progress, Radio, Select, Space, Spin, Steps, Tabs, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
   cancelDeploymentPackageTask,
@@ -43,6 +43,7 @@ const DEFAULT_TARGET = {
 };
 type TargetDraft = typeof DEFAULT_TARGET & { imageMode?: "image-manifest" | "image-archive" };
 const DEFAULT_IMAGE_MODE: TargetDraft["imageMode"] = "image-archive";
+const EXPORT_WIZARD_STEPS = ["产品范围", "平台能力", "中间件与镜像", "目标环境", "确认导出"];
 type PreviewDependencyItem = PackagePreview["middleware"][number];
 type DependencyGraphNodeKind = "business" | "platform" | "middleware" | "database";
 type DependencyGraphNode = {
@@ -96,6 +97,8 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [checksumDownloadLoading, setChecksumDownloadLoading] = useState(false);
   const [registeringBusiness, setRegisteringBusiness] = useState(false);
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
+  const [exportWizardOpen, setExportWizardOpen] = useState(false);
+  const [exportStep, setExportStep] = useState(0);
   const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
   const [disablingBusinessKey, setDisablingBusinessKey] = useState("");
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
@@ -123,6 +126,20 @@ export const DeploymentPackageExportView: React.FC = () => {
   const registeredBusinessOptions = useMemo(
     () => (options?.businessServices ?? []).filter((item) => item.registered && item.status !== "disabled"),
     [options?.businessServices],
+  );
+  const selectedPlatformOptions = useMemo(
+    () => platformOptionsForSourceEnv.filter((item) => platformServices.includes(item.key)),
+    [platformOptionsForSourceEnv, platformServices],
+  );
+  const selectedBusinessOptions = useMemo(
+    () => businessServices
+      .map((value) => options?.businessServices.find((item) => businessOptionValue(item) === value))
+      .filter((item): item is DeploymentServiceOption => Boolean(item)),
+    [businessServices, options?.businessServices],
+  );
+  const selectedDatabaseOption = useMemo(
+    () => databaseOptionsForSourceEnv.find((item) => item.key === database) ?? null,
+    [database, databaseOptionsForSourceEnv],
   );
 
   const makePreviewPayload = useCallback((): PackagePreviewRequest => {
@@ -341,6 +358,54 @@ export const DeploymentPackageExportView: React.FC = () => {
     setBusinessServices(checkedValues.map(String));
   };
 
+  const openExportWizard = () => {
+    form.setFieldsValue({ ...DEFAULT_TARGET, ...targetDraft, imageMode: targetDraft.imageMode ?? DEFAULT_IMAGE_MODE });
+    setExportStep(0);
+    setExportWizardOpen(true);
+  };
+
+  const validateExportStep = async (step = exportStep) => {
+    if (step === 0) {
+      if (options?.projects.length && !projectKey) {
+        message.warning("请选择项目");
+        return false;
+      }
+      if ((selectedProject?.versions.length ?? 0) > 0 && !productVersion) {
+        message.warning("请选择产品版本");
+        return false;
+      }
+      if (!sourceEnv) {
+        message.warning("请选择来源环境");
+        return false;
+      }
+      if (!deployMode) {
+        message.warning("请选择部署方式");
+        return false;
+      }
+    }
+    if (step === 2 && !database) {
+      message.warning("请选择数据库中间件");
+      return false;
+    }
+    if (step === 3) {
+      await form.validateFields(["env", "namespacePrefix", "domain"]);
+    }
+    return true;
+  };
+
+  const goNextExportStep = async () => {
+    try {
+      if (!(await validateExportStep())) return;
+      setExportStep((current) => Math.min(current + 1, EXPORT_WIZARD_STEPS.length - 1));
+    } catch (error) {
+      if (error instanceof Error) message.error(error.message);
+    }
+  };
+
+  const goPreviousExportStep = () => {
+    setExportStep((current) => Math.max(current - 1, 0));
+  };
+
   const openRegisterModal = () => {
     registerForm.setFieldsValue({
       sourceEnv,
@@ -393,6 +458,9 @@ export const DeploymentPackageExportView: React.FC = () => {
 
   const buildPackage = async () => {
     try {
+      if (!(await validateExportStep(0))) return;
+      if (!(await validateExportStep(2))) return;
+      if (!(await validateExportStep(3))) return;
       const values = await form.validateFields();
       setBuilding(true);
       const payload = await createDeploymentPackage({
@@ -413,6 +481,8 @@ export const DeploymentPackageExportView: React.FC = () => {
       void refreshTasks();
       void refreshAuditEvents();
       message.success("部署任务已创建");
+      setExportWizardOpen(false);
+      setExportStep(0);
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
     } finally {
@@ -531,7 +601,7 @@ export const DeploymentPackageExportView: React.FC = () => {
           <Button icon={<i className="ri-hard-drive-2-line" />} loading={imageEnvironmentLoading} onClick={() => void refreshImageEnvironment()}>检查镜像环境</Button>
           <Button icon={<i className="ri-refresh-line" />} loading={loadingOptions} onClick={() => void loadOptions()}>刷新选项</Button>
           <Button icon={<i className="ri-add-circle-line" />} onClick={openRegisterModal}>注册业务平台</Button>
-          <Button type="primary" icon={<i className="ri-package-line" />} loading={building} onClick={() => void buildPackage()}>生成部署包</Button>
+          <Button type="primary" icon={<i className="ri-package-line" />} loading={building} onClick={openExportWizard}>创建导包任务</Button>
         </Space>
       </div>
 
@@ -559,142 +629,31 @@ export const DeploymentPackageExportView: React.FC = () => {
               children: (
                 <div className={styles.content}>
                   <Spin spinning={loadingOptions}>
-                    <div className={styles.formPanel}>
-            <Form
-              form={form}
-              layout="vertical"
-              initialValues={{ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE }}
-              onValuesChange={(_, values) => setTargetDraft((current) => ({ ...current, ...values }))}
-            >
-              <h3 className={styles.sectionTitle}>导出范围</h3>
-              <div className={styles.split}>
-                <Form.Item label="项目">
-                  <Select
-                    value={projectKey}
-                    options={(options?.projects ?? []).map((item) => ({ value: item.key, label: item.name }))}
-                    onChange={(value) => applyProjectDefaults(value)}
-                    placeholder="暂无真实项目"
-                    disabled={!options?.projects.length}
-                  />
-                </Form.Item>
-                <Form.Item label="产品版本">
-                  <Select
-                    value={productVersion}
-                    options={(options?.projects.find((item) => item.key === projectKey)?.versions ?? []).map((item) => ({ value: item, label: item }))}
-                    onChange={(value) => setProductVersion(value)}
-                    placeholder="暂无真实版本"
-                    disabled={!(options?.projects.find((item) => item.key === projectKey)?.versions ?? []).length}
-                  />
-                </Form.Item>
-              </div>
-              <ProjectSummary project={selectedProject} />
-              <div className={styles.split}>
-                <Form.Item label="来源环境">
-                  <Radio.Group value={sourceEnv} onChange={(event) => setSourceEnv(event.target.value)}>
-                    {(options?.sourceEnvs ?? []).map((env) => (
-                      <Radio.Button key={env} value={env}>{env === "dev" ? "开发环境" : "测试环境"}</Radio.Button>
-                    ))}
-                  </Radio.Group>
-                  {options?.sourceEnvs.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可读取的来源环境" /> : null}
-                </Form.Item>
-                <Form.Item label="部署方式">
-                  <Radio.Group value={deployMode} onChange={(event) => setDeployMode(event.target.value)}>
-                    <Space direction="vertical">
-                      {(options?.deployModes ?? ["k8s", "docker-compose"]).map((mode) => (
-                        <Radio key={mode} value={mode}>{mode === "k8s" ? "Kubernetes" : "Docker Compose"}</Radio>
-                      ))}
-                    </Space>
-                  </Radio.Group>
-                </Form.Item>
-              </div>
-
-              <Divider />
-              <h3 className={styles.sectionTitle}>基础平台服务</h3>
-              <Checkbox.Group className={styles.serviceGrid} value={platformServices} onChange={onPlatformChange}>
-                {platformOptionsForSourceEnv.map((item) => (
-                  <Checkbox key={item.key} value={item.key} disabled={item.required} onChange={item.required ? onRequiredPlatformClick : undefined}>
-                    <span className={styles.serviceItem}>
-                      <span className={styles.serviceMain}>
-                        <i className="ri-server-line" />
-                        <span className={styles.serviceName}>{item.name}</span>
-                      </span>
-                      <span className={styles.muted}>{item.required ? "必选" : item.namespaceGroup}</span>
-                    </span>
-                  </Checkbox>
-                ))}
-              </Checkbox.Group>
-              {platformOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无真实基础平台服务" /> : null}
-
-              <Divider />
-              <h3 className={styles.sectionTitle}>业务平台服务</h3>
-              <Checkbox.Group className={styles.serviceGrid} value={businessServices} onChange={onBusinessChange}>
-                {businessOptionsForSourceEnv.map((item) => (
-                  <Checkbox key={`${item.sourceEnv}-${item.key}-${item.profile || "default"}`} value={businessOptionValue(item)}>
-                    <span className={styles.serviceItem}>
-                      <span className={styles.serviceMain}>
-                        <i className="ri-apps-2-line" />
-                        <span className={styles.serviceName}>{item.name}</span>
-                      </span>
-                      <span className={styles.muted}>{item.namespace || item.profile || item.namespaceGroup}</span>
-                    </span>
-                  </Checkbox>
-                ))}
-              </Checkbox.Group>
-              {businessOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无已注册业务平台" /> : null}
-
-              <Divider />
-              <h3 className={styles.sectionTitle}>中间件服务</h3>
-              <div className={styles.split}>
-                <Form.Item label="数据库中间件（二选一）">
-                  <Radio.Group value={database} onChange={(event) => setDatabase(event.target.value)}>
-                    <Space direction="vertical">
-                      {databaseOptionsForSourceEnv.map((item) => (
-                        <Radio key={item.key} value={item.key}>
-                          {item.name}
-                          <Tag color={item.domestic ? "red" : "blue"} style={{ marginLeft: 8 }}>{item.domestic ? "国产化" : "非国产化"}</Tag>
-                        </Radio>
-                      ))}
-                    </Space>
-                  </Radio.Group>
-                  {databaseOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无真实数据库服务" /> : null}
-                </Form.Item>
-                <Form.Item label="镜像模式" name="imageMode">
-                  <Select
-                    options={[
-                      { value: "image-archive", label: "镜像归档：导出离线镜像 tar" },
-                      { value: "image-manifest", label: "镜像清单：仅生成 pull/save/load 脚本" },
-                    ]}
-                  />
-                </Form.Item>
-              </div>
-              <ImageEnvironmentStatus value={imageEnvironment} loading={imageEnvironmentLoading} />
-
-              <Divider />
-              <h3 className={styles.sectionTitle}>生产目标</h3>
-              <div className={styles.split}>
-                <Form.Item label="目标环境" name="env" rules={[{ required: true, message: "请输入目标环境" }]}>
-                  <Input />
-                </Form.Item>
-                <Form.Item label="命名空间前缀" name="namespacePrefix" rules={[{ required: true, message: "请输入命名空间前缀" }]}>
-                  <Input />
-                </Form.Item>
-                <Form.Item label="域名" name="domain" rules={[{ required: true, message: "请输入生产域名" }]}>
-                  <Input />
-                </Form.Item>
-                <Form.Item label="源镜像仓库" name="sourceRegistry">
-                  <Input placeholder="可选，导包时从该仓库拉取镜像" />
-                </Form.Item>
-                <Form.Item name="sourceRegistryInsecure" valuePropName="checked">
-                  <Checkbox>源仓库使用自签证书</Checkbox>
-                </Form.Item>
-                <Form.Item label="镜像仓库" name="registry">
-                  <Input placeholder="生产部署目标镜像仓库" />
-                </Form.Item>
-                <Form.Item label="StorageClass" name="storageClass">
-                  <Input placeholder="留空使用集群默认值" />
-                </Form.Item>
-              </div>
-            </Form>
+                    <div className={styles.exportLaunchPanel}>
+                      <div className={styles.launchHeader}>
+                        <span>
+                          <i className="ri-guide-line" />
+                        </span>
+                        <div>
+                          <h3>向导式导包</h3>
+                          <p>按产品范围、平台能力、中间件、目标环境逐步确认，最后创建导包任务。</p>
+                        </div>
+                      </div>
+                      <div className={styles.draftGrid}>
+                        <DraftItem label="项目" value={selectedProject?.name || projectKey || "未选择"} />
+                        <DraftItem label="版本" value={productVersion || "未选择"} />
+                        <DraftItem label="来源" value={sourceEnv === "dev" ? "开发环境" : "测试环境"} />
+                        <DraftItem label="部署" value={deployMode === "k8s" ? "Kubernetes" : "Docker Compose"} />
+                        <DraftItem label="业务平台" value={`${selectedBusinessOptions.length} 个`} />
+                        <DraftItem label="基础平台" value={`${selectedPlatformOptions.length} 个`} />
+                        <DraftItem label="数据库" value={selectedDatabaseOption?.name || database || "未选择"} />
+                        <DraftItem label="目标" value={`${targetDraft.namespacePrefix || "-"} / ${targetDraft.domain || "-"}`} />
+                      </div>
+                      <Space wrap>
+                        <Button type="primary" icon={<i className="ri-compass-3-line" />} onClick={openExportWizard}>打开导包向导</Button>
+                        <Button icon={<i className="ri-eye-line" />} loading={previewing} onClick={() => void refreshPreview()}>刷新预览</Button>
+                        <Button icon={<i className="ri-node-tree" />} disabled={!preview} onClick={() => setExportDrawer("preview")}>查看依赖图</Button>
+                      </Space>
                     </div>
                   </Spin>
 
@@ -808,6 +767,221 @@ export const DeploymentPackageExportView: React.FC = () => {
       </Drawer>
 
       <Modal
+        title="创建部署包"
+        open={exportWizardOpen}
+        onCancel={() => setExportWizardOpen(false)}
+        width="min(1040px, 94vw)"
+        destroyOnClose={false}
+        footer={(
+          <div className={styles.wizardFooter}>
+            <Button onClick={() => setExportWizardOpen(false)}>取消</Button>
+            <Space>
+              <Button disabled={exportStep === 0} onClick={goPreviousExportStep}>上一步</Button>
+              {exportStep < EXPORT_WIZARD_STEPS.length - 1 ? (
+                <Button type="primary" onClick={() => void goNextExportStep()}>下一步</Button>
+              ) : (
+                <Button type="primary" icon={<i className="ri-package-line" />} loading={building} onClick={() => void buildPackage()}>
+                  创建导包任务
+                </Button>
+              )}
+            </Space>
+          </div>
+        )}
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE }}
+          onValuesChange={(_, values) => setTargetDraft((current) => ({ ...current, ...values }))}
+        >
+          <Steps
+            className={styles.wizardSteps}
+            size="small"
+            current={exportStep}
+            items={EXPORT_WIZARD_STEPS.map((title) => ({ title }))}
+          />
+
+          <div className={styles.wizardBody}>
+            {exportStep === 0 ? (
+              <div className={styles.wizardSection}>
+                <h3 className={styles.sectionTitle}>产品范围</h3>
+                <div className={styles.split}>
+                  <Form.Item label="项目">
+                    <Select
+                      value={projectKey}
+                      options={(options?.projects ?? []).map((item) => ({ value: item.key, label: item.name }))}
+                      onChange={(value) => applyProjectDefaults(value)}
+                      placeholder="暂无真实项目"
+                      disabled={!options?.projects.length}
+                    />
+                  </Form.Item>
+                  <Form.Item label="产品版本">
+                    <Select
+                      value={productVersion}
+                      options={(options?.projects.find((item) => item.key === projectKey)?.versions ?? []).map((item) => ({ value: item, label: item }))}
+                      onChange={(value) => setProductVersion(value)}
+                      placeholder="暂无真实版本"
+                      disabled={!(options?.projects.find((item) => item.key === projectKey)?.versions ?? []).length}
+                    />
+                  </Form.Item>
+                </div>
+                <ProjectSummary project={selectedProject} />
+                <div className={styles.split}>
+                  <Form.Item label="来源环境">
+                    <Radio.Group value={sourceEnv} onChange={(event) => setSourceEnv(event.target.value)}>
+                      {(options?.sourceEnvs ?? []).map((env) => (
+                        <Radio.Button key={env} value={env}>{env === "dev" ? "开发环境" : "测试环境"}</Radio.Button>
+                      ))}
+                    </Radio.Group>
+                    {options?.sourceEnvs.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可读取的来源环境" /> : null}
+                  </Form.Item>
+                  <Form.Item label="部署方式">
+                    <Radio.Group value={deployMode} onChange={(event) => setDeployMode(event.target.value)}>
+                      <Space direction="vertical">
+                        {(options?.deployModes ?? ["k8s", "docker-compose"]).map((mode) => (
+                          <Radio key={mode} value={mode}>{mode === "k8s" ? "Kubernetes" : "Docker Compose"}</Radio>
+                        ))}
+                      </Space>
+                    </Radio.Group>
+                  </Form.Item>
+                </div>
+              </div>
+            ) : null}
+
+            {exportStep === 1 ? (
+              <div className={styles.wizardGrid}>
+                <div className={styles.wizardSection}>
+                  <h3 className={styles.sectionTitle}>业务平台服务</h3>
+                  <Checkbox.Group className={styles.serviceGrid} value={businessServices} onChange={onBusinessChange}>
+                    {businessOptionsForSourceEnv.map((item) => (
+                      <Checkbox key={`${item.sourceEnv}-${item.key}-${item.profile || "default"}`} value={businessOptionValue(item)}>
+                        <span className={styles.serviceItem}>
+                          <span className={styles.serviceMain}>
+                            <i className="ri-apps-2-line" />
+                            <span className={styles.serviceName}>{item.name}</span>
+                          </span>
+                          <span className={styles.muted}>{item.namespace || item.profile || item.namespaceGroup}</span>
+                        </span>
+                      </Checkbox>
+                    ))}
+                  </Checkbox.Group>
+                  {businessOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无已注册业务平台" /> : null}
+                </div>
+                <div className={styles.wizardSection}>
+                  <h3 className={styles.sectionTitle}>基础平台服务</h3>
+                  <Checkbox.Group className={styles.serviceGrid} value={platformServices} onChange={onPlatformChange}>
+                    {platformOptionsForSourceEnv.map((item) => (
+                      <Checkbox key={item.key} value={item.key} disabled={item.required} onChange={item.required ? onRequiredPlatformClick : undefined}>
+                        <span className={styles.serviceItem}>
+                          <span className={styles.serviceMain}>
+                            <i className="ri-server-line" />
+                            <span className={styles.serviceName}>{item.name}</span>
+                          </span>
+                          <span className={styles.muted}>{item.required ? "必选" : item.namespaceGroup}</span>
+                        </span>
+                      </Checkbox>
+                    ))}
+                  </Checkbox.Group>
+                  {platformOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无真实基础平台服务" /> : null}
+                </div>
+              </div>
+            ) : null}
+
+            {exportStep === 2 ? (
+              <div className={styles.wizardGrid}>
+                <div className={styles.wizardSection}>
+                  <h3 className={styles.sectionTitle}>中间件服务</h3>
+                  <Form.Item label="数据库中间件（二选一）">
+                    <Radio.Group value={database} onChange={(event) => setDatabase(event.target.value)}>
+                      <Space direction="vertical">
+                        {databaseOptionsForSourceEnv.map((item) => (
+                          <Radio key={item.key} value={item.key}>
+                            {item.name}
+                            <Tag color={item.domestic ? "red" : "blue"} style={{ marginLeft: 8 }}>{item.domestic ? "国产化" : "非国产化"}</Tag>
+                          </Radio>
+                        ))}
+                      </Space>
+                    </Radio.Group>
+                    {databaseOptionsForSourceEnv.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前来源环境暂无真实数据库服务" /> : null}
+                  </Form.Item>
+                </div>
+                <div className={styles.wizardSection}>
+                  <h3 className={styles.sectionTitle}>镜像导出</h3>
+                  <Form.Item label="镜像模式" name="imageMode">
+                    <Select
+                      options={[
+                        { value: "image-archive", label: "镜像归档：导出离线镜像 tar" },
+                        { value: "image-manifest", label: "镜像清单：仅生成 pull/save/load 脚本" },
+                      ]}
+                    />
+                  </Form.Item>
+                  <ImageEnvironmentStatus value={imageEnvironment} loading={imageEnvironmentLoading} />
+                </div>
+              </div>
+            ) : null}
+
+            {exportStep === 3 ? (
+              <div className={styles.wizardSection}>
+                <h3 className={styles.sectionTitle}>生产目标</h3>
+                <div className={styles.split}>
+                  <Form.Item label="目标环境" name="env" rules={[{ required: true, message: "请输入目标环境" }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item label="命名空间前缀" name="namespacePrefix" rules={[{ required: true, message: "请输入命名空间前缀" }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item label="域名" name="domain" rules={[{ required: true, message: "请输入生产域名" }]}>
+                    <Input />
+                  </Form.Item>
+                  <Form.Item label="源镜像仓库" name="sourceRegistry">
+                    <Input placeholder="可选，导包时从该仓库拉取镜像" />
+                  </Form.Item>
+                  <Form.Item name="sourceRegistryInsecure" valuePropName="checked">
+                    <Checkbox>源仓库使用自签证书</Checkbox>
+                  </Form.Item>
+                  <Form.Item label="镜像仓库" name="registry">
+                    <Input placeholder="生产部署目标镜像仓库" />
+                  </Form.Item>
+                  <Form.Item label="StorageClass" name="storageClass">
+                    <Input placeholder="留空使用集群默认值" />
+                  </Form.Item>
+                </div>
+              </div>
+            ) : null}
+
+            {exportStep === 4 ? (
+              <div className={styles.wizardGrid}>
+                <div className={styles.wizardSection}>
+                  <h3 className={styles.sectionTitle}>导包确认</h3>
+                  <div className={styles.draftGrid}>
+                    <DraftItem label="项目" value={selectedProject?.name || projectKey || "未选择"} />
+                    <DraftItem label="版本" value={productVersion || "未选择"} />
+                    <DraftItem label="来源环境" value={sourceEnv === "dev" ? "开发环境" : "测试环境"} />
+                    <DraftItem label="部署方式" value={deployMode === "k8s" ? "Kubernetes" : "Docker Compose"} />
+                    <DraftItem label="业务平台" value={selectedBusinessOptions.map((item) => item.name).join("、") || "未选择"} />
+                    <DraftItem label="基础平台" value={selectedPlatformOptions.map((item) => item.name).join("、") || "未选择"} />
+                    <DraftItem label="数据库" value={selectedDatabaseOption?.name || database || "未选择"} />
+                    <DraftItem label="镜像模式" value={targetDraft.imageMode === "image-manifest" ? "镜像清单" : "镜像归档"} />
+                    <DraftItem label="目标环境" value={targetDraft.env || "-"} />
+                    <DraftItem label="目标域名" value={targetDraft.domain || "-"} />
+                    <DraftItem label="命名空间" value={targetDraft.namespacePrefix || "-"} />
+                    <DraftItem label="StorageClass" value={targetDraft.storageClass || "集群默认"} />
+                  </div>
+                </div>
+                <div className={styles.wizardSection}>
+                  <div className={styles.panelTitleRow}>
+                    <h3 className={styles.sectionTitle}>预览摘要</h3>
+                    <Button size="small" icon={<i className="ri-refresh-line" />} loading={previewing} onClick={() => void refreshPreview()}>刷新</Button>
+                  </div>
+                  {preview ? <PreviewSnapshot preview={preview} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无预览" />}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Form>
+      </Modal>
+
+      <Modal
         title="注册业务平台"
         open={registerModalOpen}
         onCancel={() => setRegisterModalOpen(false)}
@@ -840,6 +1014,15 @@ export const DeploymentPackageExportView: React.FC = () => {
     </section>
   );
 };
+
+function DraftItem({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className={styles.draftItem}>
+      <span className={styles.muted}>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
 
 function ProjectSummary({ project }: { project: ProjectProfile | null }) {
   if (!project) {
