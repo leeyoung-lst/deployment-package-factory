@@ -53,6 +53,7 @@ def test_system_settings_defaults_include_environment_sections() -> None:
     settings = SystemSettings()
 
     assert settings.harbor.registry == "registry.local"
+    assert settings.git.token == ""
     assert settings.kubernetes.factory_namespace == "deployment-package-factory"
     assert settings.middleware.redis.enabled is True
     assert settings.middleware.redis.port == 6379

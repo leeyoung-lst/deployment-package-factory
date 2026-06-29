@@ -14,6 +14,8 @@ export function MicroserviceResultContent({ result, onCopy }: { result: Microser
       <MicroserviceResultRow label="项目包"><span className={styles.mono}>{result.artifactName}</span></MicroserviceResultRow>
       <MicroserviceResultRow label="生成自检"><Tag color={result.validation.passed ? "green" : "red"}>{result.validation.passed ? "通过" : "未通过"}</Tag></MicroserviceResultRow>
       <div className={styles.validationList}>{result.validation.checks.map((item) => <span key={item.name} className={item.passed ? styles.validationPassed : styles.validationFailed}><i className={item.passed ? "ri-checkbox-circle-line" : "ri-close-circle-line"} /><span>{item.message}</span></span>)}</div>
+      <MicroserviceResultRow label="交付准备"><Tag color={result.delivery.status === "ready" ? "green" : result.delivery.status === "pending" ? "orange" : result.delivery.status === "failed" ? "red" : "default"}>{result.delivery.status}</Tag></MicroserviceResultRow>
+      <div className={styles.validationList}>{result.delivery.steps.map((item) => <span key={item.name} className={item.status === "ready" ? styles.validationPassed : styles.validationFailed}><i className={item.status === "ready" ? "ri-checkbox-circle-line" : "ri-information-line"} /><span>{item.message}</span></span>)}</div>
       <MicroserviceResultRow label="本地初始化"><MicroserviceCommandField value={result.cloneCommand} onCopy={onCopy} /></MicroserviceResultRow>
       <MicroserviceResultRow label="构建镜像"><MicroserviceCommandField value={result.buildCommand} onCopy={onCopy} /></MicroserviceResultRow>
       <MicroserviceResultRow label="部署验证"><MicroserviceCommandField value={result.deployCommand} onCopy={onCopy} /></MicroserviceResultRow>

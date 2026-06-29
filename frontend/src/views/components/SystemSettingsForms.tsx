@@ -22,6 +22,7 @@ function GitSettingsForm() {
       <Form.Item label="默认分组" name={["git", "group"]} rules={[{ required: true }, { pattern: PATH_PATTERN, message: "仅支持小写路径片段" }]}><Input /></Form.Item>
       <Form.Item label="用户名" name={["git", "username"]}><Input /></Form.Item>
       <Form.Item label="邮箱" name={["git", "email"]}><Input /></Form.Item>
+      <Form.Item label="访问 Token" name={["git", "token"]}><Input.Password /></Form.Item>
     </div>
   );
 }

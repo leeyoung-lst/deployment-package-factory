@@ -171,6 +171,7 @@ class MicroserviceScaffoldResult(BaseModel):
     build_command: str = Field(default="", alias="buildCommand")
     deploy_command: str = Field(default="", alias="deployCommand")
     jenkins_job: str = Field(default="", alias="jenkinsJob")
+    delivery: dict[str, object] = Field(default_factory=lambda: {"status": "skipped", "steps": []})
     generated_files: list[str] = Field(alias="generatedFiles")
     validation: dict[str, object] = Field(default_factory=lambda: {"passed": False, "checks": [], "fileCount": 0})
 
@@ -266,6 +267,14 @@ def find_scaffold_artifact(project_id: str, *, output_dir: Path | None = None) -
         return None
     artifact_dir = (output_dir or DEFAULT_OUTPUT_DIR) / "artifacts"
     matches = list(artifact_dir.glob(f"*-{project_id}.tar.gz"))
+    return matches[0] if matches else None
+
+
+def find_scaffold_project_root(project_id: str, *, output_dir: Path | None = None) -> Path | None:
+    if not re.fullmatch(r"svc-[a-f0-9]{12}", project_id):
+        return None
+    work_dir = (output_dir or DEFAULT_OUTPUT_DIR) / "work"
+    matches = [path for path in work_dir.glob(f"*-{project_id}") if path.is_dir()]
     return matches[0] if matches else None
 
 

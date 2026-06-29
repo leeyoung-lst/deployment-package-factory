@@ -6,6 +6,7 @@ export interface SystemSettings {
     group: string;
     username: string;
     email: string;
+    token: string;
   };
   harbor: {
     registry: string;

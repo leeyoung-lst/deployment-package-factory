@@ -20,8 +20,9 @@ class GitSettings(BaseModel):
     group: str = "business-services"
     username: str = ""
     email: str = ""
+    token: str = ""
 
-    @field_validator("base_url", "username", "email")
+    @field_validator("base_url", "username", "email", "token")
     @classmethod
     def trim_text(cls, value: str) -> str:
         return value.strip()

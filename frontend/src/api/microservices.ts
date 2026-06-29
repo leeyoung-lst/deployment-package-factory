@@ -46,6 +46,10 @@ export interface MicroserviceScaffoldResult {
   buildCommand: string;
   deployCommand: string;
   jenkinsJob: string;
+  delivery: {
+    status: string;
+    steps: Array<{ name: string; status: string; message: string; target: string }>;
+  };
   generatedFiles: string[];
   validation: {
     passed: boolean;
@@ -72,6 +76,14 @@ export interface RegisteredMicroservice {
   imageRegistry: string;
   imageNamespace: string;
   image: string;
+  gitRepositoryUrl: string;
+  buildCommand: string;
+  deployCommand: string;
+  jenkinsJob: string;
+  delivery: {
+    status: string;
+    steps: Array<{ name: string; status: string; message: string; target: string }>;
+  };
   k8sNamespace: string;
   artifactName: string;
   artifactPath: string;

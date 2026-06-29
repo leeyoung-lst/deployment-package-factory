@@ -13,12 +13,14 @@ from deployment_package_factory.api.deployment_packages import (
 )
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
+from deployment_package_factory.services.microservices.delivery import prepare_microservice_delivery
 from deployment_package_factory.services.microservices.scaffold import (
     MicroserviceScaffoldOptions,
     MicroserviceScaffoldRequest,
     MicroserviceScaffoldResult,
     create_microservice_scaffold,
     find_scaffold_artifact,
+    find_scaffold_project_root,
     scaffold_options,
 )
 from deployment_package_factory.services.settings import SystemSettings, create_system_settings_repository
@@ -69,6 +71,8 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
         }
     )
     result = create_microservice_scaffold(enriched, output_dir=_output_dir())
+    project_root = find_scaffold_project_root(result.project_id, output_dir=_output_dir())
+    result.delivery = prepare_microservice_delivery(enriched, result, defaults, project_root)
     get_microservice_repository().upsert(enriched, result)
     return result
 
