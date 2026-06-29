@@ -62,6 +62,18 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/quality-gate.ps1" in names
     assert f"{root}/docs/quality-report.md" in names
     assert f"{root}/k8s/namespaces.yaml" in names
+    assert f"{root}/k8s/kustomization.yaml" in names
+    assert f"{root}/k8s/layers/README.md" in names
+    assert f"{root}/k8s/layers/00-platform/kustomization.yaml" in names
+    assert f"{root}/k8s/layers/00-platform/secrets.template.yaml" in names
+    assert f"{root}/k8s/layers/10-data/kustomization.yaml" in names
+    assert f"{root}/k8s/layers/10-data/deployments.yaml" in names
+    assert f"{root}/k8s/layers/30-edge/kustomization.yaml" in names
+    assert f"{root}/k8s/layers/30-edge/deployments.yaml" in names
+    assert f"{root}/k8s/layers/40-workflow-webui/kustomization.yaml" in names
+    assert f"{root}/k8s/layers/40-workflow-webui/deployments.yaml" in names
+    assert f"{root}/k8s/layers/60-apps/kustomization.yaml" in names
+    assert f"{root}/k8s/layers/60-apps/deployments.yaml" in names
     assert f"{root}/k8s/configmaps.yaml" in names
     assert f"{root}/k8s/secrets.template.yaml" in names
     assert f"{root}/k8s/pvcs.yaml" in names
@@ -130,10 +142,17 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     init_runner = (root / "init" / "run-init.sh").read_text(encoding="utf-8")
 
     assert "scripts/secret-check.sh" in k8s_install
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/00-platform"' in k8s_install
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/10-data"' in k8s_install
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/30-edge"' in k8s_install
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/40-workflow-webui"' in k8s_install
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/60-apps"' in k8s_install
     assert "scripts/secret-check.sh" in compose_install
     assert "init/run-init.sh" in compose_install
-    assert "SECRETS_FILE" in k8s_install
+    assert 'cp "${SCRIPT_DIR}/secrets.yaml" "${SCRIPT_DIR}/layers/00-platform/secrets.template.yaml"' in k8s_install
     assert "kubectl apply --dry-run=client" in k8s_dry_run
+    assert "layers/00-platform" in k8s_dry_run
+    assert "layers/60-apps" in k8s_dry_run
     assert "docker compose --env-file" in compose_dry_run
     assert "docker-compose.yml\" config" in compose_dry_run
     assert "DATABASE_PASSWORD=source-db-password" in compose_env
@@ -447,6 +466,21 @@ def test_project_defaults_drive_build_target_profile(tmp_path) -> None:
     assert deploy_values["targetProfile"]["namespacePrefix"] == "mes-prod"
     assert deploy_values["namespaces"]["basePublic"] == "mes-prod-base-public"
     assert deploy_values["namespaces"]["business"]["mes"] == "mes-prod-business-mes"
+    assert [layer["name"] for layer in deploy_values["k8s"]["layers"]] == [
+        "00-platform",
+        "10-data",
+        "20-observability",
+        "30-edge",
+        "40-workflow-webui",
+        "50-simulators",
+        "60-apps",
+    ]
+    layers = {layer["name"]: layer for layer in deploy_values["k8s"]["layers"]}
+    assert layers["00-platform"]["release"] == "local-ai-platform"
+    assert layers["10-data"]["enabled"] is True
+    assert "dm" in layers["10-data"]["components"]
+    assert layers["60-apps"]["release"] == "local-ai-apps"
+    assert "mes" in layers["60-apps"]["components"]
     assert deploy_values["database"]["key"] == "dm"
     assert deploy_values["validationSummary"]["packageIndexFileCount"] > 0
     assert any(item["key"] == "mes" and item["group"] == "business" for item in deploy_values["services"])

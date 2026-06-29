@@ -6,6 +6,15 @@ from pathlib import PurePosixPath
 
 
 DEFAULT_CONTAINER_PORT = 8080
+K8S_LAYERS: tuple[tuple[str, str], ...] = (
+    ("00-platform", "Platform bootstrap: namespaces, shared config, and externally managed secrets"),
+    ("10-data", "Data services: database, Redis, MinIO, Qdrant, and other data middleware"),
+    ("20-observability", "Observability services: Prometheus, Alertmanager, Grafana, and telemetry helpers"),
+    ("30-edge", "Edge services: IoTDB, MQTT broker, collectors, and collection metrics"),
+    ("40-workflow-webui", "Workflow and AI web UI services: Camunda, Elasticsearch, and Open WebUI"),
+    ("50-simulators", "Simulation services: HA collectors and machine tool simulators"),
+    ("60-apps", "Application services: backend, IAM, business services, frontend, ingress, and init jobs"),
+)
 
 
 @dataclass(frozen=True)
@@ -16,7 +25,8 @@ class RenderedDeploymentFile:
 
 
 def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
-    return [
+    layer_resources = _k8s_layer_resource_map(manifest)
+    files = [
         RenderedDeploymentFile(PurePosixPath("k8s/namespaces.yaml"), _k8s_namespaces(manifest)),
         RenderedDeploymentFile(PurePosixPath("k8s/configmaps.yaml"), _k8s_configmaps(manifest)),
         RenderedDeploymentFile(PurePosixPath("k8s/secrets.template.yaml"), _k8s_secrets(manifest)),
@@ -25,9 +35,11 @@ def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
         RenderedDeploymentFile(PurePosixPath("k8s/services.yaml"), _k8s_services(manifest)),
         RenderedDeploymentFile(PurePosixPath("k8s/ingress.yaml"), _k8s_ingress(manifest)),
         RenderedDeploymentFile(PurePosixPath("k8s/jobs/init-db.yaml"), _k8s_init_job(manifest)),
-        RenderedDeploymentFile(PurePosixPath("k8s/install.sh"), _k8s_install_script(), executable=True),
+        RenderedDeploymentFile(PurePosixPath("k8s/kustomization.yaml"), _k8s_root_kustomization(layer_resources)),
+        RenderedDeploymentFile(PurePosixPath("k8s/layers/README.md"), _k8s_layers_readme()),
+        RenderedDeploymentFile(PurePosixPath("k8s/install.sh"), _k8s_install_script(layer_resources), executable=True),
         RenderedDeploymentFile(PurePosixPath("k8s/uninstall.sh"), _k8s_uninstall_script(), executable=True),
-        RenderedDeploymentFile(PurePosixPath("k8s/dry-run.sh"), _k8s_dry_run_script(), executable=True),
+        RenderedDeploymentFile(PurePosixPath("k8s/dry-run.sh"), _k8s_dry_run_script(layer_resources), executable=True),
         RenderedDeploymentFile(PurePosixPath("docker-compose/docker-compose.yml"), _compose_yaml(manifest)),
         RenderedDeploymentFile(PurePosixPath("docker-compose/.env"), _env_defaults(manifest)),
         RenderedDeploymentFile(PurePosixPath("docker-compose/.env.template"), _env_template(manifest)),
@@ -38,6 +50,8 @@ def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
         RenderedDeploymentFile(PurePosixPath("scripts/secret-check.sh"), _secret_check_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("scripts/health-check.sh"), _health_check_script(manifest), executable=True),
     ]
+    files.extend(_k8s_layer_files(layer_resources))
+    return files
 
 
 def _k8s_namespaces(manifest: dict) -> str:
@@ -271,15 +285,159 @@ def _k8s_init_job(manifest: dict) -> str:
     )
 
 
-def _k8s_install_script() -> str:
-    files = [
-        "configmaps.yaml",
-        "pvcs.yaml",
-        "deployments.yaml",
-        "services.yaml",
-        "ingress.yaml",
-        "jobs/init-db.yaml",
+def _k8s_layer_files(layer_resources: dict[str, list[tuple[str, str]]]) -> list[RenderedDeploymentFile]:
+    files: list[RenderedDeploymentFile] = []
+    for layer, description in K8S_LAYERS:
+        resources = layer_resources.get(layer, [])
+        files.append(RenderedDeploymentFile(PurePosixPath(f"k8s/layers/{layer}/README.md"), _k8s_layer_readme(layer, description, resources)))
+        files.append(RenderedDeploymentFile(PurePosixPath(f"k8s/layers/{layer}/kustomization.yaml"), _k8s_layer_kustomization(layer, resources)))
+        for filename, content in resources:
+            files.append(RenderedDeploymentFile(PurePosixPath(f"k8s/layers/{layer}/{filename}"), content))
+    return files
+
+
+def _k8s_layer_resource_map(manifest: dict) -> dict[str, list[tuple[str, str]]]:
+    platform_resources = [
+        ("namespaces.yaml", _k8s_namespaces(manifest)),
+        ("configmaps.yaml", _k8s_configmaps(manifest)),
+        ("secrets.template.yaml", _k8s_secrets(manifest)),
     ]
+    data_keys = [key for key in _runtime_middleware_keys(manifest) if _k8s_layer_for_middleware(key) == "10-data"]
+    edge_keys = [key for key in _runtime_middleware_keys(manifest) if _k8s_layer_for_middleware(key) == "30-edge"]
+    workflow_keys = [key for key in _runtime_middleware_keys(manifest) if _k8s_layer_for_middleware(key) == "40-workflow-webui"]
+    apps = _service_specs(manifest)
+    return {
+        "00-platform": platform_resources,
+        "10-data": _k8s_middleware_resources(data_keys, manifest),
+        "20-observability": _k8s_observability_resources(manifest),
+        "30-edge": _k8s_middleware_resources(edge_keys, manifest),
+        "40-workflow-webui": _k8s_middleware_resources(workflow_keys, manifest),
+        "50-simulators": [],
+        "60-apps": [
+            ("deployments.yaml", _join_yaml_docs(_k8s_app_deployment(service) for service in apps)),
+            ("services.yaml", _join_yaml_docs(_k8s_service(service["name"], service["namespace"], service["port"]) for service in apps)),
+            ("ingress.yaml", _k8s_ingress(manifest)),
+            ("jobs-init-db.yaml", _k8s_init_job(manifest)),
+        ],
+    }
+
+
+def _k8s_layer_for_middleware(key: str) -> str:
+    if key in {"iotdb", "mqtt", "mqtt-broker", "mqtt-collector", "collection-metrics"}:
+        return "30-edge"
+    if key in {"camunda", "camunda-elasticsearch", "open-webui"}:
+        return "40-workflow-webui"
+    if key in {"monitoring", "prometheus", "grafana", "alertmanager"}:
+        return "20-observability"
+    return "10-data"
+
+
+def _k8s_middleware_resources(keys: list[str], manifest: dict) -> list[tuple[str, str]]:
+    if not keys:
+        return []
+    return [
+        ("pvcs.yaml", _k8s_pvcs_for_keys(keys, manifest)),
+        ("deployments.yaml", _join_yaml_docs(_k8s_middleware_deployment(key, manifest) for key in keys)),
+        ("services.yaml", _join_yaml_docs(_k8s_service(key, _middleware_namespace(manifest), _middleware_port(key, manifest)) for key in keys)),
+    ]
+
+
+def _k8s_observability_resources(manifest: dict) -> list[tuple[str, str]]:
+    if "monitoring" not in _runtime_middleware_keys(manifest):
+        return []
+    return _k8s_middleware_resources(["monitoring"], manifest)
+
+
+def _k8s_pvcs_for_keys(keys: list[str], manifest: dict) -> str:
+    docs = []
+    for key in keys:
+        docs.append(
+            "apiVersion: v1\n"
+            "kind: PersistentVolumeClaim\n"
+            "metadata:\n"
+            f"  name: {key}-data\n"
+            f"  namespace: {_middleware_namespace(manifest)}\n"
+            "spec:\n"
+            "  accessModes:\n"
+            "    - ReadWriteOnce\n"
+            "  resources:\n"
+            "    requests:\n"
+            "      storage: 20Gi\n"
+            f"{_storage_class_block(manifest)}"
+        )
+    return _join_yaml_docs(docs)
+
+
+def _k8s_root_kustomization(layer_resources: dict[str, list[tuple[str, str]]]) -> str:
+    resources = [
+        f"  - layers/{layer}"
+        for layer, _description in K8S_LAYERS
+        if layer_resources.get(layer)
+    ]
+    return "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n" + "\n".join(resources) + "\n"
+
+
+def _k8s_layer_kustomization(layer: str, resources: list[tuple[str, str]]) -> str:
+    if not resources:
+        return (
+            "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+            "kind: Kustomization\n"
+            "resources: []\n"
+            f"# {layer} has no selected resources in this package.\n"
+        )
+    lines = [
+        "apiVersion: kustomize.config.k8s.io/v1beta1",
+        "kind: Kustomization",
+        "resources:",
+    ]
+    lines.extend(f"  - {filename}" for filename, _content in resources)
+    return "\n".join(lines) + "\n"
+
+
+def _k8s_layers_readme() -> str:
+    lines = [
+        "# K8s Layers",
+        "",
+        "The package mirrors the source K8s stack layering used by the local-ai environment.",
+        "Apply layers in order; empty layers are retained as extension points for future middleware.",
+        "",
+    ]
+    lines.extend(f"- `{layer}`: {description}" for layer, description in K8S_LAYERS)
+    return "\n".join(lines) + "\n"
+
+
+def _k8s_layer_readme(layer: str, description: str, resources: list[tuple[str, str]]) -> str:
+    lines = [
+        f"# {layer}",
+        "",
+        description,
+        "",
+        "Resources:",
+    ]
+    if resources:
+        lines.extend(f"- `{filename}`" for filename, _content in resources)
+    else:
+        lines.append("- None selected for this package.")
+    return "\n".join(lines) + "\n"
+
+
+def _k8s_apply_layer_commands(layer_resources: dict[str, list[tuple[str, str]]], prefix: str = "") -> list[str]:
+    return [
+        f'{prefix}kubectl apply -k "${{SCRIPT_DIR}}/layers/{layer}"'
+        for layer, _description in K8S_LAYERS
+        if layer_resources.get(layer)
+    ]
+
+
+def _k8s_dry_run_layer_commands(layer_resources: dict[str, list[tuple[str, str]]], prefix: str = "") -> list[str]:
+    return [
+        f'{prefix}kubectl apply --dry-run=client -k "${{SCRIPT_DIR}}/layers/{layer}"'
+        for layer, _description in K8S_LAYERS
+        if layer_resources.get(layer)
+    ]
+
+
+def _k8s_install_script(layer_resources: dict[str, list[tuple[str, str]]]) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -287,28 +445,15 @@ def _k8s_install_script() -> str:
         'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"',
         '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" k8s',
         '"${PACKAGE_ROOT}/scripts/secret-check.sh" k8s',
-        'SECRETS_FILE="${SCRIPT_DIR}/secrets.yaml"',
-        'if [ ! -f "${SECRETS_FILE}" ]; then',
-        '  SECRETS_FILE="${SCRIPT_DIR}/secrets.template.yaml"',
+        'if [ -f "${SCRIPT_DIR}/secrets.yaml" ]; then',
+        '  cp "${SCRIPT_DIR}/secrets.yaml" "${SCRIPT_DIR}/layers/00-platform/secrets.template.yaml"',
         "fi",
-        'kubectl apply -f "${SCRIPT_DIR}/namespaces.yaml"',
     ]
-    lines.append('kubectl apply -f "${SECRETS_FILE}"')
-    lines.extend(f'kubectl apply -f "${{SCRIPT_DIR}}/{item}"' for item in files)
+    lines.extend(_k8s_apply_layer_commands(layer_resources))
     return "\n".join(lines) + "\n"
 
 
-def _k8s_dry_run_script() -> str:
-    files = [
-        "namespaces.yaml",
-        "secrets.template.yaml",
-        "configmaps.yaml",
-        "pvcs.yaml",
-        "deployments.yaml",
-        "services.yaml",
-        "ingress.yaml",
-        "jobs/init-db.yaml",
-    ]
+def _k8s_dry_run_script(layer_resources: dict[str, list[tuple[str, str]]]) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -316,7 +461,7 @@ def _k8s_dry_run_script() -> str:
         'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"',
         '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" k8s',
     ]
-    lines.extend(f'kubectl apply --dry-run=client -f "${{SCRIPT_DIR}}/{item}"' for item in files)
+    lines.extend(_k8s_dry_run_layer_commands(layer_resources))
     return "\n".join(lines) + "\n"
 
 

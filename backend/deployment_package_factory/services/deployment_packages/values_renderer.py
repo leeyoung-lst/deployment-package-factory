@@ -24,6 +24,9 @@ def render_values_files(manifest: dict) -> list[RenderedValuesFile]:
         "imageMode": manifest.get("imageMode") or "image-manifest",
         "targetProfile": manifest.get("targetProfile") or {},
         "namespaces": _namespaces(manifest),
+        "k8s": {
+            "layers": _k8s_layers(manifest),
+        },
         "database": {
             "key": manifest.get("database") or "",
             "image": manifest.get("databaseImage") or "",
@@ -83,6 +86,42 @@ def _middleware(manifest: dict) -> list[dict]:
         }
         for key in manifest.get("middleware", [])
     ]
+
+
+def _k8s_layers(manifest: dict) -> list[dict]:
+    layer_specs = [
+        ("00-platform", "local-ai-platform", ["namespaces", "configmaps", "secrets"]),
+        ("10-data", "local-ai-data", [key for key in _runtime_middleware_keys(manifest) if _k8s_layer_for_middleware(key) == "10-data"]),
+        ("20-observability", "local-ai-observability", [key for key in _runtime_middleware_keys(manifest) if _k8s_layer_for_middleware(key) == "20-observability"]),
+        ("30-edge", "local-ai-edge", [key for key in _runtime_middleware_keys(manifest) if _k8s_layer_for_middleware(key) == "30-edge"]),
+        ("40-workflow-webui", "local-ai-workflow-webui", [key for key in _runtime_middleware_keys(manifest) if _k8s_layer_for_middleware(key) == "40-workflow-webui"]),
+        ("50-simulators", "local-ai-simulators-ha", []),
+        ("60-apps", "local-ai-apps", [*manifest.get("platformServices", []), *manifest.get("businessServices", [])]),
+    ]
+    return [
+        {
+            "name": name,
+            "release": release,
+            "enabled": bool(components),
+            "components": components,
+        }
+        for name, release, components in layer_specs
+    ]
+
+
+def _runtime_middleware_keys(manifest: dict) -> list[str]:
+    keys = [manifest.get("database") or "", *manifest.get("middleware", [])]
+    return [key for key in dict.fromkeys(keys) if key]
+
+
+def _k8s_layer_for_middleware(key: str) -> str:
+    if key in {"iotdb", "mqtt", "mqtt-broker", "mqtt-collector", "collection-metrics"}:
+        return "30-edge"
+    if key in {"camunda", "camunda-elasticsearch", "open-webui"}:
+        return "40-workflow-webui"
+    if key in {"monitoring", "prometheus", "grafana", "alertmanager"}:
+        return "20-observability"
+    return "10-data"
 
 
 def _images(manifest: dict) -> list[dict]:

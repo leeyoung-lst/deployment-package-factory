@@ -8,6 +8,10 @@ def test_render_deployment_files_declares_expected_paths_and_executable_flags() 
     by_path = {item.path.as_posix(): item for item in files}
 
     assert "k8s/namespaces.yaml" in by_path
+    assert "k8s/kustomization.yaml" in by_path
+    assert "k8s/layers/00-platform/kustomization.yaml" in by_path
+    assert "k8s/layers/10-data/kustomization.yaml" in by_path
+    assert "k8s/layers/60-apps/kustomization.yaml" in by_path
     assert "k8s/install.sh" in by_path
     assert "docker-compose/docker-compose.yml" in by_path
     assert "docker-compose/.env" in by_path
@@ -27,6 +31,19 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "name: prod-base-public" in by_path["k8s/namespaces.yaml"]
     assert "name: prod-business-eam" in by_path["k8s/namespaces.yaml"]
     assert "harbor.example.com/prod/local-ai-eam-service:prod" in by_path["k8s/deployments.yaml"]
+    assert "layers/00-platform" in by_path["k8s/kustomization.yaml"]
+    assert "layers/10-data" in by_path["k8s/kustomization.yaml"]
+    assert "layers/60-apps" in by_path["k8s/kustomization.yaml"]
+    assert "layers/30-edge" not in by_path["k8s/kustomization.yaml"]
+    assert "layers/40-workflow-webui" not in by_path["k8s/kustomization.yaml"]
+    assert "secrets.template.yaml" in by_path["k8s/layers/00-platform/kustomization.yaml"]
+    assert "name: postgres" in by_path["k8s/layers/10-data/deployments.yaml"]
+    assert "name: local-ai-eam-service" in by_path["k8s/layers/60-apps/deployments.yaml"]
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/00-platform"' in by_path["k8s/install.sh"]
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/10-data"' in by_path["k8s/install.sh"]
+    assert 'kubectl apply -k "${SCRIPT_DIR}/layers/60-apps"' in by_path["k8s/install.sh"]
+    assert by_path["k8s/install.sh"].find("layers/00-platform") < by_path["k8s/install.sh"].find("layers/10-data")
+    assert by_path["k8s/install.sh"].find("layers/10-data") < by_path["k8s/install.sh"].find("layers/60-apps")
     assert "harbor.example.com/prod/postgres:16" in by_path["docker-compose/docker-compose.yml"]
     assert "DATABASE_PASSWORD=source-db-password" in by_path["docker-compose/.env"]
     assert "MINIO_ROOT_PASSWORD=source-minio-password" in by_path["docker-compose/.env"]
