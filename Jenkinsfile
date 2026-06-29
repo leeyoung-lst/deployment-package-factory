@@ -228,11 +228,15 @@ EOF
         sh '''
           set -eux
           export KUBECONFIG="${KUBECONFIG_PATH}"
-          kubectl -n "${NAMESPACE}" wait --for=condition=Ready pod -l app.kubernetes.io/component=backend --timeout=120s
+          kubectl rollout status deployment/deployment-package-factory-backend -n "${NAMESPACE}" --timeout=240s
           POD=$(kubectl -n "${NAMESPACE}" get pod -l app.kubernetes.io/component=backend \
             --field-selector=status.phase=Running \
             -o jsonpath='{.items[?(@.status.containerStatuses[0].ready==true)].metadata.name}' | awk '{print $1}')
-          test -n "$POD"
+          if [ -z "$POD" ]; then
+            kubectl -n "${NAMESPACE}" get pods -l app.kubernetes.io/component=backend -o wide
+            kubectl -n "${NAMESPACE}" describe deployment deployment-package-factory-backend
+            exit 1
+          fi
           kubectl -n "${NAMESPACE}" exec "$POD" -- python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8096/health', timeout=20).read().decode())"
           kubectl -n "${NAMESPACE}" exec "$POD" -- python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8096/metrics', timeout=20); print(r.status); print(r.read().decode()[:300])"
           kubectl -n "${NAMESPACE}" exec "$POD" -- python -c "import urllib.request; req=urllib.request.Request('http://127.0.0.1:8096/api/deployment-packages/options', headers={'Authorization':'Bearer ${DPF_API_TOKEN}'}); r=urllib.request.urlopen(req, timeout=20); print(r.status); print(r.read().decode()[:300])"

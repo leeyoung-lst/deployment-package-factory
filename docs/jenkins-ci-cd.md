@@ -44,7 +44,7 @@
 5. `Ensure Test Namespace`：创建 namespace 与 Harbor 拉取 Secret。
 6. `Ensure Test Postgres`：测试环境创建命名空间内 Postgres，生产环境建议关闭并改用外部 PostgreSQL。
 7. `Deploy to K8s`：可选部署并等待 rollout。
-8. `Smoke Test`：在 backend Pod 内验证 `/health`、`/metrics`、`/api/deployment-packages/options`。
+8. `Smoke Test`：等待 backend Deployment rollout 完成，选择一个 Running 且 Ready 的 backend Pod，在 Pod 内验证 `/health`、`/metrics`、`/api/deployment-packages/options`。烟测不按 Pod label 等待全部 Pod Ready，避免滚动更新期间旧 Pod 与新 Pod 同时匹配导致误超时。
 
 流水线结束时会删除 `deploy/generated/factory.env`、`deploy/k8s/secret.yaml` 和临时渲染文件，避免数据库连接串或 API token 被归档。Jenkins 只归档 `deploy/generated/kustomization.yaml` 与 `deploy/generated/pvc-storage-class-patch.yaml` 作为可审计的部署配置摘要。
 
