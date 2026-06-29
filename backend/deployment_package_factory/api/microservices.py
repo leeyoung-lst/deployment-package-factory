@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from deployment_package_factory.auth import require_api_token
-from deployment_package_factory.api.deployment_packages import get_business_platform_repository
+from deployment_package_factory.api.deployment_packages import get_business_platform_repository, get_microservice_repository
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.microservices.scaffold import (
     MicroserviceScaffoldOptions,
@@ -16,8 +16,6 @@ from deployment_package_factory.services.microservices.scaffold import (
     find_scaffold_artifact,
     scaffold_options,
 )
-
-
 router = APIRouter(
     prefix="/api/microservices",
     tags=["microservices"],
@@ -55,7 +53,22 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
             "image_namespace": payload.image_namespace or platform.key,
         }
     )
-    return create_microservice_scaffold(enriched, output_dir=_output_dir())
+    result = create_microservice_scaffold(enriched, output_dir=_output_dir())
+    get_microservice_repository().upsert(enriched, result)
+    return result
+
+
+@router.get("")
+async def list_microservices(
+    source_env: str | None = None,
+    business_platform_key: str | None = None,
+    business_platform_profile: str | None = None,
+) -> list[dict]:
+    return get_microservice_repository().list(
+        source_env=source_env,
+        business_platform_key=business_platform_key,
+        business_platform_profile=business_platform_profile,
+    )
 
 
 @router.get("/{project_id}/download")

@@ -44,6 +44,34 @@ export interface MicroserviceScaffoldResult {
   generatedFiles: string[];
 }
 
+export interface RegisteredMicroservice {
+  projectId: string;
+  serviceKey: string;
+  serviceName: string;
+  description: string;
+  projectKind: string;
+  techStack: string;
+  port: number;
+  middleware: string[];
+  sourceEnv: SourceEnv;
+  businessPlatformKey: string;
+  businessPlatformProfile: string;
+  businessPlatformName: string;
+  businessPlatformNamespace: string;
+  gitGroup: string;
+  imageRegistry: string;
+  imageNamespace: string;
+  image: string;
+  k8sNamespace: string;
+  artifactName: string;
+  artifactPath: string;
+  sha256: string;
+  generatedFiles: string[];
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export function getMicroserviceScaffoldOptions() {
   return request<MicroserviceScaffoldOptions>("/api/microservices/options");
 }
@@ -53,6 +81,19 @@ export function registerMicroservice(payload: MicroserviceScaffoldRequest) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function listMicroservices(params?: {
+  sourceEnv?: SourceEnv;
+  businessPlatformKey?: string;
+  businessPlatformProfile?: string;
+}) {
+  const search = new URLSearchParams();
+  if (params?.sourceEnv) search.set("source_env", params.sourceEnv);
+  if (params?.businessPlatformKey) search.set("business_platform_key", params.businessPlatformKey);
+  if (params?.businessPlatformProfile) search.set("business_platform_profile", params.businessPlatformProfile);
+  const query = search.toString();
+  return request<RegisteredMicroservice[]>(`/api/microservices${query ? `?${query}` : ""}`);
 }
 
 export function downloadMicroserviceScaffold(projectId: string) {

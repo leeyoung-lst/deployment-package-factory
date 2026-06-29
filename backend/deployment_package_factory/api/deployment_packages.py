@@ -38,6 +38,7 @@ from deployment_package_factory.services.deployment_packages.repositories import
 from deployment_package_factory.services.deployment_packages.repositories import create_business_platform_repository
 from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime, with_runtime_projects
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
+from deployment_package_factory.services.microservices.repository import MicroserviceRepository
 
 LOGGER = logging.getLogger(__name__)
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
@@ -54,6 +55,7 @@ _BUSINESS_PLATFORM_REPO = create_business_platform_repository(
     database_url=_SETTINGS.database_url,
     sqlite_path=_SETTINGS.business_platform_db_path,
 )
+_MICROSERVICE_REPO = MicroserviceRepository(_SETTINGS.microservice_db_path)
 _TASK_EXECUTOR = PackageTaskExecutor(
     _TASK_REPO,
     PackageTaskExecutorConfig(
@@ -77,6 +79,10 @@ def get_business_platform_repository():
     return _BUSINESS_PLATFORM_REPO
 
 
+def get_microservice_repository() -> MicroserviceRepository:
+    return _MICROSERVICE_REPO
+
+
 def get_task_executor() -> PackageTaskExecutor:
     return _TASK_EXECUTOR
 
@@ -96,6 +102,7 @@ async def deployment_package_options() -> dict:
         "businessServices": runtime_options.business_services,
         "databaseOptions": runtime_options.database_options,
         "middleware": runtime_options.middleware,
+        "microservices": get_microservice_repository().list(),
         "projects": runtime_options.projects,
     }
 

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from deployment_package_factory.api import deployment_packages, microservices
 from deployment_package_factory.services.deployment_packages.business_platform_repository import BusinessPlatformRepository
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
+from deployment_package_factory.services.microservices.repository import MicroserviceRepository
 
 
 def _client() -> TestClient:
@@ -43,6 +44,7 @@ def test_register_microservice_requires_registered_business_platform(tmp_path, m
 def test_register_microservice_generates_fastapi_project_for_business_platform(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
     repo = BusinessPlatformRepository(tmp_path / "business-platforms.sqlite3")
+    microservice_repo = MicroserviceRepository(tmp_path / "microservices.sqlite3")
     repo.upsert_registered(
         RegisteredBusinessPlatform(
             key="eam",
@@ -54,6 +56,7 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         )
     )
     monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
 
     response = _client().post(
         "/api/microservices",
@@ -95,3 +98,19 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert "BUSINESS_PLATFORM_KEY=eam" in env_template
     assert "BUSINESS_PLATFORM_NAMESPACE=test-biz-eam-4x60" in env_template
     assert "business-platform: eam" in deployment
+
+    listed = _client().get("/api/microservices?source_env=test&business_platform_key=eam&business_platform_profile=4x60")
+
+    assert listed.status_code == 200, listed.text
+    services = listed.json()
+    assert len(services) == 1
+    assert services[0]["serviceKey"] == "asset-service"
+    assert services[0]["businessPlatformNamespace"] == "test-biz-eam-4x60"
+    assert services[0]["image"] == "registry.local/business/asset-service"
+
+    app = FastAPI()
+    app.include_router(deployment_packages.router)
+    options = TestClient(app).get("/api/deployment-packages/options")
+
+    assert options.status_code == 200, options.text
+    assert options.json()["microservices"][0]["serviceKey"] == "asset-service"

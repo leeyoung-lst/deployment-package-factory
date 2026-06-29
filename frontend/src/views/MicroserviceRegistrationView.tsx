@@ -3,9 +3,11 @@ import { App, Button, Checkbox, Empty, Form, Input, InputNumber, Select, Space, 
 import {
   downloadMicroserviceScaffold,
   getMicroserviceScaffoldOptions,
+  listMicroservices,
   registerMicroservice,
   type MicroserviceScaffoldOptions,
   type MicroserviceScaffoldResult,
+  type RegisteredMicroservice,
 } from "../api/microservices";
 import { getDeploymentPackageOptions, type DeploymentPackageOptions, type DeploymentServiceOption, type SourceEnv } from "../api/deploymentPackages";
 import styles from "./MicroserviceRegistrationView.module.css";
@@ -34,6 +36,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<MicroserviceScaffoldResult | null>(null);
+  const [registeredServices, setRegisteredServices] = useState<RegisteredMicroservice[]>([]);
   const sourceEnv = Form.useWatch("sourceEnv", form) as SourceEnv | undefined;
   const businessPlatforms = useMemo(
     () => (deploymentOptions?.businessServices ?? []).filter((item) => item.registered && item.status !== "disabled" && item.sourceEnv === (sourceEnv || DEFAULT_VALUES.sourceEnv)),
@@ -53,6 +56,8 @@ export const MicroserviceRegistrationView: React.FC = () => {
       ]);
       setOptions(scaffoldOptions);
       setDeploymentOptions(packageOptions);
+      const services = await listMicroservices();
+      setRegisteredServices(services);
       const firstPlatform = packageOptions.businessServices.find((item) => item.registered && item.status !== "disabled");
       form.setFieldsValue({
         ...DEFAULT_VALUES,
@@ -88,6 +93,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
         k8sNamespace: values.k8sNamespace || "",
       });
       setResult(payload);
+      setRegisteredServices(await listMicroservices());
       message.success("微服务项目已生成");
     } catch (error) {
       if (error instanceof Error) message.error(error.message);
@@ -176,7 +182,10 @@ export const MicroserviceRegistrationView: React.FC = () => {
       </Spin>
 
       <div className={styles.panel}>
-        <h3 className={styles.sectionTitle}>生成结果</h3>
+        <div className={styles.panelTitleRow}>
+          <h3 className={styles.sectionTitle}>生成结果</h3>
+          <Button size="small" icon={<i className="ri-refresh-line" />} onClick={() => void listMicroservices().then(setRegisteredServices)}>刷新列表</Button>
+        </div>
         {result ? (
           <div className={styles.resultGrid}>
             <div className={styles.resultRow}>
@@ -217,6 +226,26 @@ export const MicroserviceRegistrationView: React.FC = () => {
           </div>
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="注册后显示项目下载信息" />
+        )}
+        <h3 className={styles.sectionTitle}>已注册微服务</h3>
+        {registeredServices.length ? (
+          <div className={styles.serviceList}>
+            {registeredServices.map((item) => (
+              <div key={`${item.sourceEnv}-${item.businessPlatformKey}-${item.businessPlatformProfile}-${item.serviceKey}`} className={styles.serviceItem}>
+                <span>
+                  <strong>{item.serviceName}</strong>
+                  <span className={styles.mono}>{item.serviceKey}</span>
+                </span>
+                <span>
+                  <Tag color="purple">{item.businessPlatformName}</Tag>
+                  <Tag color="blue">{item.sourceEnv}</Tag>
+                </span>
+                <span className={styles.mono}>{item.image}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无已注册微服务" />
         )}
       </div>
     </div>

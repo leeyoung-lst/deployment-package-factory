@@ -37,7 +37,21 @@ export interface DeploymentPackageOptions {
   businessServices: DeploymentServiceOption[];
   databaseOptions: DatabaseOption[];
   middleware: MiddlewareOption[];
+  microservices: RegisteredDeploymentMicroservice[];
   projects: ProjectProfile[];
+}
+
+export interface RegisteredDeploymentMicroservice {
+  projectId: string;
+  serviceKey: string;
+  serviceName: string;
+  sourceEnv: SourceEnv;
+  businessPlatformKey: string;
+  businessPlatformProfile: string;
+  businessPlatformNamespace: string;
+  image: string;
+  k8sNamespace: string;
+  status: string;
 }
 
 export interface BusinessSelection {
