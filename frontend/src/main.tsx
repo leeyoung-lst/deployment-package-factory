@@ -6,6 +6,7 @@ import { Tabs } from "antd";
 import "remixicon/fonts/remixicon.css";
 import "./styles/global.css";
 import { DeploymentPackageExportView } from "./views/DeploymentPackageExportView";
+import { EnvironmentResetView } from "./views/EnvironmentResetView";
 import { MicroserviceRegistrationView } from "./views/MicroserviceRegistrationView";
 import { SystemSettingsView } from "./views/SystemSettingsView";
 
@@ -45,6 +46,23 @@ const appItems = [
         </div>
         <div className="panel-body">
           <SystemSettingsView />
+        </div>
+      </section>
+    ),
+  },
+  {
+    key: "environment-reset",
+    label: "环境清理",
+    children: (
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>环境清理</h2>
+            <p>预览并重置导包工厂任务、审计、注册数据和部署包产物</p>
+          </div>
+        </div>
+        <div className="panel-body">
+          <EnvironmentResetView />
         </div>
       </section>
     ),

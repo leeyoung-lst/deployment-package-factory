@@ -11,6 +11,7 @@ from deployment_package_factory.api.deployment_packages import (
     get_task_repository,
     router as deployment_packages_router,
 )
+from deployment_package_factory.api.environment_reset import router as environment_reset_router
 from deployment_package_factory.api.microservices import router as microservices_router
 from deployment_package_factory.api.settings import router as settings_router
 from deployment_package_factory.metrics import render_metrics
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(deployment_packages_router)
+    app.include_router(environment_reset_router)
     app.include_router(microservices_router)
     app.include_router(settings_router)
 
