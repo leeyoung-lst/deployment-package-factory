@@ -43,6 +43,26 @@ const DEFAULT_TARGET = {
 };
 type TargetDraft = typeof DEFAULT_TARGET & { imageMode?: "image-manifest" | "image-archive" };
 const DEFAULT_IMAGE_MODE: TargetDraft["imageMode"] = "image-archive";
+type PreviewDependencyItem = PackagePreview["middleware"][number];
+type DependencyGraphNodeKind = "business" | "platform" | "middleware" | "database";
+type DependencyGraphNode = {
+  id: string;
+  key: string;
+  label: string;
+  kind: DependencyGraphNodeKind;
+  detail?: string;
+};
+type DependencyGraphEdge = {
+  from: string;
+  to: string;
+  kind: "platform" | "middleware";
+};
+type DependencyGraphModel = {
+  businessNodes: DependencyGraphNode[];
+  platformNodes: DependencyGraphNode[];
+  middlewareNodes: DependencyGraphNode[];
+  edges: DependencyGraphEdge[];
+};
 
 export const DeploymentPackageExportView: React.FC = () => {
   const { message } = App.useApp();
@@ -1156,6 +1176,7 @@ function PreviewSummary({ preview, project, targetProfile }: { preview: PackageP
           <div className={`${styles.mono} ${styles.imageList}`}>{preview.database.image}</div>
         </div>
       </div>
+      <DependencyGraph preview={preview} />
       {preview.warnings.length ? (
         <div className={styles.previewBlock}>
           <h3>提示</h3>
@@ -1201,6 +1222,192 @@ function PreviewSummary({ preview, project, targetProfile }: { preview: PackageP
       </div>
     </div>
   );
+}
+
+function DependencyGraph({ preview }: { preview: PackagePreview }) {
+  const graph = useMemo(() => buildDependencyGraph(preview), [preview]);
+  const columns = [
+    { key: "business", title: "业务平台", nodes: graph.businessNodes },
+    { key: "platform", title: "基础平台 Pod", nodes: graph.platformNodes },
+    { key: "middleware", title: "中间件 / 数据库", nodes: graph.middlewareNodes },
+  ];
+  const rowHeight = 56;
+  const firstRowY = 60;
+  const graphHeight = Math.max(1, ...columns.map((column) => column.nodes.length)) * rowHeight + 28;
+  const nodePositions = new Map<string, { column: number; index: number }>();
+  columns.forEach((column, columnIndex) => {
+    column.nodes.forEach((node, index) => nodePositions.set(node.id, { column: columnIndex, index }));
+  });
+  const xPoints = [
+    { from: 274, to: 36 },
+    { from: 586, to: 314 },
+    { from: 864, to: 626 },
+  ];
+  const pointFor = (nodeId: string, side: "from" | "to") => {
+    const position = nodePositions.get(nodeId);
+    if (!position) return null;
+    return {
+      x: xPoints[position.column][side],
+      y: firstRowY + position.index * rowHeight,
+      column: position.column,
+    };
+  };
+  return (
+    <div className={`${styles.previewBlock} ${styles.dependencyGraphBlock}`}>
+      <div className={styles.graphHeader}>
+        <h3>依赖关系图</h3>
+        <div className={styles.graphLegend}>
+          <span><i className={styles.graphLegendBusiness} />业务</span>
+          <span><i className={styles.graphLegendPlatform} />平台</span>
+          <span><i className={styles.graphLegendMiddleware} />中间件</span>
+          <span><i className={styles.graphLegendDatabase} />数据库</span>
+        </div>
+      </div>
+      <div className={styles.graphScroller}>
+        <div className={styles.graphCanvas} style={{ height: graphHeight }}>
+          {graph.edges.length ? (
+            <svg className={styles.graphEdges} viewBox={`0 0 900 ${graphHeight}`} preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <marker id="dependencyGraphArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+              </defs>
+              {graph.edges.map((edge) => {
+                const from = pointFor(edge.from, "from");
+                const to = pointFor(edge.to, "to");
+                if (!from || !to) return null;
+                if (from.column === to.column) {
+                  const loopX = from.x + 28;
+                  return (
+                    <path
+                      key={`${edge.from}-${edge.to}`}
+                      className={styles.graphEdgePlatform}
+                      d={`M ${from.x} ${from.y} C ${loopX} ${from.y}, ${loopX} ${to.y}, ${from.x} ${to.y}`}
+                      markerEnd="url(#dependencyGraphArrow)"
+                    />
+                  );
+                }
+                if (from.x >= to.x) return null;
+                const curve = Math.max(70, (to.x - from.x) / 2);
+                return (
+                  <path
+                    key={`${edge.from}-${edge.to}`}
+                    className={edge.kind === "platform" ? styles.graphEdgePlatform : styles.graphEdgeMiddleware}
+                    d={`M ${from.x} ${from.y} C ${from.x + curve} ${from.y}, ${to.x - curve} ${to.y}, ${to.x} ${to.y}`}
+                    markerEnd="url(#dependencyGraphArrow)"
+                  />
+                );
+              })}
+            </svg>
+          ) : null}
+          {columns.map((column) => (
+            <div className={styles.graphColumn} key={column.key}>
+              <div className={styles.graphColumnTitle}>{column.title}</div>
+              <div className={styles.graphNodeList}>
+                {column.nodes.length ? column.nodes.map((node) => <DependencyGraphNodeView key={node.id} node={node} />) : <div className={styles.graphEmpty}>未选择</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DependencyGraphNodeView({ node }: { node: DependencyGraphNode }) {
+  const className = `${styles.graphNode} ${graphNodeClassName(node.kind)}`;
+  return (
+    <div className={className} title={node.detail || node.label}>
+      <i className={graphNodeIcon(node.kind)} />
+      <span className={styles.graphNodeText}>
+        <strong>{node.label}</strong>
+        <span>{node.detail || node.key}</span>
+      </span>
+    </div>
+  );
+}
+
+function buildDependencyGraph(preview: PackagePreview): DependencyGraphModel {
+  const businessNodes = preview.businessServices.map((item) => toGraphNode("business", item));
+  const platformNodes = preview.platformServices.map((item) => toGraphNode("platform", item));
+  const middlewareNodes = mergeMiddlewareNodes(preview);
+  const sourceNodeIdsByKey = new Map<string, string[]>();
+  const platformNodeIdsByKey = new Map<string, string>();
+  const addSourceNode = (node: DependencyGraphNode) => {
+    const nodes = sourceNodeIdsByKey.get(node.key) ?? [];
+    nodes.push(node.id);
+    sourceNodeIdsByKey.set(node.key, nodes);
+  };
+  businessNodes.forEach(addSourceNode);
+  platformNodes.forEach((node) => {
+    addSourceNode(node);
+    platformNodeIdsByKey.set(node.key, node.id);
+  });
+
+  const edges: DependencyGraphEdge[] = [];
+  const edgeKeys = new Set<string>();
+  const addEdge = (from: string, to: string, kind: DependencyGraphEdge["kind"]) => {
+    if (from === to) return;
+    const key = `${from}->${to}`;
+    if (edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    edges.push({ from, to, kind });
+  };
+
+  preview.platformServices.forEach((item) => {
+    const targetId = platformNodeIdsByKey.get(item.key);
+    if (!targetId) return;
+    item.requiredBy.forEach((requiredBy) => {
+      (sourceNodeIdsByKey.get(requiredBy) ?? []).forEach((sourceId) => addEdge(sourceId, targetId, "platform"));
+    });
+  });
+  preview.middleware.forEach((item) => {
+    const targetId = middlewareNodes.find((node) => node.key === item.key)?.id;
+    if (!targetId) return;
+    item.requiredBy.forEach((requiredBy) => {
+      (sourceNodeIdsByKey.get(requiredBy) ?? []).forEach((sourceId) => addEdge(sourceId, targetId, "middleware"));
+    });
+  });
+
+  return { businessNodes, platformNodes, middlewareNodes, edges };
+}
+
+function mergeMiddlewareNodes(preview: PackagePreview): DependencyGraphNode[] {
+  const nodes = preview.middleware.map((item) => toGraphNode(item.key === preview.database.key ? "database" : "middleware", item));
+  if (!nodes.some((node) => node.key === preview.database.key)) {
+    nodes.push({
+      id: `database:${preview.database.key}`,
+      key: preview.database.key,
+      label: preview.database.name,
+      kind: "database",
+      detail: preview.database.image,
+    });
+  }
+  return nodes;
+}
+
+function toGraphNode(kind: DependencyGraphNodeKind, item: PreviewDependencyItem): DependencyGraphNode {
+  return {
+    id: `${kind}:${item.key}`,
+    key: item.key,
+    label: item.name,
+    kind,
+    detail: item.namespace || item.reason || item.key,
+  };
+}
+
+function graphNodeClassName(kind: DependencyGraphNodeKind) {
+  if (kind === "business") return styles.graphNodeBusiness;
+  if (kind === "platform") return styles.graphNodePlatform;
+  if (kind === "database") return styles.graphNodeDatabase;
+  return styles.graphNodeMiddleware;
+}
+
+function graphNodeIcon(kind: DependencyGraphNodeKind) {
+  if (kind === "business") return "ri-building-4-line";
+  if (kind === "platform") return "ri-apps-2-line";
+  if (kind === "database") return "ri-database-2-line";
+  return "ri-server-line";
 }
 
 function taskStatusColor(status: PackageTask["status"]) {
