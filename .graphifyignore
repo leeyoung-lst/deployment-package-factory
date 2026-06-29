@@ -1,0 +1,9 @@
+# Keep graphify code-only so it can run without an LLM API key.
+*.md
+*.mdx
+*.txt
+*.rst
+*.html
+*.yaml
+*.yml
+*.bpmn

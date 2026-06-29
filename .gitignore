@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 data/
+graphify-out/
 *.sqlite3
 *.tar
 *.tar.gz
