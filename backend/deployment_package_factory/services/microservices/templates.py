@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from deployment_package_factory.services.microservices.middleware_plugins import (
+    env_placeholder_lines,
+    middleware_catalog,
+    middleware_ts,
+    middleware_yaml,
+)
 
 PROJECT_KINDS = {
     "backend": "后端微服务",
@@ -30,15 +36,7 @@ TECH_STACK_PROJECT_KIND = {
     "wujie": "microfrontend",
 }
 
-MIDDLEWARE = {
-    "redis": "Redis",
-    "dm": "达梦 DM",
-    "postgresql": "PostgreSQL",
-    "iotdb": "IoTDB",
-    "mongodb": "MongoDB",
-    "kafka": "Kafka",
-    "mq": "消息队列 MQ",
-}
+MIDDLEWARE = middleware_catalog()
 
 
 @dataclass(frozen=True)
@@ -107,7 +105,7 @@ def _common_files(context: dict[str, object]) -> list[TemplateFile]:
         TemplateFile(PurePosixPath(f"deploy/helm/{service}/values.yaml"), _helm_values(context)),
         TemplateFile(PurePosixPath(f"deploy/helm/{service}/templates/deployment.yaml"), _helm_deployment(context)),
         TemplateFile(PurePosixPath(f"deploy/helm/{service}/templates/service.yaml"), _helm_service(context)),
-        TemplateFile(PurePosixPath("config/middleware.example.yaml"), _middleware_yaml(context)),
+        TemplateFile(PurePosixPath("config/middleware.example.yaml"), middleware_yaml(context["middleware"])),
     ]
 
 
@@ -117,7 +115,7 @@ def _nodejs_files(context: dict[str, object]) -> list[TemplateFile]:
         TemplateFile(PurePosixPath("tsconfig.json"), '{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"outDir":"dist","rootDir":"src"},"include":["src"]}\n'),
         TemplateFile(PurePosixPath("src/domain/demo.ts"), "export interface DemoItem { name: string; normalizedName: string; }\nexport function createDemoItem(name: string): DemoItem { return { name, normalizedName: name.toLowerCase().replace(/[^a-z0-9-]+/g, '-') }; }\n"),
         TemplateFile(PurePosixPath("src/application/useCases.ts"), "import { createDemoItem } from '../domain/demo.js';\nexport const createItem = (name: string) => createDemoItem(name);\n"),
-        TemplateFile(PurePosixPath("src/infrastructure/middleware.ts"), _middleware_ts(context)),
+        TemplateFile(PurePosixPath("src/infrastructure/middleware.ts"), middleware_ts(context["middleware"])),
         TemplateFile(PurePosixPath("src/interfaces/http/server.ts"), _node_server(context)),
     ]
 
@@ -158,9 +156,7 @@ def _frontend_files(context: dict[str, object]) -> list[TemplateFile]:
 
 def _env_template(context: dict[str, object]) -> str:
     lines = [f"SERVICE_NAME={context['service_key']}", f"BUSINESS_PLATFORM_KEY={context['business_platform_key']}", f"BUSINESS_PLATFORM_NAMESPACE={context['business_platform_namespace']}", f"APP_PORT={context['port']}"]
-    for item in context["middleware"]:
-        upper = str(item).upper().replace("-", "_")
-        lines.append(f"{upper}_ENDPOINT=__REPLACE_WITH_{upper}_ENDPOINT__")
+    lines.extend(env_placeholder_lines(context["middleware"]))
     return "\n".join(lines) + "\n"
 
 
@@ -257,18 +253,6 @@ def _helm_deployment(context: dict[str, object]) -> str:
 
 def _helm_service(context: dict[str, object]) -> str:
     return f"apiVersion: v1\nkind: Service\nmetadata:\n  name: {context['service_key']}\nspec:\n  selector:\n    app: {context['service_key']}\n  ports:\n    - port: {{{{ .Values.service.port }}}}\n      targetPort: {{{{ .Values.service.targetPort }}}}\n"
-
-
-def _middleware_yaml(context: dict[str, object]) -> str:
-    lines = ["middleware:"]
-    for item in context["middleware"]:
-        lines.append(f"  {item}:\n    endpoint: ${{{str(item).upper()}_ENDPOINT}}")
-    return "\n".join(lines) + "\n"
-
-
-def _middleware_ts(context: dict[str, object]) -> str:
-    entries = ", ".join(f"{item}: process.env.{str(item).upper()}_ENDPOINT || ''" for item in context["middleware"])
-    return f"export const middleware = {{ {entries} }};\n"
 
 
 def _node_package(context: dict[str, object]) -> str:

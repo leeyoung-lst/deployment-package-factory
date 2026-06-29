@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from deployment_package_factory.services.microservices.middleware_plugins import env_default_lines, middleware_yaml
 from deployment_package_factory.services.microservices.templates import (
     MIDDLEWARE,
     PROJECT_KINDS,
@@ -19,6 +20,7 @@ from deployment_package_factory.services.microservices.templates import (
     generic_required_files,
     render_generic_template,
 )
+from deployment_package_factory.services.microservices.validation import validate_scaffold_artifact
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "microservice-projects"
@@ -208,7 +210,7 @@ def create_microservice_scaffold(
     with tarfile.open(artifact_path, "w:gz") as tar:
         tar.add(project_root, arcname=request.service_key)
     digest = _file_sha256(artifact_path)
-    validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack)
+    validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack, request.middleware)
 
     return MicroserviceScaffoldResult(
         projectId=project_id,
@@ -265,6 +267,7 @@ def _render_python_fastapi(request: MicroserviceScaffoldRequest) -> list[Rendere
         RenderedFile(PurePosixPath("run-local.ps1"), _run_local_ps1(context)),
         RenderedFile(PurePosixPath("test.sh"), _test_sh(), executable=True),
         RenderedFile(PurePosixPath("test.ps1"), _test_ps1()),
+        RenderedFile(PurePosixPath("config/middleware.example.yaml"), middleware_yaml(request.middleware)),
         RenderedFile(PurePosixPath("src/app/__init__.py"), ""),
         RenderedFile(PurePosixPath("src/app/main.py"), _fastapi_main(context)),
         RenderedFile(PurePosixPath("src/app/config.py"), _fastapi_config(context)),
@@ -333,7 +336,7 @@ def _write_file(path: Path, content: str, executable: bool = False) -> None:
         path.chmod(path.stat().st_mode | 0o111)
 
 
-def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile], tech_stack: str = "python-fastapi") -> dict[str, object]:
+def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile], tech_stack: str = "python-fastapi", middleware: list[str] | None = None) -> dict[str, object]:
     required_files = generic_required_files(tech_stack) if tech_stack != "python-fastapi" else [
         "README.md",
         ".env.template",
@@ -358,38 +361,7 @@ def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: 
         "deploy/k8s/ingress.template.yaml",
         "deploy/helm",
     ]
-    checks: list[dict[str, object]] = []
-    missing = [item for item in required_files if not (project_root / item).exists()]
-    checks.append({"name": "required-files", "passed": not missing, "message": "关键文件已生成" if not missing else f"缺失文件: {', '.join(missing)}"})
-
-    syntax_errors: list[str] = []
-    for rendered_file in rendered_files:
-        if rendered_file.path.suffix != ".py":
-            continue
-        file_path = project_root / Path(*rendered_file.path.parts)
-        try:
-            compile(file_path.read_text(encoding="utf-8"), str(rendered_file.path), "exec")
-        except SyntaxError as exc:
-            syntax_errors.append(f"{rendered_file.path}:{exc.lineno}")
-    if tech_stack == "python-fastapi":
-        checks.append({"name": "python-syntax", "passed": not syntax_errors, "message": "Python 源码语法检查通过" if not syntax_errors else f"语法错误: {', '.join(syntax_errors)}"})
-
-    archive_message = "项目压缩包可读取"
-    archive_passed = True
-    try:
-        with tarfile.open(artifact_path, "r:gz") as tar:
-            tar.getmembers()
-    except (tarfile.TarError, OSError) as exc:
-        archive_passed = False
-        archive_message = f"项目压缩包不可读取: {exc}"
-    checks.append({"name": "artifact-archive", "passed": archive_passed, "message": archive_message})
-
-    passed = all(bool(item["passed"]) for item in checks)
-    return {
-        "passed": passed,
-        "checks": checks,
-        "fileCount": len(rendered_files),
-    }
+    return validate_scaffold_artifact(project_root, artifact_path, rendered_files, tech_stack, middleware or [], required_files)
 
 
 def _initialize_git(project_root: Path) -> None:
@@ -434,6 +406,7 @@ def _env_template(context: dict[str, object]) -> str:
         lines.extend(["REDIS_URL=redis://redis:6379/0"])
     if "postgresql" in context["middleware"]:
         lines.extend(["POSTGRES_DSN=postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgresql:5432/app"])
+    lines.extend(item for item in env_default_lines(context["middleware"]) if not item.startswith(("REDIS_", "POSTGRESQL_")))
     return "\n".join(lines) + "\n"
 
 

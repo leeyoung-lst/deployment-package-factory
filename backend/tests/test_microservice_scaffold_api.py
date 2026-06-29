@@ -79,7 +79,7 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert payload["businessPlatformNamespace"] == "test-biz-eam-4x60"
     assert payload["validation"]["passed"] is True
     assert payload["validation"]["fileCount"] == len(payload["generatedFiles"])
-    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "python-syntax", "artifact-archive"}
+    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "python-syntax", "pipeline-files", "middleware-placeholders", "artifact-archive"}
     artifact = Path(payload["artifactPath"])
     assert artifact.exists()
 
@@ -89,6 +89,7 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         assert "asset-service/Dockerfile" in names
         assert "asset-service/Jenkinsfile" in names
         assert "asset-service/.env.template" in names
+        assert "asset-service/config/middleware.example.yaml" in names
         assert "asset-service/deploy.sh" in names
         assert "asset-service/migrate.sh" in names
         assert "asset-service/run-local.sh" in names
@@ -192,7 +193,7 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["validation"]["passed"] is True
-    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "artifact-archive"}
+    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "pipeline-files", "middleware-placeholders", "artifact-archive"}
     with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
         assert "asset-node/src/domain/demo.ts" in names
