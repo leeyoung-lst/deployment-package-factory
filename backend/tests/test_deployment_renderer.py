@@ -55,6 +55,9 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "QDRANT_API_KEY: __REPLACE_WITH_QDRANT_API_KEY__" in by_path["k8s/secrets.template.yaml"]
     assert "POSTGRES_PASSWORD: ${DATABASE_PASSWORD}" in by_path["docker-compose/docker-compose.yml"]
     assert 'command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]' in by_path["docker-compose/docker-compose.yml"]
+    assert 'test: ["CMD-SHELL", "pg_isready -U \\"$$POSTGRES_USER\\" -d \\"$$POSTGRES_DB\\""]' in by_path["docker-compose/docker-compose.yml"]
+    assert 'test: ["CMD-SHELL", "redis-cli -a \\"$$REDIS_PASSWORD\\" ping"]' in by_path["docker-compose/docker-compose.yml"]
+    assert "condition: service_healthy" in by_path["docker-compose/docker-compose.yml"]
     assert "name: init-scripts" in by_path["k8s/jobs/init-db.yaml"]
     assert "command: [\"/bin/sh\", \"/init/run-init.sh\"]" in by_path["k8s/jobs/init-db.yaml"]
     assert '"${PACKAGE_ROOT}/scripts/secret-check.sh" k8s' in by_path["k8s/install.sh"]
@@ -63,6 +66,9 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "check_disk_space" in by_path["scripts/check-prerequisites.sh"]
     assert "check_image_archives" in by_path["scripts/check-prerequisites.sh"]
     assert "Missing image archives" in by_path["scripts/check-prerequisites.sh"]
+    assert "ps --format json" in by_path["scripts/health-check.sh"]
+    assert "Unhealthy docker-compose services" in by_path["scripts/health-check.sh"]
+    assert "Docker Compose service health check passed" in by_path["scripts/health-check.sh"]
 
 
 def _manifest() -> dict:
@@ -94,6 +100,13 @@ def _manifest() -> dict:
                     "POSTGRES_PASSWORD": "${DATABASE_PASSWORD}",
                     "POSTGRES_DB": "${DATABASE_NAME}",
                 },
+                "composeHealthcheck": {
+                    "test": ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'],
+                    "interval": "20s",
+                    "timeout": "5s",
+                    "retries": 10,
+                    "startPeriod": "20s",
+                },
             },
             "redis": {
                 "port": 6379,
@@ -101,6 +114,13 @@ def _manifest() -> dict:
                 "envTemplate": {"REDIS_PASSWORD": "__REPLACE_WITH_REDIS_PASSWORD__"},
                 "composeEnvironment": {"REDIS_PASSWORD": "${REDIS_PASSWORD}"},
                 "composeCommand": ["redis-server", "--requirepass", "${REDIS_PASSWORD}"],
+                "composeHealthcheck": {
+                    "test": ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping'],
+                    "interval": "20s",
+                    "timeout": "5s",
+                    "retries": 10,
+                    "startPeriod": "10s",
+                },
             },
             "minio": {
                 "port": 9000,

@@ -20,6 +20,14 @@ databaseOptions:
     composeEnvironment:
       DM_USERNAME: ${DM_USERNAME}
       DM_PASSWORD: ${DM_PASSWORD}
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - bash -lc '</dev/tcp/127.0.0.1/5236'
+      interval: 20s
+      timeout: 5s
+      retries: 30
+      startPeriod: 120s
   postgres:
     name: PostgreSQL
     domestic: false
@@ -44,6 +52,14 @@ databaseOptions:
       POSTGRES_USER: ${DATABASE_USER}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
       POSTGRES_DB: ${DATABASE_NAME}
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      startPeriod: 20s
 middleware:
   redis:
     name: Redis
@@ -66,6 +82,14 @@ middleware:
       - redis-server
       - --requirepass
       - ${REDIS_PASSWORD}
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$REDIS_PASSWORD" ping
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      startPeriod: 10s
   minio:
     name: MinIO
     image: 192.168.10.210/local-ai/minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -91,6 +115,16 @@ middleware:
       - /data
       - --console-address
       - :9001
+    composeHealthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://127.0.0.1:9000/minio/health/live
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      startPeriod: 20s
   qdrant:
     name: Qdrant
     image: 192.168.10.210/local-ai/qdrant/qdrant:v1.18.0
@@ -109,6 +143,14 @@ middleware:
           - QDRANT__SERVICE__API_KEY
     composeEnvironment:
       QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - bash -lc '</dev/tcp/127.0.0.1/6333'
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      startPeriod: 20s
   camunda:
     name: Camunda
     image: 192.168.10.210/local-ai/camunda/camunda:8.8.20
@@ -129,6 +171,14 @@ middleware:
     composeEnvironment:
       CAMUNDA_ADMIN_USER: ${CAMUNDA_ADMIN_USER}
       CAMUNDA_ADMIN_PASSWORD: ${CAMUNDA_ADMIN_PASSWORD}
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - bash -lc '</dev/tcp/127.0.0.1/8080'
+      interval: 20s
+      timeout: 5s
+      retries: 30
+      startPeriod: 60s
   iotdb:
     name: IoTDB
     image: 192.168.10.210/local-ai/apache/iotdb:latest
@@ -149,8 +199,24 @@ middleware:
     composeEnvironment:
       IOTDB_USER: ${IOTDB_USER}
       IOTDB_PASSWORD: ${IOTDB_PASSWORD}
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - bash -lc '</dev/tcp/127.0.0.1/6667'
+      interval: 20s
+      timeout: 5s
+      retries: 20
+      startPeriod: 60s
   monitoring:
     name: Prometheus / Grafana
     image: 192.168.10.210/local-ai/prometheus:latest
     port: 9090
     dataPath: /prometheus
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:9090/-/healthy
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      startPeriod: 20s

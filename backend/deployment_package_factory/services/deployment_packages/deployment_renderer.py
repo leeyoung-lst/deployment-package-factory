@@ -494,6 +494,7 @@ def _compose_middleware_service(key: str, manifest: dict) -> str:
     port = _middleware_port(key, manifest)
     environment = _compose_middleware_environment(key, manifest)
     command = _compose_middleware_command(key, manifest)
+    healthcheck = _compose_middleware_healthcheck(key, manifest)
     return (
         f"  {key}:\n"
         f"    image: {_middleware_image(key, manifest)}\n"
@@ -508,6 +509,7 @@ def _compose_middleware_service(key: str, manifest: dict) -> str:
         f"      - \"{port}:{port}\"\n"
         "    volumes:\n"
         f"      - {key}-data:{_middleware_data_path(key, manifest)}\n"
+        f"{healthcheck}"
     )
 
 
@@ -526,6 +528,29 @@ def _compose_middleware_command(key: str, manifest: dict) -> str:
         return ""
     values = ", ".join(f'"{_escape_compose_command_arg(item)}"' for item in command)
     return f"    command: [{values}]\n"
+
+
+def _compose_middleware_healthcheck(key: str, manifest: dict) -> str:
+    healthcheck = _middleware_definition(key, manifest).get("composeHealthcheck") or {}
+    if not healthcheck:
+        return ""
+    lines = ["    healthcheck:"]
+    test = healthcheck.get("test") or []
+    if test:
+        test_values = ", ".join(f'"{_escape_compose_command_arg(item)}"' for item in test)
+        lines.append(f"      test: [{test_values}]")
+    fields = {
+        "interval": "interval",
+        "timeout": "timeout",
+        "retries": "retries",
+        "startPeriod": "start_period",
+    }
+    for source, target in fields.items():
+        value = healthcheck.get(source)
+        if value is None or value == "":
+            continue
+        lines.append(f"      {target}: {value}")
+    return "\n".join(lines) + "\n"
 
 
 def _escape_compose_command_arg(value: str) -> str:
@@ -548,7 +573,7 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
         "    networks:\n"
         + "".join(f"      - {network}\n" for network in networks)
         + "    depends_on:\n"
-        + "".join(f"      - {key}\n" for key in _runtime_middleware_keys(manifest))
+        + "".join(f"      {key}:\n        condition: service_healthy\n" for key in _runtime_middleware_keys(manifest))
         + "    ports:\n"
         f"      - \"{service['hostPort']}:{service['port']}\"\n"
     )
@@ -775,7 +800,49 @@ def _health_check_script(manifest: dict) -> str:
         "    fi\n"
         '    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
         '    PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"\n'
-        '    docker compose --env-file "${PACKAGE_ROOT}/docker-compose/.env" -f "${PACKAGE_ROOT}/docker-compose/docker-compose.yml" ps\n'
+        '    COMPOSE_FILE="${PACKAGE_ROOT}/docker-compose/docker-compose.yml"\n'
+        '    ENV_FILE="${PACKAGE_ROOT}/docker-compose/.env"\n'
+        '    if ! output="$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --format json 2>/dev/null)"; then\n'
+        '      docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps\n'
+        '      echo "Strict docker-compose health check skipped: this Docker Compose version does not support ps --format json." >&2\n'
+        "      exit 0\n"
+        "    fi\n"
+        '    if [ -z "${output}" ]; then\n'
+        '      echo "No docker-compose services are running." >&2\n'
+        "      exit 1\n"
+        "    fi\n"
+        '    if ! command -v python3 >/dev/null 2>&1; then\n'
+        '      echo "python3 is not available; strict docker-compose health check skipped." >&2\n'
+        "      exit 0\n"
+        "    fi\n"
+        '    if ! COMPOSE_PS_JSON="${output}" python3 - <<\'PY\'; then\n'
+        "import json\n"
+        "import os\n"
+        "import sys\n"
+        "\n"
+        "raw = os.environ.get('COMPOSE_PS_JSON', '').strip()\n"
+        "items = []\n"
+        "if raw.startswith('['):\n"
+        "    items = json.loads(raw)\n"
+        "else:\n"
+        "    items = [json.loads(line) for line in raw.splitlines() if line.strip()]\n"
+        "bad = []\n"
+        "for item in items:\n"
+        "    name = item.get('Service') or item.get('Name') or item.get('Names') or '<unknown>'\n"
+        "    state = str(item.get('State') or '').lower()\n"
+        "    health = str(item.get('Health') or '').lower()\n"
+        "    if state and state != 'running':\n"
+        "        bad.append(f'{name}: state={state}')\n"
+        "        continue\n"
+        "    if health and health not in {'healthy', ''}:\n"
+        "        bad.append(f'{name}: health={health}')\n"
+        "if bad:\n"
+        "    print('Unhealthy docker-compose services: ' + ', '.join(bad), file=sys.stderr)\n"
+        "    raise SystemExit(1)\n"
+        "print('Docker Compose service health check passed.')\n"
+        "PY\n"
+        "      exit 1\n"
+        "    fi\n"
         "    ;;\n"
         "  *)\n"
         '    echo "Unknown health check mode: ${MODE}" >&2\n'

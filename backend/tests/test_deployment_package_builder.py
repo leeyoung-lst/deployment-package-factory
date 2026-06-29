@@ -185,6 +185,8 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "docker compose version" in prereq_check
     assert "kubectl get pods" in health_check
     assert "docker compose" in health_check
+    assert "ps --format json" in health_check
+    assert "Unhealthy docker-compose services" in health_check
     assert "run_sql \"postgres\"" in init_runner
 
 

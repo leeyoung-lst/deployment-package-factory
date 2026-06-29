@@ -33,6 +33,7 @@ class DatabaseOption(BaseModel):
     env_sources: dict[str, dict] = Field(default_factory=dict, alias="envSources")
     compose_environment: dict[str, str] = Field(default_factory=dict, alias="composeEnvironment")
     compose_command: list[str] = Field(default_factory=list, alias="composeCommand")
+    compose_healthcheck: dict = Field(default_factory=dict, alias="composeHealthcheck")
 
 
 class MiddlewareOption(BaseModel):
@@ -47,6 +48,7 @@ class MiddlewareOption(BaseModel):
     env_sources: dict[str, dict] = Field(default_factory=dict, alias="envSources")
     compose_environment: dict[str, str] = Field(default_factory=dict, alias="composeEnvironment")
     compose_command: list[str] = Field(default_factory=list, alias="composeCommand")
+    compose_healthcheck: dict = Field(default_factory=dict, alias="composeHealthcheck")
 
 
 class DeploymentCatalog(BaseModel):
