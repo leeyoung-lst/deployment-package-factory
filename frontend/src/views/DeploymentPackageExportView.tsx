@@ -51,6 +51,7 @@ type DependencyGraphNode = {
   label: string;
   kind: DependencyGraphNodeKind;
   detail?: string;
+  matchKeys: string[];
 };
 type DependencyGraphEdge = {
   from: string;
@@ -1328,20 +1329,30 @@ function DependencyGraphNodeView({ node }: { node: DependencyGraphNode }) {
 }
 
 function buildDependencyGraph(preview: PackagePreview): DependencyGraphModel {
-  const businessNodes = preview.businessServices.map((item) => toGraphNode("business", item));
-  const platformNodes = preview.platformServices.map((item) => toGraphNode("platform", item));
-  const middlewareNodes = mergeMiddlewareNodes(preview);
+  const businessNodes = runtimeGraphNodes(preview, "business", "business", preview.businessServices);
+  const platformNodes = runtimeGraphNodes(preview, "platform", "platform", preview.platformServices);
+  const middlewareNodes = runtimeGraphNodes(preview, "middleware", "middleware", preview.middleware);
   const sourceNodeIdsByKey = new Map<string, string[]>();
   const platformNodeIdsByKey = new Map<string, string>();
+  const middlewareNodeIdsByKey = new Map<string, string[]>();
   const addSourceNode = (node: DependencyGraphNode) => {
-    const nodes = sourceNodeIdsByKey.get(node.key) ?? [];
-    nodes.push(node.id);
-    sourceNodeIdsByKey.set(node.key, nodes);
+    node.matchKeys.forEach((matchKey) => {
+      const nodes = sourceNodeIdsByKey.get(matchKey) ?? [];
+      nodes.push(node.id);
+      sourceNodeIdsByKey.set(matchKey, nodes);
+    });
   };
   businessNodes.forEach(addSourceNode);
   platformNodes.forEach((node) => {
     addSourceNode(node);
-    platformNodeIdsByKey.set(node.key, node.id);
+    node.matchKeys.forEach((matchKey) => platformNodeIdsByKey.set(matchKey, node.id));
+  });
+  middlewareNodes.forEach((node) => {
+    node.matchKeys.forEach((matchKey) => {
+      const nodes = middlewareNodeIdsByKey.get(matchKey) ?? [];
+      nodes.push(node.id);
+      middlewareNodeIdsByKey.set(matchKey, nodes);
+    });
   });
 
   const edges: DependencyGraphEdge[] = [];
@@ -1362,18 +1373,32 @@ function buildDependencyGraph(preview: PackagePreview): DependencyGraphModel {
     });
   });
   preview.middleware.forEach((item) => {
-    const targetId = middlewareNodes.find((node) => node.key === item.key)?.id;
-    if (!targetId) return;
+    const targetIds = middlewareNodeIdsByKey.get(item.key) ?? [];
+    if (!targetIds.length) return;
     item.requiredBy.forEach((requiredBy) => {
-      (sourceNodeIdsByKey.get(requiredBy) ?? []).forEach((sourceId) => addEdge(sourceId, targetId, "middleware"));
+      (sourceNodeIdsByKey.get(requiredBy) ?? []).forEach((sourceId) => {
+        targetIds.forEach((targetId) => addEdge(sourceId, targetId, "middleware"));
+      });
     });
   });
 
   return { businessNodes, platformNodes, middlewareNodes, edges };
 }
 
-function mergeMiddlewareNodes(preview: PackagePreview): DependencyGraphNode[] {
-  const nodes = preview.middleware.map((item) => toGraphNode(item.key === preview.database.key ? "database" : "middleware", item));
+function runtimeGraphNodes(
+  preview: PackagePreview,
+  group: "business" | "platform" | "middleware",
+  kind: DependencyGraphNodeKind,
+  fallbackItems: PreviewDependencyItem[],
+): DependencyGraphNode[] {
+  const runtimeEntries = (preview.imageEntries ?? []).filter((item) => item.group === group);
+  const nodes = runtimeEntries.map((item) => runtimeGraphNode(preview, item, kind)).filter((item): item is DependencyGraphNode => Boolean(item));
+  const nodeKeys = new Set(nodes.flatMap((node) => node.matchKeys));
+  fallbackItems.forEach((item) => {
+    if (nodeKeys.has(item.key)) return;
+    nodes.push(toGraphNode(item.key === preview.database.key ? "database" : kind, item));
+  });
+  if (group !== "middleware") return nodes;
   if (!nodes.some((node) => node.key === preview.database.key)) {
     nodes.push({
       id: `database:${preview.database.key}`,
@@ -1381,6 +1406,7 @@ function mergeMiddlewareNodes(preview: PackagePreview): DependencyGraphNode[] {
       label: preview.database.name,
       kind: "database",
       detail: preview.database.image,
+      matchKeys: [preview.database.key],
     });
   }
   return nodes;
@@ -1393,7 +1419,77 @@ function toGraphNode(kind: DependencyGraphNodeKind, item: PreviewDependencyItem)
     label: item.name,
     kind,
     detail: item.namespace || item.reason || item.key,
+    matchKeys: [item.key],
   };
+}
+
+function runtimeGraphNode(preview: PackagePreview, item: PackagePreview["imageEntries"][number], kind: DependencyGraphNodeKind): DependencyGraphNode | null {
+  const sourceRef = item.sourceRef || item.catalogRef || item.targetRef;
+  const label = item.sourceContainer || item.sourcePod || imageName(sourceRef);
+  if (!sourceRef || !label) return null;
+  const key = `${item.group}:${item.sourceNamespace || "runtime"}:${item.sourcePod || imageName(sourceRef)}:${item.sourceContainer || imageName(sourceRef)}`;
+  const matchKeys = runtimeMatchKeys(preview, item, kind);
+  return {
+    id: key,
+    key,
+    label,
+    kind: kind === "middleware" && matchesRuntimeDependency(preview.database.key, preview.database.name, item) ? "database" : kind,
+    detail: runtimeNodeDetail(item, sourceRef),
+    matchKeys,
+  };
+}
+
+function runtimeMatchKeys(preview: PackagePreview, item: PackagePreview["imageEntries"][number], kind: DependencyGraphNodeKind): string[] {
+  if (kind === "business") {
+    const matches = dependencyMatches(preview.businessServices, item);
+    return matches.length ? matches : preview.businessServices.map((entry) => entry.key);
+  }
+  if (kind === "platform") {
+    const matches = dependencyMatches(preview.platformServices, item);
+    return matches;
+  }
+  const middlewareMatches = dependencyMatches(preview.middleware, item);
+  if (middlewareMatches.length) return middlewareMatches;
+  if (matchesRuntimeDependency(preview.database.key, preview.database.name, item)) return [preview.database.key];
+  return [];
+}
+
+function dependencyMatches(items: PreviewDependencyItem[], image: PackagePreview["imageEntries"][number]) {
+  return items
+    .filter((item) => matchesRuntimeDependency(item.key, item.name, image))
+    .map((item) => item.key);
+}
+
+function matchesRuntimeDependency(key: string, name: string, image: PackagePreview["imageEntries"][number]) {
+  const haystack = normalizeGraphText([
+    image.catalogRef,
+    image.sourceRef,
+    image.targetRef,
+    image.sourceNamespace,
+    image.sourcePod,
+    image.sourceContainer,
+  ].filter(Boolean).join(" "));
+  const normalizedKey = normalizeGraphText(key);
+  const normalizedName = normalizeGraphText(name);
+  if (normalizedKey && haystack.includes(normalizedKey)) return true;
+  if (normalizedName && haystack.includes(normalizedName)) return true;
+  return key.split("-").some((part) => part.length >= 4 && haystack.includes(normalizeGraphText(part)));
+}
+
+function runtimeNodeDetail(item: PackagePreview["imageEntries"][number], sourceRef: string) {
+  const namespace = item.sourceNamespace ? `${item.sourceNamespace}/` : "";
+  const container = item.sourceContainer ? `${item.sourceContainer} · ` : "";
+  return `${namespace}${container}${sourceRef}`;
+}
+
+function imageName(image: string) {
+  const withoutDigest = image.split("@", 1)[0];
+  const lastSegment = withoutDigest.split("/").pop() || withoutDigest;
+  return lastSegment.split(":", 1)[0] || image;
+}
+
+function normalizeGraphText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function graphNodeClassName(kind: DependencyGraphNodeKind) {
