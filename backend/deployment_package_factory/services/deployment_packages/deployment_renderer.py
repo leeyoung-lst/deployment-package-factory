@@ -560,7 +560,7 @@ def _escape_compose_command_arg(value: str) -> str:
 def _compose_app_service(service: dict, manifest: dict) -> str:
     networks = ["base-public", "middleware"]
     if service["group"] == "business":
-        networks.append(service["namespace"].split("business-", 1)[-1])
+        networks.append(f"business-{service.get('businessKey') or service['namespace'].split('business-', 1)[-1]}")
     return (
         f"  {service['name']}:\n"
         f"    image: {service['image']}\n"
@@ -919,12 +919,21 @@ def _join_yaml_docs(docs: list[str]) -> str:
 def _service_specs(manifest: dict) -> list[dict]:
     specs: list[dict] = []
     counters = {"platform": 0, "business": 0}
+    microservices = _registered_microservices_by_image(manifest)
     for group in ("platform", "business"):
         for image in manifest["images"].get(group, []):
             source_ref = _with_default_tag(image, manifest)
             entry = _image_entry_for_source(manifest, source_ref)
+            microservice = microservices.get(source_ref)
             name = _service_name_from_image(image)
             namespace = _base_namespace(manifest) if group == "platform" else _business_namespace(manifest, name)
+            port = 80 if "frontend" in name or name.startswith("sub-app") else DEFAULT_CONTAINER_PORT
+            business_key = _business_key_for_service(manifest, name) if group == "business" else ""
+            if microservice:
+                name = _safe_resource_name(str(microservice.get("serviceKey") or name))
+                namespace = _microservice_namespace(manifest, microservice)
+                port = int(microservice.get("port") or DEFAULT_CONTAINER_PORT)
+                business_key = str(microservice.get("businessPlatformKey") or business_key).strip()
             counters[group] += 1
             specs.append(
                 {
@@ -932,11 +941,23 @@ def _service_specs(manifest: dict) -> list[dict]:
                     "group": group,
                     "image": entry["targetRef"],
                     "namespace": namespace,
-                    "port": 80 if "frontend" in name or name.startswith("sub-app") else DEFAULT_CONTAINER_PORT,
+                    "port": port,
                     "hostPort": 18080 + (0 if group == "platform" else 100) + counters[group],
+                    "businessKey": business_key,
+                    "microservice": microservice or None,
                 }
             )
     return specs
+
+
+def _registered_microservices_by_image(manifest: dict) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for service in manifest.get("registeredMicroservices") or []:
+        image = str(service.get("image") or "").strip()
+        if not image:
+            continue
+        result[_with_default_tag(image, manifest)] = service
+    return result
 
 
 def _image_entry_for_source(manifest: dict, source_ref: str) -> dict:
@@ -995,11 +1016,28 @@ def _middleware_namespace(manifest: dict) -> str:
 
 def _business_namespace(manifest: dict, service_name: str) -> str:
     prefix = manifest["targetProfile"].get("namespacePrefix") or "prod"
-    for business in manifest["businessServices"]:
-        if business in service_name:
-            return f"{prefix}-business-{business}"
+    business = _business_key_for_service(manifest, service_name)
+    if business:
+        return f"{prefix}-business-{business}"
     fallback = manifest["businessServices"][0] if manifest["businessServices"] else "default"
     return f"{prefix}-business-{fallback}"
+
+
+def _business_key_for_service(manifest: dict, service_name: str) -> str:
+    for business in manifest["businessServices"]:
+        if business in service_name:
+            return business
+    return ""
+
+
+def _microservice_namespace(manifest: dict, service: dict) -> str:
+    business_key = str(service.get("businessPlatformKey") or "").strip()
+    if business_key:
+        return _business_namespace(manifest, business_key)
+    namespace = str(service.get("k8sNamespace") or "").strip()
+    if namespace:
+        return namespace
+    return _business_namespace(manifest, str(service.get("serviceKey") or "default"))
 
 
 def _frontend_service_name(manifest: dict) -> str:

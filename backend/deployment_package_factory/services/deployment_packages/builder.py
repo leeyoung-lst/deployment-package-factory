@@ -29,6 +29,8 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackageBuildResult,
     ProjectProfile,
 )
+from deployment_package_factory.services.microservices.repository import MicroserviceRepository
+from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     KubernetesRuntimeError,
     business_namespace,
@@ -127,8 +129,10 @@ def build_deployment_package(
     preview = resolve_package_preview(request, catalog)
     image_tag = project.image_tag if project else "prod"
     business_namespaces = _request_business_namespaces(request)
+    registered_microservices = _registered_microservices_for_request(request)
     runtime_business_images = _discover_runtime_business_images(request.source_env, business_namespaces)
     preview = _preview_with_runtime_business_images(preview, runtime_business_images)
+    preview = _preview_with_registered_microservices(preview, registered_microservices)
     runtime_images = _discover_runtime_source_images(
         request.source_env,
         preview.images,
@@ -136,7 +140,7 @@ def build_deployment_package(
         business_namespaces,
     )
     image_entries = _image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
-    manifest = _manifest(package_id, request, preview, image_entries, project, image_tag)
+    manifest = _manifest(package_id, request, preview, image_entries, project, image_tag, registered_microservices)
 
     _write_text(package_root / "manifest.json", json.dumps(_public_manifest(manifest), ensure_ascii=False, indent=2) + "\n")
     _write_text(package_root / "README.md", _readme(manifest))
@@ -211,6 +215,7 @@ def _manifest(
     image_entries: list[dict],
     project: ProjectProfile | None,
     image_tag: str,
+    registered_microservices: list[dict] | None = None,
 ) -> dict:
     middleware_config = _middleware_config(request, preview)
     runtime_env = _resolve_runtime_env(request.source_env, middleware_config, _request_business_namespaces(request))
@@ -235,6 +240,7 @@ def _manifest(
         "targetProfile": request.target_profile.model_dump(by_alias=True),
         "images": preview.images,
         "imageEntries": image_entries,
+        "registeredMicroservices": registered_microservices or [],
     }
 
 
@@ -480,6 +486,52 @@ def _preview_with_runtime_business_images(preview, runtime_business_images: list
             continue
         business_images.append(runtime_image.source_ref)
     return preview.model_copy(update={"images": images})
+
+
+def _preview_with_registered_microservices(preview, microservices: list[dict]):
+    if not microservices:
+        return preview
+    images = {group: list(values) for group, values in preview.images.items()}
+    business_images = images.setdefault("business", [])
+    for service in microservices:
+        image = str(service.get("image") or "").strip()
+        if not image:
+            continue
+        if _matches_catalog_image(business_images, image):
+            continue
+        business_images.append(image)
+    return preview.model_copy(update={"images": images})
+
+
+def _registered_microservices_for_request(request: PackageBuildRequest) -> list[dict]:
+    if not request.business_services:
+        return []
+    repository = _default_microservice_repository()
+    services: list[dict] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for business in request.business_services:
+        if not business.name:
+            continue
+        for service in repository.list(
+            source_env=request.source_env,
+            business_platform_key=business.name,
+            business_platform_profile=business.profile or "",
+        ):
+            key = (
+                str(service.get("sourceEnv") or ""),
+                str(service.get("businessPlatformKey") or ""),
+                str(service.get("businessPlatformProfile") or ""),
+                str(service.get("serviceKey") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            services.append(service)
+    return services
+
+
+def _default_microservice_repository() -> MicroserviceRepository:
+    return MicroserviceRepository(load_settings().microservice_db_path)
 
 
 def _source_env_namespaces(source_env: str, business_namespaces: list[str] | None = None) -> list[str]:

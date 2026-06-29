@@ -117,8 +117,10 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
         request, project = package_builder._apply_project_build_defaults(PackageBuildRequest.model_validate(payload.model_dump(by_alias=True)), catalog)
         image_tag = project.image_tag if project else "prod"
         business_namespaces = _request_business_namespaces(request, registered_business)
+        registered_microservices = _request_microservices(request)
         runtime_business_images = package_builder._discover_runtime_business_images(request.source_env, business_namespaces)
         preview = package_builder._preview_with_runtime_business_images(preview, runtime_business_images)
+        preview = package_builder._preview_with_registered_microservices(preview, registered_microservices)
         runtime_images = package_builder._discover_runtime_source_images(
             request.source_env,
             preview.images,
@@ -471,6 +473,30 @@ def _request_business_namespaces(request: PackageBuildRequest, platforms: list[R
             ):
                 namespaces.append(platform.namespace)
     return list(dict.fromkeys(namespaces))
+
+
+def _request_microservices(request: PackageBuildRequest) -> list[dict]:
+    services: list[dict] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for selection in request.business_services:
+        if not selection.name:
+            continue
+        for service in get_microservice_repository().list(
+            source_env=request.source_env,
+            business_platform_key=selection.name,
+            business_platform_profile=selection.profile or "",
+        ):
+            key = (
+                str(service.get("sourceEnv") or ""),
+                str(service.get("businessPlatformKey") or ""),
+                str(service.get("businessPlatformProfile") or ""),
+                str(service.get("serviceKey") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            services.append(service)
+    return services
 
 
 def _audit(

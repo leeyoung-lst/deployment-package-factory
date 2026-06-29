@@ -17,14 +17,21 @@ from deployment_package_factory.services.deployment_packages.models import Busin
 from deployment_package_factory.services.deployment_packages.audit_repository import AuditEventRepository
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 from deployment_package_factory.services.deployment_packages.task_repository import PackageTaskRepository
+from deployment_package_factory.services.microservices.repository import MicroserviceRepository
+from deployment_package_factory.services.microservices.scaffold import MicroserviceScaffoldRequest, MicroserviceScaffoldResult
 
 
 @pytest.fixture(autouse=True)
-def _isolate_business_platform_repository(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def _isolate_repositories(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         deployment_packages,
         "_BUSINESS_PLATFORM_REPO",
         BusinessPlatformRepository(tmp_path / "business-platforms.sqlite3"),
+    )
+    monkeypatch.setattr(
+        deployment_packages,
+        "_MICROSERVICE_REPO",
+        MicroserviceRepository(tmp_path / "microservices.sqlite3"),
     )
 
 
@@ -182,6 +189,32 @@ def test_deployment_package_preview_returns_runtime_image_entries(monkeypatch: p
     assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
     assert by_catalog["192.168.10.210/local-ai/mqtt-collector:k8s"]["sourceRef"] == "192.168.10.210/local-ai/mqtt-collector:k8s"
     assert by_catalog["192.168.10.210/local-ai/mqtt-collector:k8s"]["group"] == "business"
+
+
+def test_deployment_package_preview_includes_registered_microservices(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+    deployment_packages.get_microservice_repository().upsert(
+        _microservice_request(),
+        _microservice_result(),
+    )
+
+    response = _client().post(
+        "/api/deployment-packages/preview",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "database": "postgres",
+            "targetProfile": {"registry": "harbor.prod/local-ai"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    by_catalog = {item["catalogRef"]: item for item in payload["imageEntries"]}
+    assert "registry.local/business/asset-service" in payload["images"]["business"]
+    assert by_catalog["registry.local/business/asset-service:prod"]["group"] == "business"
+    assert by_catalog["registry.local/business/asset-service:prod"]["targetRef"] == "harbor.prod/local-ai/business/asset-service:prod"
 
 
 def test_deployment_package_preview_can_select_observability(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -611,6 +644,44 @@ def _set_repo(monkeypatch: pytest.MonkeyPatch, repo: PackageTaskRepository, outp
         PackageTaskExecutor(repo, PackageTaskExecutorConfig(max_concurrent_builds=1, output_dir=output_dir)),
     )
     return audit_repo
+
+
+def _microservice_request() -> MicroserviceScaffoldRequest:
+    return MicroserviceScaffoldRequest(
+        serviceKey="asset-service",
+        serviceName="Asset Service",
+        sourceEnv="test",
+        businessPlatformKey="eam",
+        businessPlatformProfile="4x60",
+        businessPlatformName="EAM",
+        businessPlatformNamespace="test-biz-eam-4x60",
+        imageRegistry="registry.local",
+        imageNamespace="business",
+        port=8000,
+        middleware=["redis", "postgresql"],
+    )
+
+
+def _microservice_result() -> MicroserviceScaffoldResult:
+    return MicroserviceScaffoldResult(
+        projectId="svc-test",
+        serviceKey="asset-service",
+        serviceName="Asset Service",
+        techStack="python-fastapi",
+        sourceEnv="test",
+        businessPlatformKey="eam",
+        businessPlatformProfile="4x60",
+        businessPlatformName="EAM",
+        businessPlatformNamespace="test-biz-eam-4x60",
+        artifactName="asset-service.tar.gz",
+        artifactPath="/tmp/asset-service.tar.gz",
+        artifactSize=1,
+        sha256="abc",
+        downloadUrl="/api/microservices/svc-test/download",
+        downloadCommand="curl -o asset-service.tar.gz /api/microservices/svc-test/download",
+        cloneCommand="git clone file:///tmp/asset-service",
+        generatedFiles=[],
+    )
 
 
 def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business: bool = True) -> None:

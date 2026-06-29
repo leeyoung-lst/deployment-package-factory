@@ -12,6 +12,8 @@ import pytest
 from deployment_package_factory.services.deployment_packages import builder
 from deployment_package_factory.services.deployment_packages.builder import build_deployment_package
 from deployment_package_factory.services.deployment_packages.models import BusinessSelection, PackageBuildRequest, TargetProfile
+from deployment_package_factory.services.microservices.repository import MicroserviceRepository
+from deployment_package_factory.services.microservices.scaffold import MicroserviceScaffoldRequest, MicroserviceScaffoldResult
 
 
 def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
@@ -106,6 +108,44 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/security/SHA256SUMS" in names
     assert script_modes
     assert all(mode & 0o111 for mode in script_modes.values())
+
+
+def test_build_deployment_package_includes_registered_microservices(tmp_path, monkeypatch) -> None:
+    microservice_repo = MicroserviceRepository(tmp_path / "microservices.sqlite3")
+    microservice_repo.upsert(_microservice_request(), _microservice_result())
+    monkeypatch.setattr(builder, "_default_microservice_repository", lambda: microservice_repo)
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["k8s", "docker-compose"],
+            businessServices=[BusinessSelection(name="eam", profile="4x60")],
+            database="postgres",
+            targetProfile=TargetProfile(registry="harbor.prod/local-ai"),
+        ),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    images_txt = (root / "images" / "images.txt").read_text(encoding="utf-8")
+    k8s_deployments = (root / "k8s" / "layers" / "60-apps" / "deployments.yaml").read_text(encoding="utf-8")
+    k8s_services = (root / "k8s" / "layers" / "60-apps" / "services.yaml").read_text(encoding="utf-8")
+    compose = (root / "docker-compose" / "docker-compose.yml").read_text(encoding="utf-8")
+
+    by_catalog = {item["catalogRef"]: item for item in result.manifest["imageEntries"]}
+    assert result.manifest["registeredMicroservices"][0]["serviceKey"] == "asset-service"
+    assert "registry.local/business/asset-service" in result.manifest["images"]["business"]
+    assert by_catalog["registry.local/business/asset-service:prod"]["targetRef"] == "harbor.prod/local-ai/business/asset-service:prod"
+    assert "business registry.local/business/asset-service:prod harbor.prod/local-ai/business/asset-service:prod" in images_txt
+    assert "name: asset-service" in k8s_deployments
+    assert "namespace: prod-business-eam" in k8s_deployments
+    assert "image: harbor.prod/local-ai/business/asset-service:prod" in k8s_deployments
+    assert "containerPort: 8000" in k8s_deployments
+    assert "port: 8000" in k8s_services
+    assert "  asset-service:" in compose
+    assert "    image: harbor.prod/local-ai/business/asset-service:prod" in compose
+    assert "      - business-eam" in compose
+    assert ":8000\"" in compose
 
 
 def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypatch) -> None:
@@ -1150,3 +1190,41 @@ def test_image_archive_runtime_image_failure_does_not_fallback_to_registry(tmp_p
 
     assert "source node local image cache" in str(exc.value)
     assert commands == []
+
+
+def _microservice_request() -> MicroserviceScaffoldRequest:
+    return MicroserviceScaffoldRequest(
+        serviceKey="asset-service",
+        serviceName="Asset Service",
+        sourceEnv="test",
+        businessPlatformKey="eam",
+        businessPlatformProfile="4x60",
+        businessPlatformName="EAM",
+        businessPlatformNamespace="test-biz-eam-4x60",
+        imageRegistry="registry.local",
+        imageNamespace="business",
+        port=8000,
+        middleware=["redis", "postgresql"],
+    )
+
+
+def _microservice_result() -> MicroserviceScaffoldResult:
+    return MicroserviceScaffoldResult(
+        projectId="svc-test",
+        serviceKey="asset-service",
+        serviceName="Asset Service",
+        techStack="python-fastapi",
+        sourceEnv="test",
+        businessPlatformKey="eam",
+        businessPlatformProfile="4x60",
+        businessPlatformName="EAM",
+        businessPlatformNamespace="test-biz-eam-4x60",
+        artifactName="asset-service.tar.gz",
+        artifactPath="/tmp/asset-service.tar.gz",
+        artifactSize=1,
+        sha256="abc",
+        downloadUrl="/api/microservices/svc-test/download",
+        downloadCommand="curl -o asset-service.tar.gz /api/microservices/svc-test/download",
+        cloneCommand="git clone file:///tmp/asset-service",
+        generatedFiles=[],
+    )
