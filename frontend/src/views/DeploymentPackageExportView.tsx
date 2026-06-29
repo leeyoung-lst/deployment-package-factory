@@ -470,15 +470,7 @@ export const DeploymentPackageExportView: React.FC = () => {
     if (!task?.result || !task.artifactAvailable) return;
     setDownloadLoading(true);
     try {
-      const blob = await downloadDeploymentPackage(task.result.packageId);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${task.result.packageId}.tar.gz`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      triggerBrowserDownload(downloadDeploymentPackage(task.result.packageId), `${task.result.packageId}.tar.gz`);
       void refreshAuditEvents();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "部署包下载失败");
@@ -491,15 +483,7 @@ export const DeploymentPackageExportView: React.FC = () => {
     if (!task?.result || !task.artifactAvailable) return;
     setChecksumDownloadLoading(true);
     try {
-      const blob = await downloadDeploymentPackageChecksum(task.result.packageId);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${task.result.packageId}.tar.gz.sha256`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      triggerBrowserDownload(downloadDeploymentPackageChecksum(task.result.packageId), `${task.result.packageId}.tar.gz.sha256`);
       void refreshAuditEvents();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "校验文件下载失败");
@@ -1549,6 +1533,15 @@ function formatBytes(value: number) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MiB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GiB`;
+}
+
+function triggerBrowserDownload(url: string, filename: string) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function mergeTaskIntoList(tasks: PackageTask[], task: PackageTask) {

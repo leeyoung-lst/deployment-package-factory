@@ -40,17 +40,12 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function download(path: string): Promise<Blob> {
-  const response = await fetch(`${BASE}${path}`, {
-    cache: "no-store",
-    headers: {
-      ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
-    },
-  });
-  if (!response.ok) {
-    throw await apiError(response);
+export function buildDownloadUrl(path: string): string {
+  const url = new URL(`${BASE}${path}`, window.location.origin);
+  if (API_TOKEN) {
+    url.searchParams.set("deployment_package_token", API_TOKEN);
   }
-  return response.blob();
+  return url.toString();
 }
 
 async function apiError(response: Response) {

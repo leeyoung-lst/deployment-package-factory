@@ -130,6 +130,14 @@ def test_deployment_package_api_accepts_header_token(monkeypatch: pytest.MonkeyP
     assert response.status_code == 200, response.text
 
 
+def test_deployment_package_api_rejects_query_token_for_json_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
+
+    response = _client().get("/api/deployment-packages/options?deployment_package_token=secret-token")
+
+    assert response.status_code == 401
+
+
 def test_deployment_package_preview_returns_resolved_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch)
 
@@ -387,6 +395,35 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
     assert created_event.metadata["database"] == "postgres"
 
 
+def test_download_deployment_package_accepts_query_token(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
+    _mock_runtime_environment(monkeypatch)
+    task_repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
+    _set_repo(monkeypatch, task_repo, tmp_path)
+    monkeypatch.setattr(
+        task_executor,
+        "build_deployment_package",
+        lambda payload, output_dir=None: builder.build_deployment_package(payload, output_dir=tmp_path),
+    )
+    client = _client()
+    created = client.post(
+        "/api/deployment-packages",
+        headers={"Authorization": "Bearer secret-token"},
+        json={"sourceEnv": "test", "deployModes": ["k8s"], "businessServices": [{"name": "eam", "profile": "4x60"}]},
+    )
+
+    assert created.status_code == 200, created.text
+    task = _wait_for_task(client, created.json()["taskId"], headers={"Authorization": "Bearer secret-token"})
+    package_id = task["result"]["packageId"]
+
+    downloaded = client.get(f"/api/deployment-packages/{package_id}/download?deployment_package_token=secret-token")
+
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.headers["content-type"] == "application/gzip"
+    assert downloaded.headers["content-length"] == str(task["result"]["artifactSize"])
+    assert downloaded.content
+
+
 def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch)
     repo = PackageTaskRepository(tmp_path / "tasks.sqlite3")
@@ -641,9 +678,9 @@ def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business:
     )
 
 
-def _wait_for_task(client: TestClient, task_id: str) -> dict:
+def _wait_for_task(client: TestClient, task_id: str, headers: dict[str, str] | None = None) -> dict:
     for _ in range(50):
-        response = client.get(f"/api/deployment-packages/tasks/{task_id}")
+        response = client.get(f"/api/deployment-packages/tasks/{task_id}", headers=headers)
         assert response.status_code == 200, response.text
         payload = response.json()
         if payload["status"] in {"completed", "failed", "canceled"}:
