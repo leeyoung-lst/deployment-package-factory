@@ -182,15 +182,12 @@
 
 .graphScroller {
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding-bottom: 4px;
 }
 
 .graphCanvas {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, 274px);
-  gap: 38px;
-  min-width: 900px;
+  min-width: 980px;
 }
 
 .graphEdges {
@@ -221,28 +218,18 @@
   stroke: rgba(8, 145, 178, 0.34);
 }
 
-.graphColumn {
+.graphLaneTitle {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-rows: 28px 1fr;
-  gap: 8px;
-  min-width: 0;
-}
-
-.graphColumnTitle {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 650;
 }
 
-.graphNodeList {
-  display: grid;
-  gap: 8px;
-  align-content: start;
+.graphNodeSlot,
+.graphEmptySlot {
+  position: absolute;
+  z-index: 1;
 }
 
 .graphNode {
@@ -256,6 +243,11 @@
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+}
+
+.graphNodeSlot .graphNode {
+  width: 100%;
+  height: 100%;
 }
 
 .graphNode > i {
@@ -326,13 +318,14 @@
   font-size: 12px;
 }
 
-.graphEmpty {
+.graphEmpty,
+.graphEmptySlot {
   display: flex;
   align-items: center;
-  min-height: 48px;
   padding: 7px 9px;
   border: 1px dashed rgba(15, 23, 42, 0.16);
   border-radius: 8px;
+  background: rgba(255, 255, 255, 0.52);
   color: var(--text-muted);
   font-size: 12px;
 }

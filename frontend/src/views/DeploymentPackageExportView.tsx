@@ -1227,31 +1227,55 @@ function PreviewSummary({ preview, project, targetProfile }: { preview: PackageP
 
 function DependencyGraph({ preview }: { preview: PackagePreview }) {
   const graph = useMemo(() => buildDependencyGraph(preview), [preview]);
-  const columns = [
-    { key: "business", title: "业务平台", nodes: graph.businessNodes },
-    { key: "platform", title: "基础平台 Pod", nodes: graph.platformNodes },
-    { key: "middleware", title: "中间件 / 数据库", nodes: graph.middlewareNodes },
+  const sideNodeWidth = 300;
+  const bottomNodeWidth = 228;
+  const nodeHeight = 48;
+  const sideGap = 10;
+  const bottomGap = 14;
+  const topY = 34;
+  const laneTitleHeight = 24;
+  const sideRows = Math.max(1, graph.platformNodes.length, graph.businessNodes.length);
+  const bottomNodeCount = Math.max(1, graph.middlewareNodes.length);
+  const bottomWidth = bottomNodeCount * bottomNodeWidth + (bottomNodeCount - 1) * bottomGap;
+  const graphWidth = Math.max(980, bottomWidth);
+  const rightX = graphWidth - sideNodeWidth;
+  const bottomStartX = Math.max(0, (graphWidth - bottomWidth) / 2);
+  const sideStartY = topY + laneTitleHeight;
+  const bottomTitleY = sideStartY + sideRows * (nodeHeight + sideGap) + 42;
+  const bottomY = bottomTitleY + laneTitleHeight;
+  const graphHeight = bottomY + nodeHeight + 26;
+  const nodePositions = new Map<string, { x: number; y: number; width: number; height: number; lane: "platform" | "business" | "middleware" }>();
+  graph.platformNodes.forEach((node, index) => nodePositions.set(node.id, { x: 0, y: sideStartY + index * (nodeHeight + sideGap), width: sideNodeWidth, height: nodeHeight, lane: "platform" }));
+  graph.businessNodes.forEach((node, index) => nodePositions.set(node.id, { x: rightX, y: sideStartY + index * (nodeHeight + sideGap), width: sideNodeWidth, height: nodeHeight, lane: "business" }));
+  graph.middlewareNodes.forEach((node, index) => nodePositions.set(node.id, { x: bottomStartX + index * (bottomNodeWidth + bottomGap), y: bottomY, width: bottomNodeWidth, height: nodeHeight, lane: "middleware" }));
+  const nodes = [
+    ...graph.platformNodes.map((node) => ({ node, position: nodePositions.get(node.id) })),
+    ...graph.businessNodes.map((node) => ({ node, position: nodePositions.get(node.id) })),
+    ...graph.middlewareNodes.map((node) => ({ node, position: nodePositions.get(node.id) })),
   ];
-  const rowHeight = 56;
-  const firstRowY = 60;
-  const graphHeight = Math.max(1, ...columns.map((column) => column.nodes.length)) * rowHeight + 28;
-  const nodePositions = new Map<string, { column: number; index: number }>();
-  columns.forEach((column, columnIndex) => {
-    column.nodes.forEach((node, index) => nodePositions.set(node.id, { column: columnIndex, index }));
-  });
-  const xPoints = [
-    { from: 274, to: 36 },
-    { from: 586, to: 314 },
-    { from: 864, to: 626 },
-  ];
-  const pointFor = (nodeId: string, side: "from" | "to") => {
-    const position = nodePositions.get(nodeId);
-    if (!position) return null;
-    return {
-      x: xPoints[position.column][side],
-      y: firstRowY + position.index * rowHeight,
-      column: position.column,
-    };
+  const edgePath = (edge: DependencyGraphEdge) => {
+    const from = nodePositions.get(edge.from);
+    const to = nodePositions.get(edge.to);
+    if (!from || !to) return "";
+    const fromCenterX = from.x + from.width / 2;
+    const fromCenterY = from.y + from.height / 2;
+    const toCenterX = to.x + to.width / 2;
+    const toCenterY = to.y + to.height / 2;
+    if (from.lane === to.lane) {
+      const outsideX = from.lane === "business" ? from.x - 26 : from.x + from.width + 26;
+      const startX = from.lane === "business" ? from.x : from.x + from.width;
+      const endX = startX;
+      return `M ${startX} ${fromCenterY} C ${outsideX} ${fromCenterY}, ${outsideX} ${toCenterY}, ${endX} ${toCenterY}`;
+    }
+    if (to.lane === "middleware") {
+      const startY = from.y + from.height;
+      return `M ${fromCenterX} ${startY} C ${fromCenterX} ${startY + 42}, ${toCenterX} ${to.y - 42}, ${toCenterX} ${to.y}`;
+    }
+    const fromX = from.x < to.x ? from.x + from.width : from.x;
+    const toX = from.x < to.x ? to.x : to.x + to.width;
+    const direction = fromX < toX ? 1 : -1;
+    const curve = Math.max(80, Math.abs(toX - fromX) / 2);
+    return `M ${fromX} ${fromCenterY} C ${fromX + direction * curve} ${fromCenterY}, ${toX - direction * curve} ${toCenterY}, ${toX} ${toCenterY}`;
   };
   return (
     <div className={`${styles.previewBlock} ${styles.dependencyGraphBlock}`}>
@@ -1265,50 +1289,39 @@ function DependencyGraph({ preview }: { preview: PackagePreview }) {
         </div>
       </div>
       <div className={styles.graphScroller}>
-        <div className={styles.graphCanvas} style={{ height: graphHeight }}>
+        <div className={styles.graphCanvas} style={{ width: graphWidth, height: graphHeight }}>
           {graph.edges.length ? (
-            <svg className={styles.graphEdges} viewBox={`0 0 900 ${graphHeight}`} preserveAspectRatio="none" aria-hidden="true">
+            <svg className={styles.graphEdges} viewBox={`0 0 ${graphWidth} ${graphHeight}`} preserveAspectRatio="none" aria-hidden="true">
               <defs>
                 <marker id="dependencyGraphArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                   <path d="M 0 0 L 10 5 L 0 10 z" />
                 </marker>
               </defs>
-              {graph.edges.map((edge) => {
-                const from = pointFor(edge.from, "from");
-                const to = pointFor(edge.to, "to");
-                if (!from || !to) return null;
-                if (from.column === to.column) {
-                  const loopX = from.x + 28;
-                  return (
-                    <path
-                      key={`${edge.from}-${edge.to}`}
-                      className={styles.graphEdgePlatform}
-                      d={`M ${from.x} ${from.y} C ${loopX} ${from.y}, ${loopX} ${to.y}, ${from.x} ${to.y}`}
-                      markerEnd="url(#dependencyGraphArrow)"
-                    />
-                  );
-                }
-                if (from.x >= to.x) return null;
-                const curve = Math.max(70, (to.x - from.x) / 2);
-                return (
-                  <path
-                    key={`${edge.from}-${edge.to}`}
-                    className={edge.kind === "platform" ? styles.graphEdgePlatform : styles.graphEdgeMiddleware}
-                    d={`M ${from.x} ${from.y} C ${from.x + curve} ${from.y}, ${to.x - curve} ${to.y}, ${to.x} ${to.y}`}
-                    markerEnd="url(#dependencyGraphArrow)"
-                  />
-                );
-              })}
+              {graph.edges.map((edge) => (
+                <path
+                  key={`${edge.from}-${edge.to}`}
+                  className={edge.kind === "platform" ? styles.graphEdgePlatform : styles.graphEdgeMiddleware}
+                  d={edgePath(edge)}
+                  markerEnd="url(#dependencyGraphArrow)"
+                />
+              ))}
             </svg>
           ) : null}
-          {columns.map((column) => (
-            <div className={styles.graphColumn} key={column.key}>
-              <div className={styles.graphColumnTitle}>{column.title}</div>
-              <div className={styles.graphNodeList}>
-                {column.nodes.length ? column.nodes.map((node) => <DependencyGraphNodeView key={node.id} node={node} />) : <div className={styles.graphEmpty}>未选择</div>}
-              </div>
+          <div className={styles.graphLaneTitle} style={{ left: 0, top: topY, width: sideNodeWidth }}>基础平台 Pod</div>
+          <div className={styles.graphLaneTitle} style={{ left: rightX, top: topY, width: sideNodeWidth }}>业务平台</div>
+          <div className={styles.graphLaneTitle} style={{ left: bottomStartX, top: bottomTitleY, width: bottomWidth }}>中间件 / 数据库</div>
+          {nodes.map(({ node, position }) => position ? (
+            <div
+              className={styles.graphNodeSlot}
+              key={node.id}
+              style={{ left: position.x, top: position.y, width: position.width, height: position.height }}
+            >
+              <DependencyGraphNodeView node={node} />
             </div>
-          ))}
+          ) : null)}
+          {graph.platformNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: 0, top: sideStartY, width: sideNodeWidth, height: nodeHeight }}>未选择</div>}
+          {graph.businessNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: rightX, top: sideStartY, width: sideNodeWidth, height: nodeHeight }}>未选择</div>}
+          {graph.middlewareNodes.length ? null : <div className={styles.graphEmptySlot} style={{ left: bottomStartX, top: bottomY, width: bottomNodeWidth, height: nodeHeight }}>未选择</div>}
         </div>
       </div>
     </div>
