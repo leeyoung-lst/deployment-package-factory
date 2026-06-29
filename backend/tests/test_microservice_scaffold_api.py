@@ -434,6 +434,11 @@ def test_register_microservice_uses_system_setting_defaults(tmp_path, monkeypatc
         "git-project": "pending",
         "jenkins-job": "pending",
     }
+    git_step = next(step for step in payload["delivery"]["steps"] if step["name"] == "git-project")
+    assert git_step["phase"] == "config"
+    assert git_step["retryable"] is True
+    assert git_step["elapsedMs"] >= 0
+    assert "Token" in git_step["hint"]
 
 
 def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(tmp_path, monkeypatch) -> None:
@@ -482,6 +487,8 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
         "git-project": "ready",
         "jenkins-job": "ready",
     }
+    assert all(step["phase"] == "provision" for step in payload["delivery"]["steps"])
+    assert all(step["retryable"] is False for step in payload["delivery"]["steps"])
     assert ("git-project", "factory-services/asset-auto") in calls
     assert ("git-push", "https://git.local/scm/factory-services/asset-auto.git") in calls
     assert any(item[0] == "jenkins-job" and "asset-auto" in item[1] for item in calls)

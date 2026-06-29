@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from time import perf_counter
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -21,35 +22,37 @@ def prepare_microservice_delivery(request, result, settings: SystemSettings, pro
 
 
 def _prepare_git_project(request, settings: SystemSettings, project_root: Path | None) -> dict[str, str]:
+    started = perf_counter()
     target = git_repository_url(request)
     if not settings.git.base_url:
-        return _step("git-project", "skipped", "Git 地址未配置，已生成本地项目包。", target)
+        return _step("git-project", "skipped", "config", "检查 Git 配置", "Git 地址未配置，已生成本地项目包。", target, started, "在设置页填写 Git 地址和 Token 后重新注册。")
     if not settings.git.token:
-        return _step("git-project", "pending", "Git Token 未配置，无法自动创建远程项目。", target)
+        return _step("git-project", "pending", "config", "检查 Git Token", "Git Token 未配置，无法自动创建远程项目。", target, started, "在设置页填写 Git 访问 Token。")
     try:
         remote_url = GitLabClient(settings.git.base_url, settings.git.token).ensure_project(request.git_group, request.service_key)
         if project_root and project_root.exists():
             _push_initial_commit(project_root, remote_url, settings.git.token)
-        return _step("git-project", "ready", "Git 项目已创建并准备初始化代码。", remote_url)
+        return _step("git-project", "ready", "provision", "创建 Git 项目并推送初始化代码", "Git 项目已创建并推送初始化代码。", remote_url, started)
     except DeliveryError as exc:
-        return _step("git-project", "failed", str(exc), target)
+        return _step("git-project", "failed", "provision", "创建 Git 项目或推送代码", str(exc), target, started, "检查 Git 地址、Token 权限、默认分组是否存在。")
 
 
 def _prepare_jenkins_job(request, settings: SystemSettings) -> dict[str, str]:
+    started = perf_counter()
     target = jenkins_job(request)
     if not settings.jenkins.base_url:
-        return _step("jenkins-job", "skipped", "Jenkins 地址未配置，已生成 Jenkinsfile。", target)
+        return _step("jenkins-job", "skipped", "config", "检查 Jenkins 配置", "Jenkins 地址未配置，已生成 Jenkinsfile。", target, started, "在设置页填写 Jenkins 地址和凭据。")
     if not settings.jenkins.username or not settings.jenkins.password:
-        return _step("jenkins-job", "pending", "Jenkins 账号或 Token 未配置，无法自动创建 Job。", target)
+        return _step("jenkins-job", "pending", "config", "检查 Jenkins 凭据", "Jenkins 账号或 Token 未配置，无法自动创建 Job。", target, started, "在设置页填写 Jenkins 用户名和 Token。")
     try:
         JenkinsClient(settings.jenkins.base_url, settings.jenkins.username, settings.jenkins.password).ensure_pipeline_job(
             request.jenkins_folder,
             request.service_key,
             git_repository_url(request),
         )
-        return _step("jenkins-job", "ready", "Jenkins Pipeline Job 已创建或已存在。", target)
+        return _step("jenkins-job", "ready", "provision", "创建 Jenkins Pipeline Job", "Jenkins Pipeline Job 已创建或已存在。", target, started)
     except DeliveryError as exc:
-        return _step("jenkins-job", "failed", str(exc), target)
+        return _step("jenkins-job", "failed", "provision", "创建 Jenkins Pipeline Job", str(exc), target, started, "检查 Jenkins 地址、账号 Token、文件夹权限和 Git 插件。")
 
 
 class DeliveryError(RuntimeError):
@@ -151,11 +154,21 @@ def _pipeline_job_xml(git_url: str) -> str:
 </flow-definition>"""
 
 
-def _step(name: str, status: str, message: str, target: str = "") -> dict[str, str]:
-    return {"name": name, "status": status, "message": message, "target": target}
+def _step(name: str, status: str, phase: str, action: str, message: str, target: str, started: float, hint: str = "") -> dict[str, object]:
+    return {
+        "name": name,
+        "status": status,
+        "phase": phase,
+        "action": action,
+        "message": message,
+        "target": target,
+        "hint": hint,
+        "retryable": status in {"failed", "pending"},
+        "elapsedMs": round((perf_counter() - started) * 1000, 2),
+    }
 
 
-def _overall_status(steps: list[dict[str, str]]) -> str:
+def _overall_status(steps: list[dict[str, object]]) -> str:
     statuses = {step["status"] for step in steps}
     if "failed" in statuses:
         return "failed"

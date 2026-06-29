@@ -103,6 +103,33 @@
   color: #b91c1c;
 }
 
+.deliveryDiagnostics {
+  display: grid;
+  gap: 8px;
+}
+
+.deliveryStep {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.78);
+  font-size: 12px;
+}
+
+.deliveryStepHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.deliveryHint {
+  color: #92400e;
+}
+
 .fileList {
   display: grid;
   max-height: 260px;

@@ -48,7 +48,7 @@ export interface MicroserviceScaffoldResult {
   jenkinsJob: string;
   delivery: {
     status: string;
-    steps: Array<{ name: string; status: string; message: string; target: string }>;
+    steps: Array<MicroserviceDeliveryStep>;
   };
   generatedFiles: string[];
   validation: {
@@ -82,7 +82,7 @@ export interface RegisteredMicroservice {
   jenkinsJob: string;
   delivery: {
     status: string;
-    steps: Array<{ name: string; status: string; message: string; target: string }>;
+    steps: Array<MicroserviceDeliveryStep>;
   };
   k8sNamespace: string;
   artifactName: string;
@@ -92,6 +92,18 @@ export interface RegisteredMicroservice {
   status: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MicroserviceDeliveryStep {
+  name: string;
+  status: string;
+  phase: string;
+  action: string;
+  message: string;
+  target: string;
+  hint: string;
+  retryable: boolean;
+  elapsedMs: number;
 }
 
 export function getMicroserviceScaffoldOptions() {
