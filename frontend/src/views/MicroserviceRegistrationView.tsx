@@ -10,6 +10,7 @@ import {
   type RegisteredMicroservice,
 } from "../api/microservices";
 import { getDeploymentPackageOptions, type DeploymentPackageOptions, type DeploymentServiceOption, type SourceEnv } from "../api/deploymentPackages";
+import { getSystemSettings, type SystemSettings } from "../api/settings";
 import styles from "./MicroserviceRegistrationView.module.css";
 
 const DEFAULT_VALUES = {
@@ -68,6 +69,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
   const [formValues, setFormValues] = useState<WizardValues>(DEFAULT_VALUES);
   const [result, setResult] = useState<MicroserviceScaffoldResult | null>(null);
   const [registeredServices, setRegisteredServices] = useState<RegisteredMicroservice[]>([]);
+  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
 
   const sourceEnv = Form.useWatch("sourceEnv", form) as SourceEnv | undefined;
   const businessPlatforms = useMemo(
@@ -86,19 +88,24 @@ export const MicroserviceRegistrationView: React.FC = () => {
   const loadOptions = async () => {
     setLoading(true);
     try {
-      const [scaffoldOptions, packageOptions, services] = await Promise.all([
+      const [scaffoldOptions, packageOptions, services, settingsPayload] = await Promise.all([
         getMicroserviceScaffoldOptions(),
         getDeploymentPackageOptions(),
         listMicroservices(),
+        getSystemSettings(),
       ]);
       setOptions(scaffoldOptions);
       setDeploymentOptions(packageOptions);
       setRegisteredServices(services);
+      setSystemSettings(settingsPayload);
       const firstPlatform = packageOptions.businessServices.find((item) => item.registered && item.status !== "disabled");
       const nextValues = {
         ...DEFAULT_VALUES,
         sourceEnv: firstPlatform?.sourceEnv || packageOptions.sourceEnvs[0] || DEFAULT_VALUES.sourceEnv,
         businessPlatform: firstPlatform ? businessPlatformValue(firstPlatform) : "",
+        gitGroup: settingsPayload.git.group || DEFAULT_VALUES.gitGroup,
+        imageRegistry: settingsPayload.harbor.registry || DEFAULT_VALUES.imageRegistry,
+        imageNamespace: settingsPayload.harbor.project || DEFAULT_VALUES.imageNamespace,
       };
       form.setFieldsValue(nextValues);
       setFormValues(nextValues);
@@ -395,6 +402,13 @@ export const MicroserviceRegistrationView: React.FC = () => {
 
           {currentStep === 2 ? (
             <div className={styles.stepGrid}>
+              <div className={styles.fullWidth}>
+                <span className={styles.settingsHint}>
+                  <i className="ri-settings-3-line" />
+                  Git 分组和镜像仓库默认读取系统设置，可按当前服务临时覆盖。
+                  {systemSettings?.jenkins.baseUrl ? ` Jenkins: ${systemSettings.jenkins.baseUrl}` : ""}
+                </span>
+              </div>
               <Form.Item label="端口" name="port" rules={[{ required: true, message: "请输入端口" }]}>
                 <InputNumber min={1} max={65535} className={styles.fullControl} />
               </Form.Item>

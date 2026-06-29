@@ -29,6 +29,7 @@ import {
   type ProjectProfile,
   type SourceEnv,
 } from "../api/deploymentPackages";
+import { getSystemSettings, type SystemSettings } from "../api/settings";
 import styles from "./DeploymentPackageExportView.module.css";
 
 const DEFAULT_TARGET = {
@@ -102,6 +103,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
   const [disablingBusinessKey, setDisablingBusinessKey] = useState("");
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
+  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
 
   const requiredPlatformKeys = useMemo(
     () => options?.platformServices.filter((item) => item.required).map((item) => item.key) ?? [],
@@ -140,6 +142,10 @@ export const DeploymentPackageExportView: React.FC = () => {
   const selectedDatabaseOption = useMemo(
     () => databaseOptionsForSourceEnv.find((item) => item.key === database) ?? null,
     [database, databaseOptionsForSourceEnv],
+  );
+  const defaultTargetRegistry = useCallback(
+    (project?: ProjectProfile | null, settingsOverride?: SystemSettings | null) => project?.registry || settingsOverride?.harbor.registry || systemSettings?.harbor.registry || "",
+    [systemSettings?.harbor.registry],
   );
 
   const makePreviewPayload = useCallback((): PackagePreviewRequest => {
@@ -181,20 +187,20 @@ export const DeploymentPackageExportView: React.FC = () => {
     setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
     form.setFieldsValue({
       domain: project.domain,
-      registry: project.registry,
+      registry: defaultTargetRegistry(project),
       namespacePrefix: project.namespacePrefix,
       storageClass: project.storageClass,
     });
     setTargetDraft((current) => ({
       ...current,
       domain: project.domain,
-      registry: project.registry,
+      registry: defaultTargetRegistry(project),
       namespacePrefix: project.namespacePrefix,
       storageClass: project.storageClass,
     }));
-  }, [form, options]);
+  }, [defaultTargetRegistry, form, options]);
 
-  const applyProjectDefaultsFromOptions = useCallback((key: string, sourceOptions: DeploymentPackageOptions) => {
+  const applyProjectDefaultsFromOptions = useCallback((key: string, sourceOptions: DeploymentPackageOptions, settingsOverride?: SystemSettings | null) => {
     const project = sourceOptions.projects.find((item) => item.key === key);
     setProjectKey(key);
     if (!project) return;
@@ -211,24 +217,25 @@ export const DeploymentPackageExportView: React.FC = () => {
     setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
     form.setFieldsValue({
       domain: project.domain,
-      registry: project.registry,
+      registry: defaultTargetRegistry(project, settingsOverride),
       namespacePrefix: project.namespacePrefix,
       storageClass: project.storageClass,
     });
     setTargetDraft((current) => ({
       ...current,
       domain: project.domain,
-      registry: project.registry,
+      registry: defaultTargetRegistry(project, settingsOverride),
       namespacePrefix: project.namespacePrefix,
       storageClass: project.storageClass,
     }));
-  }, [form]);
+  }, [defaultTargetRegistry, form]);
 
   const loadOptions = useCallback(async () => {
     setLoadingOptions(true);
     try {
-      const payload = await getDeploymentPackageOptions();
+      const [payload, settingsPayload] = await Promise.all([getDeploymentPackageOptions(), getSystemSettings()]);
       setOptions(payload);
+      setSystemSettings(settingsPayload);
       const nextSourceEnv = payload.sourceEnvs.includes(sourceEnv) ? sourceEnv : (payload.sourceEnvs[0] ?? "test");
       setSourceEnv(nextSourceEnv);
       const runtimePlatform = serviceOptionsForEnv(payload.platformServices, nextSourceEnv);
@@ -245,7 +252,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         setDatabase("");
       }
       if (payload.projects[0]) {
-        applyProjectDefaultsFromOptions(payload.projects[0].key, payload);
+        applyProjectDefaultsFromOptions(payload.projects[0].key, payload, settingsPayload);
       } else {
         setProjectKey("");
         setProductVersion("");
@@ -255,7 +262,7 @@ export const DeploymentPackageExportView: React.FC = () => {
     } finally {
       setLoadingOptions(false);
     }
-  }, [applyProjectDefaultsFromOptions, message]);
+  }, [applyProjectDefaultsFromOptions, message, sourceEnv]);
 
   const refreshImageEnvironment = useCallback(async () => {
     setImageEnvironmentLoading(true);

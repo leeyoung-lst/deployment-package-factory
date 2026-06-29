@@ -11,6 +11,7 @@ from deployment_package_factory.services.deployment_packages.repositories import
 )
 from deployment_package_factory.services.microservices import repository as microservice_repositories
 from deployment_package_factory.services.microservices.repository import create_microservice_repository
+from deployment_package_factory.services.settings import create_system_settings_repository
 import psycopg
 
 
@@ -20,6 +21,7 @@ def test_repository_factory_requires_database_url_when_missing() -> None:
         create_audit_repository,
         create_business_platform_repository,
         create_microservice_repository,
+        create_system_settings_repository,
     ]:
         with pytest.raises(RuntimeError, match="DEPLOYMENT_PACKAGE_DATABASE_URL is required"):
             factory(database_url="")

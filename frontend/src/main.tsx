@@ -7,6 +7,7 @@ import "remixicon/fonts/remixicon.css";
 import "./styles/global.css";
 import { DeploymentPackageExportView } from "./views/DeploymentPackageExportView";
 import { MicroserviceRegistrationView } from "./views/MicroserviceRegistrationView";
+import { SystemSettingsView } from "./views/SystemSettingsView";
 
 const appItems = [
   {
@@ -27,6 +28,23 @@ const appItems = [
         </div>
         <div className="panel-body">
           <MicroserviceRegistrationView />
+        </div>
+      </section>
+    ),
+  },
+  {
+    key: "settings",
+    label: "系统设置",
+    children: (
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>系统设置</h2>
+            <p>维护 Git、Harbor、Jenkins 等公共环境信息</p>
+          </div>
+        </div>
+        <div className="panel-body">
+          <SystemSettingsView />
         </div>
       </section>
     ),

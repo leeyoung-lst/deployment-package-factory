@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from deployment_package_factory.api import deployment_packages
+from deployment_package_factory.api import deployment_packages, settings
 from deployment_package_factory.main import create_app
 from deployment_package_factory.services.deployment_packages.models import ImageExportEnvironmentCheck
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest
+from deployment_package_factory.services.settings import SystemSettings
 from fakes import InMemoryAuditEventRepository, InMemoryBusinessPlatformRepository, InMemoryMicroserviceRepository, InMemoryTaskRepository
 
 
@@ -85,6 +86,47 @@ def test_readiness_allows_image_export_warning(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "degraded"
     assert _check(response.json(), "image_export")["status"] == "warning"
+
+
+def test_settings_api_gets_and_updates_system_settings(monkeypatch) -> None:
+    repo = InMemorySystemSettingsRepository()
+    monkeypatch.setattr(settings, "_SETTINGS_REPO", repo)
+
+    client = TestClient(create_app())
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["git"]["group"] == "business-services"
+    assert response.json()["harbor"]["registry"] == "registry.local"
+
+    updated = client.put(
+        "/api/settings",
+        json={
+            "git": {"baseUrl": " http://gitlab.local/ ", "group": " /Business/EAM/ ", "username": " dev ", "email": "dev@example.local "},
+            "harbor": {"registry": " harbor.local:5000/ ", "project": " /Business/EAM/ ", "username": " robot ", "insecure": True},
+            "jenkins": {"baseUrl": " http://jenkins.local/ ", "folder": " /Business/EAM/ ", "username": " ci "},
+        },
+    )
+
+    assert updated.status_code == 200, updated.text
+    payload = updated.json()
+    assert payload["git"]["baseUrl"] == "http://gitlab.local/"
+    assert payload["git"]["group"] == "business/eam"
+    assert payload["harbor"]["registry"] == "harbor.local:5000"
+    assert payload["harbor"]["project"] == "business/eam"
+    assert payload["jenkins"]["folder"] == "business/eam"
+
+
+class InMemorySystemSettingsRepository:
+    def __init__(self) -> None:
+        self.value = SystemSettings()
+
+    def get(self) -> SystemSettings:
+        return self.value
+
+    def update(self, settings_value: SystemSettings) -> SystemSettings:
+        self.value = settings_value.model_copy(update={"updated_at": "now"})
+        return self.value
 
 
 def _set_ready_repositories(monkeypatch):

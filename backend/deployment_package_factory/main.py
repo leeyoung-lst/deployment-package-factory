@@ -12,6 +12,7 @@ from deployment_package_factory.api.deployment_packages import (
     router as deployment_packages_router,
 )
 from deployment_package_factory.api.microservices import router as microservices_router
+from deployment_package_factory.api.settings import router as settings_router
 from deployment_package_factory.metrics import render_metrics
 from deployment_package_factory.readiness import build_readiness_report
 from deployment_package_factory.settings import load_settings
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(deployment_packages_router)
     app.include_router(microservices_router)
+    app.include_router(settings_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
