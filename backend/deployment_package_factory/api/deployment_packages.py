@@ -36,7 +36,7 @@ from deployment_package_factory.services.deployment_packages.models import (
 )
 from deployment_package_factory.services.deployment_packages.repositories import create_audit_repository, create_task_repository
 from deployment_package_factory.services.deployment_packages.repositories import create_business_platform_repository
-from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime
+from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime, with_runtime_projects
 from deployment_package_factory.services.deployment_packages.task_executor import PackageTaskExecutor, PackageTaskExecutorConfig
 
 LOGGER = logging.getLogger(__name__)
@@ -103,9 +103,9 @@ async def deployment_package_options() -> dict:
 @router.post("/preview", response_model=PackagePreview)
 async def deployment_package_preview(payload: PackagePreviewRequest) -> PackagePreview:
     try:
-        catalog = load_catalog()
-        preview = resolve_package_preview(payload, catalog)
         registered_business = _registered_business_platforms()
+        catalog = with_runtime_projects(load_catalog(), registered_business)
+        preview = resolve_package_preview(payload, catalog)
         ensure_request_matches_runtime(payload, catalog, registered_business)
         request, project = package_builder._apply_project_build_defaults(PackageBuildRequest.model_validate(payload.model_dump(by_alias=True)), catalog)
         image_tag = project.image_tag if project else "prod"
@@ -207,7 +207,8 @@ async def create_deployment_package(
     x_deployment_package_operator: str | None = Header(default=None),
 ) -> PackageTask:
     try:
-        ensure_request_matches_runtime(payload, load_catalog(), _registered_business_platforms())
+        registered_business = _registered_business_platforms()
+        ensure_request_matches_runtime(payload, with_runtime_projects(load_catalog(), registered_business), registered_business)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     repo = get_task_repository()

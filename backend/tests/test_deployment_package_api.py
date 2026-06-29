@@ -239,6 +239,34 @@ def test_preview_allows_kubernetes_discovered_business_without_db_registration(m
     assert response.json()["businessServices"][0]["key"] == "eam"
 
 
+def test_preview_accepts_runtime_discovered_project_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+
+    options = _client().get("/api/deployment-packages/options")
+    assert options.status_code == 200, options.text
+    project = options.json()["projects"][0]
+
+    response = _client().post(
+        "/api/deployment-packages/preview",
+        json={
+            "projectKey": project["key"],
+            "productVersion": project["defaultVersion"],
+            "sourceEnv": project["defaultSourceEnv"],
+            "deployModes": project["defaultDeployModes"],
+            "platformServices": project["defaultPlatformServices"],
+            "businessServices": project["defaultBusinessServices"],
+            "database": project["defaultDatabase"],
+            "targetProfile": {"registry": "harbor.prod/local-ai"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["businessServices"][0]["key"] == "eam"
+    by_catalog = {item["catalogRef"]: item for item in payload["imageEntries"]}
+    assert by_catalog["local-ai-eam-service:k8s"]["sourceResolvedFrom"] == "kubernetes"
+
+
 def test_deployment_package_preview_rejects_unknown_database() -> None:
     response = _client().post(
         "/api/deployment-packages/preview",

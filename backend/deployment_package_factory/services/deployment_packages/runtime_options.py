@@ -8,6 +8,7 @@ from deployment_package_factory.services.deployment_packages.dependency_resolver
 from deployment_package_factory.services.deployment_packages.models import DeploymentCatalog, ProjectProfile
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     RegisteredBusinessPlatform,
+    list_registered_business_platforms,
     source_env_namespaces,
 )
 
@@ -24,7 +25,7 @@ class RuntimeOptions:
 
 def build_runtime_options(catalog: DeploymentCatalog, business_platforms: list[RegisteredBusinessPlatform] | None = None) -> RuntimeOptions:
     env_images: dict[str, list[builder.RuntimeSourceImage]] = {}
-    registered_business = business_platforms or []
+    registered_business = business_platforms if business_platforms is not None else list_registered_business_platforms()
     registered_envs = {item.source_env for item in registered_business if item.source_env}
     for source_env in _candidate_source_envs(registered_envs):
         namespaces = source_env_namespaces(
@@ -84,8 +85,24 @@ def build_runtime_options(catalog: DeploymentCatalog, business_platforms: list[R
     )
 
 
+def with_runtime_projects(catalog: DeploymentCatalog, business_platforms: list[RegisteredBusinessPlatform] | None = None) -> DeploymentCatalog:
+    runtime_options = build_runtime_options(catalog, business_platforms)
+    projects = dict(catalog.projects)
+    for item in runtime_options.projects:
+        projects[item["key"]] = ProjectProfile.model_validate(item)
+    return catalog.model_copy(update={"projects": projects})
+
+
 def ensure_request_matches_runtime(payload, catalog: DeploymentCatalog, business_platforms: list[RegisteredBusinessPlatform] | None = None) -> None:
     runtime_options = build_runtime_options(catalog, business_platforms)
+    catalog = catalog.model_copy(
+        update={
+            "projects": {
+                **catalog.projects,
+                **{item["key"]: ProjectProfile.model_validate(item) for item in runtime_options.projects},
+            }
+        }
+    )
     if payload.source_env not in runtime_options.source_envs:
         raise ValueError(f"Source environment {payload.source_env!r} was not found in the live Kubernetes environment.")
 

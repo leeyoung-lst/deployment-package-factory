@@ -120,7 +120,9 @@ def build_deployment_package(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     package_root.mkdir(parents=True, exist_ok=True)
 
-    catalog = load_catalog()
+    from deployment_package_factory.services.deployment_packages.runtime_options import with_runtime_projects
+
+    catalog = with_runtime_projects(load_catalog())
     request, project = _apply_project_build_defaults(request, catalog)
     preview = resolve_package_preview(request, catalog)
     image_tag = project.image_tag if project else "prod"
