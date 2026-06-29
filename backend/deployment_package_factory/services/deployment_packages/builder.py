@@ -126,11 +126,14 @@ def build_deployment_package(
     request, project = _apply_project_build_defaults(request, catalog)
     preview = resolve_package_preview(request, catalog)
     image_tag = project.image_tag if project else "prod"
+    business_namespaces = _request_business_namespaces(request)
+    runtime_business_images = _discover_runtime_business_images(request.source_env, business_namespaces)
+    preview = _preview_with_runtime_business_images(preview, runtime_business_images)
     runtime_images = _discover_runtime_source_images(
         request.source_env,
         preview.images,
         image_tag,
-        _request_business_namespaces(request),
+        business_namespaces,
     )
     image_entries = _image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
     manifest = _manifest(package_id, request, preview, image_entries, project, image_tag)
@@ -443,6 +446,42 @@ def _discover_runtime_source_images(
     return resolved
 
 
+def _discover_runtime_business_images(source_env: str, business_namespaces: list[str] | None = None) -> list[RuntimeSourceImage]:
+    if not business_namespaces:
+        return []
+    try:
+        namespaces = _source_env_namespaces(source_env, business_namespaces)
+    except TypeError:
+        namespaces = _source_env_namespaces(source_env)
+    business_namespace_set = set(business_namespaces)
+    resolved_namespaces = [namespace for namespace in namespaces if namespace in business_namespace_set]
+    if not resolved_namespaces:
+        return []
+    return _list_runtime_images(resolved_namespaces)
+
+
+def _preview_with_runtime_business_images(preview, runtime_business_images: list[RuntimeSourceImage]):
+    if not runtime_business_images:
+        return preview
+    images = {group: list(values) for group, values in preview.images.items()}
+    business_images = images.setdefault("business", [])
+    non_business_images = [
+        image
+        for group, values in images.items()
+        if group != "business"
+        for image in values
+    ]
+    for runtime_image in sorted(runtime_business_images, key=lambda item: (item.namespace, item.pod, item.container, item.source_ref)):
+        if not runtime_image.source_ref:
+            continue
+        if _matches_catalog_image(non_business_images, runtime_image.source_ref):
+            continue
+        if _matches_catalog_image(business_images, runtime_image.source_ref):
+            continue
+        business_images.append(runtime_image.source_ref)
+    return preview.model_copy(update={"images": images})
+
+
 def _source_env_namespaces(source_env: str, business_namespaces: list[str] | None = None) -> list[str]:
     return source_env_namespaces(source_env, business_namespaces)
 
@@ -532,6 +571,13 @@ def _image_path_without_tag(image: str) -> str:
     if ":" in last_part:
         return image.rsplit(":", 1)[0]
     return image
+
+
+def _matches_catalog_image(catalog_images: list[str], runtime_ref: str) -> bool:
+    for image in catalog_images:
+        if _runtime_image_match_score(_with_default_tag(image, "prod"), runtime_ref) > 0:
+            return True
+    return False
 
 
 def _image_registry_priority(image: str) -> int:

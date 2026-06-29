@@ -41,6 +41,12 @@ platform:
     middleware:
       - database
       - camunda
+  observability:
+    name: Observability
+    namespaceGroup: observability
+    images: []
+    middleware:
+      - monitoring
   audit:
     name: Audit
     namespaceGroup: base-public

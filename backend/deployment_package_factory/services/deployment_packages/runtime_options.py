@@ -50,7 +50,7 @@ def build_runtime_options(catalog: DeploymentCatalog, business_platforms: list[R
         }
         for source_env, runtime_images in env_images.items()
         for capability in catalog.platform.values()
-        if _has_runtime_image(capability.images, runtime_images)
+        if _has_runtime_capability(capability, runtime_images, catalog)
     ]
     database_options = [
         {
@@ -185,6 +185,19 @@ def _has_runtime_image(catalog_images: list[str], runtime_images: list[builder.R
             if builder._best_runtime_image(builder._with_default_tag(image, tag), runtime_images):
                 return True
     return False
+
+
+def _has_runtime_capability(capability, runtime_images: list[builder.RuntimeSourceImage], catalog: DeploymentCatalog) -> bool:
+    if _has_runtime_image(capability.images, runtime_images):
+        return True
+    if capability.images:
+        return False
+    middleware_images = [
+        catalog.middleware[key].image
+        for key in capability.middleware
+        if key in catalog.middleware
+    ]
+    return bool(middleware_images) and _has_runtime_image(middleware_images, runtime_images)
 
 
 def _runtime_projects(

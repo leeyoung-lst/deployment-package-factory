@@ -585,37 +585,53 @@ def test_image_archive_uses_source_registry_separately_from_target_registry(tmp_
 
 
 def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch) -> None:
-    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env: ["local-ai"] if source_env == "test" else [])
-    monkeypatch.setattr(
-        builder,
-        "_list_runtime_images",
-        lambda namespaces: [
-            builder.RuntimeSourceImage(
-                source_ref="192.168.10.210/local-ai/local-ai-eam-service:k8s",
-                image_id="192.168.10.210/local-ai/local-ai-eam-service@sha256:eam",
-                namespace="local-ai",
-                pod="eam-service-1",
-                container="eam-service",
-                node="k8s-wk1",
-            ),
-            builder.RuntimeSourceImage(
-                source_ref="192.168.10.210/local-ai/local-ai-sub-app-eam:k8s",
-                image_id="192.168.10.210/local-ai/local-ai-sub-app-eam@sha256:subapp",
-                namespace="local-ai",
-                pod="sub-app-eam-1",
-                container="sub-app-eam",
-                node="k8s-wk1",
-            ),
-            builder.RuntimeSourceImage(
-                source_ref="postgres:16-alpine",
-                image_id="sha256:postgres",
-                namespace="local-ai",
-                pod="postgres-1",
-                container="postgres",
-                node="k8s-wk2",
-            ),
-        ],
-    )
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: ["local-ai", *(business_namespaces or [])] if source_env == "test" else [])
+
+    def list_runtime_images(namespaces):
+        images = []
+        if "test-biz-eam-4x60" in namespaces:
+            images.extend(
+                [
+                    builder.RuntimeSourceImage(
+                        source_ref="192.168.10.210/local-ai/local-ai-eam-service:k8s",
+                        image_id="192.168.10.210/local-ai/local-ai-eam-service@sha256:eam",
+                        namespace="test-biz-eam-4x60",
+                        pod="eam-service-1",
+                        container="eam-service",
+                        node="k8s-wk1",
+                    ),
+                    builder.RuntimeSourceImage(
+                        source_ref="192.168.10.210/local-ai/local-ai-sub-app-eam:k8s",
+                        image_id="192.168.10.210/local-ai/local-ai-sub-app-eam@sha256:subapp",
+                        namespace="test-biz-eam-4x60",
+                        pod="sub-app-eam-1",
+                        container="sub-app-eam",
+                        node="k8s-wk1",
+                    ),
+                    builder.RuntimeSourceImage(
+                        source_ref="192.168.10.210/local-ai/mqtt-collector:k8s",
+                        image_id="192.168.10.210/local-ai/mqtt-collector@sha256:mqtt",
+                        namespace="test-biz-eam-4x60",
+                        pod="mqtt-collector-1",
+                        container="mqtt-collector",
+                        node="k8s-wk1",
+                    ),
+                ]
+            )
+        if "local-ai" in namespaces:
+            images.append(
+                builder.RuntimeSourceImage(
+                    source_ref="postgres:16-alpine",
+                    image_id="sha256:postgres",
+                    namespace="local-ai",
+                    pod="postgres-1",
+                    container="postgres",
+                    node="k8s-wk2",
+                ),
+            )
+        return images
+
+    monkeypatch.setattr(builder, "_list_runtime_images", list_runtime_images)
 
     result = build_deployment_package(
         PackageBuildRequest(
@@ -634,6 +650,9 @@ def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch)
     assert by_catalog["local-ai-eam-service:prod"]["sourceImageId"] == "192.168.10.210/local-ai/local-ai-eam-service@sha256:eam"
     assert by_catalog["local-ai-eam-service:prod"]["sourceNode"] == "k8s-wk1"
     assert by_catalog["sub-app-eam:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-sub-app-eam:k8s"
+    assert by_catalog["192.168.10.210/local-ai/mqtt-collector:k8s"]["group"] == "business"
+    assert by_catalog["192.168.10.210/local-ai/mqtt-collector:k8s"]["sourceResolvedFrom"] == "kubernetes"
+    assert "192.168.10.210/local-ai/local-ai-eam-service:k8s" not in by_catalog
     assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceRef"] == "192.168.10.210/local-ai/postgres:16-alpine"
     assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceExportRef"] == "192.168.10.210/local-ai/postgres:16-alpine"
     assert by_catalog["192.168.10.210/local-ai/postgres:16-alpine"]["sourceNode"] == "k8s-wk2"

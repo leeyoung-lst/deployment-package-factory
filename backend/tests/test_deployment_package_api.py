@@ -62,13 +62,14 @@ def test_deployment_package_options_returns_only_runtime_services(monkeypatch: p
         "file-documents",
         "gateway-frontend",
         "iam",
+        "observability",
         "workflow-camunda",
     }
     assert [item["key"] for item in payload["businessServices"]] == ["eam"]
     assert payload["businessServices"][0]["namespace"] == "test-biz-eam-4x60"
     assert payload["businessServices"][0]["sourceEnv"] == "test"
     assert {item["key"] for item in payload["databaseOptions"]} == {"postgres"}
-    assert {item["key"] for item in payload["middleware"]} == {"camunda", "iotdb", "minio", "redis"}
+    assert {item["key"] for item in payload["middleware"]} == {"camunda", "iotdb", "minio", "monitoring", "redis"}
     assert [item["key"] for item in payload["projects"]] == ["test-eam-4x60"]
     assert payload["projects"][0]["registry"] == "192.168.10.210/local-ai"
 
@@ -150,6 +151,7 @@ def test_deployment_package_preview_returns_resolved_dependencies(monkeypatch: p
     assert {"iam", "gateway-frontend", "file-documents", "workflow-camunda", "audit"}.issubset(platform_keys)
     assert {"postgres", "redis", "minio", "camunda", "iotdb"}.issubset(middleware_keys)
     assert "local-ai-eam-service" in payload["images"]["business"]
+    assert "192.168.10.210/local-ai/mqtt-collector:k8s" in payload["images"]["business"]
 
 
 def test_deployment_package_preview_returns_runtime_image_entries(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -170,6 +172,28 @@ def test_deployment_package_preview_returns_runtime_image_entries(monkeypatch: p
     by_catalog = {item["catalogRef"]: item for item in response.json()["imageEntries"]}
     assert by_catalog["local-ai-eam-service:prod"]["sourceRef"] == "192.168.10.210/local-ai/local-ai-eam-service:k8s"
     assert by_catalog["local-ai-eam-service:prod"]["sourceResolvedFrom"] == "kubernetes"
+    assert by_catalog["192.168.10.210/local-ai/mqtt-collector:k8s"]["sourceRef"] == "192.168.10.210/local-ai/mqtt-collector:k8s"
+    assert by_catalog["192.168.10.210/local-ai/mqtt-collector:k8s"]["group"] == "business"
+
+
+def test_deployment_package_preview_can_select_observability(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+
+    response = _client().post(
+        "/api/deployment-packages/preview",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "platformServices": ["observability"],
+            "businessServices": [],
+            "database": "postgres",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "observability" in {item["key"] for item in payload["platformServices"]}
+    assert "monitoring" in {item["key"] for item in payload["middleware"]}
 
 
 def test_register_and_disable_business_platform_api(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -570,11 +594,14 @@ def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business:
         ("192.168.10.210/local-ai/local-ai-eam-service:k8s", "eam"),
         ("192.168.10.210/local-ai/sub-app-eam:k8s", "sub-eam"),
         ("192.168.10.210/local-ai/local-ai-collection-service:k8s", "collection"),
+        ("192.168.10.210/local-ai/mqtt-collector:k8s", "mqtt"),
+        ("192.168.10.210/local-ai/dnc-modbus-simulator:k8s", "modbus"),
         ("192.168.10.210/local-ai/postgres:16", "postgres"),
         ("192.168.10.210/local-ai/redis:7", "redis"),
         ("192.168.10.210/local-ai/minio/minio:latest", "minio"),
         ("192.168.10.210/local-ai/camunda/camunda:latest", "camunda"),
         ("192.168.10.210/local-ai/apache/iotdb:latest", "iotdb"),
+        ("192.168.10.210/local-ai/prometheus:latest", "prometheus"),
     ]
 
     if seed_business:

@@ -109,11 +109,14 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
         ensure_request_matches_runtime(payload, catalog, registered_business)
         request, project = package_builder._apply_project_build_defaults(PackageBuildRequest.model_validate(payload.model_dump(by_alias=True)), catalog)
         image_tag = project.image_tag if project else "prod"
+        business_namespaces = _request_business_namespaces(request, registered_business)
+        runtime_business_images = package_builder._discover_runtime_business_images(request.source_env, business_namespaces)
+        preview = package_builder._preview_with_runtime_business_images(preview, runtime_business_images)
         runtime_images = package_builder._discover_runtime_source_images(
             request.source_env,
             preview.images,
             image_tag,
-            _request_business_namespaces(request, registered_business),
+            business_namespaces,
         )
         image_entries = package_builder._image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
         return preview.model_copy(update={"image_entries": image_entries})
