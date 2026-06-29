@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from deployment_package_factory.services.microservices.middleware_plugins import (
     env_placeholder_lines,
     middleware_catalog,
-    middleware_ts,
     middleware_yaml,
 )
+from deployment_package_factory.services.microservices.node_templates import node_required_files, render_nodejs_files
+from deployment_package_factory.services.microservices.templates_common import TemplateFile
 
 PROJECT_KINDS = {
     "backend": "后端微服务",
@@ -39,13 +39,6 @@ TECH_STACK_PROJECT_KIND = {
 MIDDLEWARE = middleware_catalog()
 
 
-@dataclass(frozen=True)
-class TemplateFile:
-    path: PurePosixPath
-    content: str
-    executable: bool = False
-
-
 def render_generic_template(request) -> list[TemplateFile]:
     context = _context(request)
     files = _common_files(context)
@@ -64,7 +57,7 @@ def render_generic_template(request) -> list[TemplateFile]:
 def generic_required_files(tech_stack: str) -> list[str]:
     required = ["README.md", ".env.template", "Dockerfile", "Jenkinsfile", "build.sh", "deploy.sh", "deploy/k8s/deployment.yaml", "deploy/helm"]
     if tech_stack == "nodejs-express":
-        required.extend(["package.json", "src/domain/demo.ts", "src/application/useCases.ts", "src/interfaces/http/server.ts"])
+        required.extend(node_required_files())
     elif tech_stack == "java-spring-cloud-alibaba":
         required.extend(["pom.xml", "src/main/java/com/example/domain/DemoItem.java", "src/main/java/com/example/interfaces/HealthController.java"])
     else:
@@ -110,14 +103,7 @@ def _common_files(context: dict[str, object]) -> list[TemplateFile]:
 
 
 def _nodejs_files(context: dict[str, object]) -> list[TemplateFile]:
-    return [
-        TemplateFile(PurePosixPath("package.json"), _node_package(context)),
-        TemplateFile(PurePosixPath("tsconfig.json"), '{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"outDir":"dist","rootDir":"src"},"include":["src"]}\n'),
-        TemplateFile(PurePosixPath("src/domain/demo.ts"), "export interface DemoItem { name: string; normalizedName: string; }\nexport function createDemoItem(name: string): DemoItem { return { name, normalizedName: name.toLowerCase().replace(/[^a-z0-9-]+/g, '-') }; }\n"),
-        TemplateFile(PurePosixPath("src/application/useCases.ts"), "import { createDemoItem } from '../domain/demo.js';\nexport const createItem = (name: string) => createDemoItem(name);\n"),
-        TemplateFile(PurePosixPath("src/infrastructure/middleware.ts"), middleware_ts(context["middleware"])),
-        TemplateFile(PurePosixPath("src/interfaces/http/server.ts"), _node_server(context)),
-    ]
+    return render_nodejs_files(context)
 
 
 def _java_files(context: dict[str, object]) -> list[TemplateFile]:
@@ -253,14 +239,6 @@ def _helm_deployment(context: dict[str, object]) -> str:
 
 def _helm_service(context: dict[str, object]) -> str:
     return f"apiVersion: v1\nkind: Service\nmetadata:\n  name: {context['service_key']}\nspec:\n  selector:\n    app: {context['service_key']}\n  ports:\n    - port: {{{{ .Values.service.port }}}}\n      targetPort: {{{{ .Values.service.targetPort }}}}\n"
-
-
-def _node_package(context: dict[str, object]) -> str:
-    return f'{{"name":"{context["service_key"]}","type":"module","scripts":{{"build":"tsc","start":"node dist/interfaces/http/server.js"}},"dependencies":{{"express":"^4.19.2"}},"devDependencies":{{"typescript":"^5.5.0","@types/express":"^4.17.21","@types/node":"^22.0.0"}}}}\n'
-
-
-def _node_server(context: dict[str, object]) -> str:
-    return f"import express from 'express';\nimport {{ createItem }} from '../../application/useCases.js';\nconst app = express();\napp.get('/health', (_, res) => res.json({{ status: 'ok', service: '{context['service_key']}' }}));\napp.post('/api/v1/items/:name', (req, res) => res.json(createItem(req.params.name)));\napp.listen({context['port']});\n"
 
 
 def _java_pom(context: dict[str, object]) -> str:

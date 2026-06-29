@@ -11,7 +11,7 @@ def validate_scaffold_artifact(project_root: Path, artifact_path: Path, rendered
     checks.append(_required_files(project_root, required_files))
     if tech_stack == "python-fastapi":
         checks.append(_python_syntax(project_root, rendered_files))
-    checks.extend([_pipeline_files(project_root), _middleware_placeholders(project_root, middleware), _artifact_archive(artifact_path)])
+    checks.extend([_pipeline_files(project_root), _tech_stack_contract(project_root, tech_stack), _middleware_placeholders(project_root, middleware), _artifact_archive(artifact_path)])
     return {"passed": all(bool(item["passed"]) for item in checks), "checks": checks, "fileCount": len(rendered_files)}
 
 
@@ -59,6 +59,38 @@ def _middleware_placeholders(project_root: Path, middleware: list[str]) -> dict[
     content = (env_file.read_text(encoding="utf-8") if env_file.exists() else "") + "\n" + (config_file.read_text(encoding="utf-8") if config_file.exists() else "")
     missing = [name for name in required_env_names(middleware) if name not in content]
     return {"name": "middleware-placeholders", "passed": not missing, "message": "中间件占位配置检查通过" if not missing else f"缺失占位符: {', '.join(missing)}"}
+
+
+def _tech_stack_contract(project_root: Path, tech_stack: str) -> dict[str, object]:
+    contracts = {
+        "nodejs-express": {
+            "package.json": ['"build":"tsc"', '"test":"node --test dist/tests/*.test.js"'],
+            "src/interfaces/http/routes.ts": ["Router()", "/runtime"],
+            "src/config/settings.ts": ["businessPlatformKey"],
+            "src/infrastructure/middlewareClients.ts": ["middlewareHealth"],
+        },
+        "java-spring-cloud-alibaba": {
+            "pom.xml": ["spring-cloud-starter-alibaba-nacos-discovery", "spring-boot-starter-data-jpa"],
+            "src/main/resources/application.yml": ["nacos"],
+            "src/main/java/com/example/Application.java": ["@SpringBootApplication"],
+        },
+        "vue3-vite": {"package.json": ["element-plus", "pinia"], "src/router/index.ts": ["createRouter"]},
+        "react-vite": {"package.json": ["antd", "react"], "src/main.tsx": ["createRoot"]},
+        "qiankun": {"package.json": ["qiankun"], "src/main.ts": ["createApp"]},
+        "wujie": {"package.json": ["wujie-vue3"], "src/main.ts": ["createApp"]},
+    }
+    expected = contracts.get(tech_stack)
+    if not expected:
+        return {"name": "tech-stack-contract", "passed": True, "message": "默认技术栈检查通过"}
+    missing: list[str] = []
+    for relative, snippets in expected.items():
+        path = project_root / relative
+        if not path.exists():
+            missing.append(relative)
+            continue
+        content = path.read_text(encoding="utf-8")
+        missing.extend(f"{relative}:{snippet}" for snippet in snippets if snippet not in content)
+    return {"name": "tech-stack-contract", "passed": not missing, "message": "技术栈契约检查通过" if not missing else f"缺失内容: {', '.join(missing)}"}
 
 
 def _artifact_archive(artifact_path: Path) -> dict[str, object]:

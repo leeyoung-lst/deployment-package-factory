@@ -79,7 +79,7 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert payload["businessPlatformNamespace"] == "test-biz-eam-4x60"
     assert payload["validation"]["passed"] is True
     assert payload["validation"]["fileCount"] == len(payload["generatedFiles"])
-    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "python-syntax", "pipeline-files", "middleware-placeholders", "artifact-archive"}
+    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "python-syntax", "pipeline-files", "tech-stack-contract", "middleware-placeholders", "artifact-archive"}
     artifact = Path(payload["artifactPath"])
     assert artifact.exists()
 
@@ -193,14 +193,22 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["validation"]["passed"] is True
-    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "pipeline-files", "middleware-placeholders", "artifact-archive"}
+    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "pipeline-files", "tech-stack-contract", "middleware-placeholders", "artifact-archive"}
     with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
         assert "asset-node/src/domain/demo.ts" in names
+        assert "asset-node/src/domain/services.ts" in names
         assert "asset-node/src/application/useCases.ts" in names
+        assert "asset-node/src/config/settings.ts" in names
+        assert "asset-node/src/infrastructure/logger.ts" in names
+        assert "asset-node/src/infrastructure/middlewareClients.ts" in names
+        assert "asset-node/src/interfaces/http/routes.ts" in names
         assert "asset-node/src/interfaces/http/server.ts" in names
+        assert "asset-node/tests/demo.test.ts" in names
+        package_json = tar.extractfile("asset-node/package.json").read().decode("utf-8")
         env_template = tar.extractfile("asset-node/.env.template").read().decode("utf-8")
         middleware_yaml = tar.extractfile("asset-node/config/middleware.example.yaml").read().decode("utf-8")
+    assert '"test":"node --test dist/tests/*.test.js"' in package_json
     assert "MONGODB_ENDPOINT=__REPLACE_WITH_MONGODB_ENDPOINT__" in env_template
     assert "kafka:" in middleware_yaml
     assert "mq:" in middleware_yaml
