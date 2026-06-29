@@ -12,6 +12,13 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from deployment_package_factory.services.microservices.middleware_plugins import env_default_lines, middleware_yaml
+from deployment_package_factory.services.microservices.result_metadata import (
+    build_command,
+    deploy_command,
+    git_repository_url,
+    image_ref,
+    jenkins_job,
+)
 from deployment_package_factory.services.microservices.templates import (
     MIDDLEWARE,
     PROJECT_KINDS,
@@ -54,6 +61,9 @@ class MicroserviceScaffoldRequest(BaseModel):
     image_registry: str = Field(default="", alias="imageRegistry")
     image_namespace: str = Field(default="", alias="imageNamespace")
     k8s_namespace: str = Field(default="", alias="k8sNamespace")
+    git_base_url: str = Field(default="", alias="gitBaseUrl")
+    jenkins_base_url: str = Field(default="", alias="jenkinsBaseUrl")
+    jenkins_folder: str = Field(default="", alias="jenkinsFolder")
 
     @field_validator("service_key")
     @classmethod
@@ -156,6 +166,11 @@ class MicroserviceScaffoldResult(BaseModel):
     download_url: str = Field(alias="downloadUrl")
     download_command: str = Field(alias="downloadCommand")
     clone_command: str = Field(alias="cloneCommand")
+    git_repository_url: str = Field(default="", alias="gitRepositoryUrl")
+    image: str = ""
+    build_command: str = Field(default="", alias="buildCommand")
+    deploy_command: str = Field(default="", alias="deployCommand")
+    jenkins_job: str = Field(default="", alias="jenkinsJob")
     generated_files: list[str] = Field(alias="generatedFiles")
     validation: dict[str, object] = Field(default_factory=lambda: {"passed": False, "checks": [], "fileCount": 0})
 
@@ -211,6 +226,7 @@ def create_microservice_scaffold(
         tar.add(project_root, arcname=request.service_key)
     digest = _file_sha256(artifact_path)
     validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack, request.middleware)
+    image = image_ref(request)
 
     return MicroserviceScaffoldResult(
         projectId=project_id,
@@ -229,6 +245,11 @@ def create_microservice_scaffold(
         downloadUrl=f"/api/microservices/{project_id}/download",
         downloadCommand=f"curl -fL /api/microservices/{project_id}/download -o {artifact_name}",
         cloneCommand=f"curl -fL /api/microservices/{project_id}/download -o {artifact_name} && tar -xzf {artifact_name} && cd {request.service_key}",
+        gitRepositoryUrl=git_repository_url(request),
+        image=image,
+        buildCommand=build_command(request),
+        deployCommand=deploy_command(request),
+        jenkinsJob=jenkins_job(request),
         generatedFiles=sorted(str(file.path) for file in rendered_files),
         validation=validation,
     )

@@ -41,6 +41,11 @@ export interface MicroserviceScaffoldResult {
   downloadUrl: string;
   downloadCommand: string;
   cloneCommand: string;
+  gitRepositoryUrl: string;
+  image: string;
+  buildCommand: string;
+  deployCommand: string;
+  jenkinsJob: string;
   generatedFiles: string[];
   validation: {
     passed: boolean;

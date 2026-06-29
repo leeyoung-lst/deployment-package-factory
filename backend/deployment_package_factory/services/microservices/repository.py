@@ -8,6 +8,7 @@ from typing import Iterator
 import psycopg
 from psycopg.rows import dict_row
 
+from deployment_package_factory.services.microservices.result_metadata import image_ref
 from deployment_package_factory.services.microservices.scaffold import MicroserviceScaffoldRequest, MicroserviceScaffoldResult
 
 
@@ -138,7 +139,11 @@ def _microservice_payload(
         "gitGroup": request.git_group,
         "imageRegistry": request.image_registry,
         "imageNamespace": request.image_namespace,
-        "image": _image_ref(request),
+        "image": result.image or image_ref(request),
+        "gitRepositoryUrl": result.git_repository_url,
+        "buildCommand": result.build_command,
+        "deployCommand": result.deploy_command,
+        "jenkinsJob": result.jenkins_job,
         "k8sNamespace": request.k8s_namespace or result.business_platform_namespace,
         "artifactName": result.artifact_name,
         "artifactPath": result.artifact_path,
@@ -148,11 +153,6 @@ def _microservice_payload(
         "createdAt": created_at,
         "updatedAt": updated_at,
     }
-
-
-def _image_ref(request: MicroserviceScaffoldRequest) -> str:
-    return f"{request.image_registry.rstrip('/')}/{request.image_namespace.strip('/')}/{request.service_key}"
-
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

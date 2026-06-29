@@ -9,7 +9,7 @@ from deployment_package_factory.services.microservices.templates_common import T
 def render_nodejs_files(context: dict[str, object]) -> list[TemplateFile]:
     return [
         TemplateFile(PurePosixPath("package.json"), node_package(context)),
-        TemplateFile(PurePosixPath("tsconfig.json"), '{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"outDir":"dist","rootDir":"src"},"include":["src"]}\n'),
+        TemplateFile(PurePosixPath("tsconfig.json"), '{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"outDir":"dist","rootDir":"."},"include":["src","tests"]}\n'),
         TemplateFile(PurePosixPath("src/domain/demo.ts"), domain_model()),
         TemplateFile(PurePosixPath("src/domain/services.ts"), domain_service()),
         TemplateFile(PurePosixPath("src/application/useCases.ts"), application_use_cases()),
@@ -40,7 +40,7 @@ def node_required_files() -> list[str]:
 
 
 def node_package(context: dict[str, object]) -> str:
-    return f"""{{"name":"{context["service_key"]}","type":"module","scripts":{{"build":"tsc","start":"node dist/interfaces/http/server.js","test":"node --test dist/tests/*.test.js"}},"dependencies":{{"express":"^4.19.2"}},"devDependencies":{{"typescript":"^5.5.0","@types/express":"^4.17.21","@types/node":"^22.0.0"}}}}
+    return f"""{{"name":"{context["service_key"]}","type":"module","scripts":{{"build":"tsc","start":"node dist/src/interfaces/http/server.js","test":"node --test dist/tests/*.test.js"}},"dependencies":{{"express":"^4.19.2"}},"devDependencies":{{"typescript":"^5.5.0","@types/express":"^4.17.21","@types/node":"^22.0.0"}}}}
 """
 
 

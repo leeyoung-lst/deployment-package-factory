@@ -63,6 +63,9 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
             "git_group": _field_or_default(payload, "git_group", defaults.git.group),
             "image_registry": _field_or_default(payload, "image_registry", defaults.harbor.registry),
             "image_namespace": _field_or_default(payload, "image_namespace", defaults.harbor.project or platform.key),
+            "git_base_url": defaults.git.base_url,
+            "jenkins_base_url": defaults.jenkins.base_url,
+            "jenkins_folder": defaults.jenkins.folder,
         }
     )
     result = create_microservice_scaffold(enriched, output_dir=_output_dir())
@@ -93,7 +96,8 @@ def _resolve_business_platform(payload: MicroserviceScaffoldRequest) -> Register
 
 def _field_or_default(payload: MicroserviceScaffoldRequest, field_name: str, default: str) -> str:
     if field_name in payload.model_fields_set:
-        return str(getattr(payload, field_name))
+        value = str(getattr(payload, field_name)).strip()
+        return value or default
     return default
 
 

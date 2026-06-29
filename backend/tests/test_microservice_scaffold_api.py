@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from deployment_package_factory.api import deployment_packages, microservices
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
+from deployment_package_factory.services.settings import GitSettings, HarborSettings, JenkinsSettings, SystemSettings
 from fakes import InMemoryBusinessPlatformRepository, InMemoryMicroserviceRepository
 
 
@@ -77,6 +78,11 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     payload = response.json()
     assert payload["businessPlatformKey"] == "eam"
     assert payload["businessPlatformNamespace"] == "test-biz-eam-4x60"
+    assert payload["image"] == "registry.local/business/asset-service"
+    assert payload["buildCommand"] == "./build.sh registry.local/business/asset-service:dev"
+    assert payload["deployCommand"] == "./deploy.sh registry.local/business/asset-service:dev"
+    assert payload["gitRepositoryUrl"] == "business-services/asset-service"
+    assert payload["jenkinsJob"] == "business-services/asset-service"
     assert payload["validation"]["passed"] is True
     assert payload["validation"]["fileCount"] == len(payload["generatedFiles"])
     assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "python-syntax", "pipeline-files", "tech-stack-contract", "middleware-placeholders", "artifact-archive"}
@@ -150,6 +156,9 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert services[0]["serviceKey"] == "asset-service"
     assert services[0]["businessPlatformNamespace"] == "test-biz-eam-4x60"
     assert services[0]["image"] == "registry.local/business/asset-service"
+    assert services[0]["buildCommand"] == "./build.sh registry.local/business/asset-service:dev"
+    assert services[0]["deployCommand"] == "./deploy.sh registry.local/business/asset-service:dev"
+    assert services[0]["jenkinsJob"] == "business-services/asset-service"
 
     app = FastAPI()
     app.include_router(deployment_packages.router)
@@ -206,9 +215,12 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
         assert "asset-node/src/interfaces/http/server.ts" in names
         assert "asset-node/tests/demo.test.ts" in names
         package_json = tar.extractfile("asset-node/package.json").read().decode("utf-8")
+        tsconfig = tar.extractfile("asset-node/tsconfig.json").read().decode("utf-8")
         env_template = tar.extractfile("asset-node/.env.template").read().decode("utf-8")
         middleware_yaml = tar.extractfile("asset-node/config/middleware.example.yaml").read().decode("utf-8")
     assert '"test":"node --test dist/tests/*.test.js"' in package_json
+    assert '"start":"node dist/src/interfaces/http/server.js"' in package_json
+    assert '"include":["src","tests"]' in tsconfig
     assert "MONGODB_ENDPOINT=__REPLACE_WITH_MONGODB_ENDPOINT__" in env_template
     assert "kafka:" in middleware_yaml
     assert "mq:" in middleware_yaml
@@ -384,6 +396,39 @@ def test_register_microservice_normalizes_scaffold_inputs(tmp_path, monkeypatch)
     assert registered["gitGroup"] == "business-services/eam"
     assert registered["image"] == "registry.local:5000/business/eam/eam-asset-service"
     assert registered["k8sNamespace"] == "test-biz-eam-asset"
+
+
+def test_register_microservice_uses_system_setting_defaults(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        microservices,
+        "_system_settings",
+        lambda: SystemSettings(
+            git=GitSettings(baseUrl="https://git.local/scm", group="factory-services"),
+            harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
+            jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services"),
+        ),
+    )
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-defaults",
+            "serviceName": "资产默认配置服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "gitGroup": "",
+            "imageRegistry": "",
+            "imageNamespace": "",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["gitRepositoryUrl"] == "https://git.local/scm/factory-services/asset-defaults.git"
+    assert payload["image"] == "harbor.local:8443/factory/asset-defaults"
+    assert payload["jenkinsJob"] == "https://jenkins.local/job/factory-services/job/asset-defaults"
 
 
 def test_register_microservice_rejects_registry_path(tmp_path, monkeypatch) -> None:
