@@ -5,7 +5,7 @@
 
 .content {
   display: grid;
-  grid-template-columns: minmax(360px, 480px) minmax(0, 1fr);
+  grid-template-columns: minmax(380px, 520px) minmax(340px, 1fr);
   gap: 16px;
 }
 
@@ -31,6 +31,12 @@
 .previewPanel,
 .resultPanel {
   padding: 14px;
+}
+
+.workspace {
+  display: grid;
+  align-content: start;
+  gap: 12px;
 }
 
 .sectionTitle {
@@ -112,6 +118,16 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.snapshotGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.snapshotGrid .summaryRow {
+  grid-column: 1 / -1;
 }
 
 .previewBlock {
@@ -413,6 +429,45 @@
   margin-top: 8px;
 }
 
+.toolGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.actionTile {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.actionTile > i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  font-size: 17px;
+}
+
+.actionTile > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.actionTile strong {
+  font-size: 13px;
+}
+
 .resultPanel {
   display: grid;
   gap: 10px;
@@ -536,6 +591,7 @@
   }
 
   .taskItem,
+  .actionTile,
   .validationSummary,
   .cleanupSummary {
     grid-template-columns: 1fr;

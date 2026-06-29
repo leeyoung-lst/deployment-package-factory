@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Checkbox, Divider, Empty, Form, Input, Modal, Popconfirm, Progress, Radio, Select, Space, Spin, Tabs, Tag } from "antd";
+import { App, Button, Checkbox, Divider, Drawer, Empty, Form, Input, Modal, Popconfirm, Progress, Radio, Select, Space, Spin, Tabs, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
   cancelDeploymentPackageTask,
@@ -64,6 +64,7 @@ type DependencyGraphModel = {
   middlewareNodes: DependencyGraphNode[];
   edges: DependencyGraphEdge[];
 };
+type ExportDrawerKey = "preview" | "task" | "tasks" | "cleanup" | "audit";
 
 export const DeploymentPackageExportView: React.FC = () => {
   const { message } = App.useApp();
@@ -95,6 +96,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [checksumDownloadLoading, setChecksumDownloadLoading] = useState(false);
   const [registeringBusiness, setRegisteringBusiness] = useState(false);
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
+  const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
   const [disablingBusinessKey, setDisablingBusinessKey] = useState("");
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
 
@@ -696,126 +698,56 @@ export const DeploymentPackageExportView: React.FC = () => {
                     </div>
                   </Spin>
 
-                  <div className={styles.page}>
-          <div className={styles.previewPanel}>
-            <div className="panel-header" style={{ padding: 0, marginBottom: 12 }}>
-              <div>
-                <h2 style={{ fontSize: 18 }}>依赖预览</h2>
-                <p>中间件会根据基础能力与业务服务自动匹配</p>
-              </div>
-              <Button icon={<i className="ri-eye-line" />} loading={previewing} onClick={() => void refreshPreview()}>预览</Button>
-            </div>
-            {preview ? <PreviewSummary preview={preview} project={selectedProject} targetProfile={targetDraft} /> : <Empty description="请选择导出范围后预览" />}
-          </div>
+                  <div className={styles.workspace}>
+                    <div className={styles.previewPanel}>
+                      <div className={styles.panelTitleRow}>
+                        <h3 className={styles.sectionTitle}>依赖预览</h3>
+                        <Space>
+                          <Button size="small" icon={<i className="ri-eye-line" />} loading={previewing} onClick={() => void refreshPreview()}>预览</Button>
+                          <Button size="small" icon={<i className="ri-node-tree" />} disabled={!preview} onClick={() => setExportDrawer("preview")}>详情</Button>
+                        </Space>
+                      </div>
+                      {preview ? <PreviewSnapshot preview={preview} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无预览" />}
+                    </div>
 
-          {task ? (
-            <div className={styles.resultPanel}>
-              <h3 className={styles.sectionTitle}>任务状态</h3>
-              <div className={styles.resultRow}>
-                <span className={styles.muted}>任务 ID</span>
-                <span className={styles.mono}>{task.taskId}</span>
-              </div>
-              <div className={styles.resultRow}>
-                <span className={styles.muted}>状态</span>
-                <Space>
-                  <Tag color={taskStatusColor(task.status)}>{task.status}</Tag>
-                  <span>{task.message}</span>
-                </Space>
-              </div>
-              <Progress percent={task.progress} status={task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"} />
-              {task.result ? (
-                <>
-                  <div className={styles.resultRow}>
-                    <span className={styles.muted}>包 ID</span>
-                    <span className={styles.mono}>{task.result.packageId}</span>
-                  </div>
-                  <div className={styles.resultRow}>
-                    <span className={styles.muted}>SHA256</span>
-                    <span className={styles.mono}>{task.result.sha256}</span>
-                  </div>
-                  <ValidationSummary result={task.result} />
-                  <div className={styles.resultRow}>
-                    <span className={styles.muted}>产物路径</span>
-                    <Space direction="vertical" size={4}>
-                      <span className={styles.mono}>{task.result.artifactPath}</span>
-                      {task.result.checksumPath ? <span className={styles.mono}>{task.result.checksumPath}</span> : null}
-                      <Tag color={task.artifactAvailable ? "green" : "default"}>{task.artifactAvailable ? "可下载" : "产物已清理"}</Tag>
-                    </Space>
-                  </div>
-                </>
-              ) : null}
-              {task.error ? (
-                <div className={styles.resultRow}>
-                  <span className={styles.muted}>错误</span>
-                  <span className={styles.mono}>{task.error}</span>
-                </div>
-              ) : null}
-              <div className={styles.resultRow}>
-                <span className={styles.muted}>日志</span>
-                <div className={styles.logBox}>
-                  {task.logs.map((item, index) => (
-                    <div key={`${index}-${item}`} className={styles.mono}>{item}</div>
-                  ))}
-                </div>
-              </div>
-              <div className={styles.actions}>
-                <Button
-                  icon={<i className="ri-close-circle-line" />}
-                  loading={taskActionLoading}
-                  disabled={task.status !== "pending" && task.status !== "running"}
-                  onClick={() => void cancelTask()}
-                >
-                  取消任务
-                </Button>
-                <Button
-                  icon={<i className="ri-restart-line" />}
-                  loading={taskActionLoading}
-                  disabled={task.status !== "failed" && task.status !== "canceled"}
-                  onClick={() => void retryTask()}
-                >
-                  重试任务
-                </Button>
-                <Button
-                  icon={<i className="ri-file-shield-2-line" />}
-                  loading={checksumDownloadLoading}
-                  onClick={() => void downloadTaskChecksum()}
-                  disabled={!task.result || !task.artifactAvailable}
-                >
-                  下载校验文件
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<i className="ri-download-line" />}
-                  loading={downloadLoading}
-                  onClick={() => void downloadTaskArtifact()}
-                  disabled={!task.result || !task.artifactAvailable}
-                >
-                  {task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}
-                </Button>
-              </div>
-            </div>
-          ) : null}
+                    <TaskStatusPanel
+                      task={task}
+                      taskActionLoading={taskActionLoading}
+                      downloadLoading={downloadLoading}
+                      checksumDownloadLoading={checksumDownloadLoading}
+                      onOpenDetail={() => setExportDrawer("task")}
+                      onCancel={() => void cancelTask()}
+                      onRetry={() => void retryTask()}
+                      onDownloadChecksum={() => void downloadTaskChecksum()}
+                      onDownloadArtifact={() => void downloadTaskArtifact()}
+                    />
 
-          <TaskListPanel
-            tasks={tasks}
-            loading={tasksLoading}
-            selectedTaskId={task?.taskId}
-            onSelect={(item) => setTask(item)}
-            onRefresh={() => void refreshTasks()}
-          />
-
-          <CleanupPanel
-            result={cleanupResult}
-            loading={cleanupLoading}
-            onDryRun={() => void runCleanup(true)}
-            onCleanup={() => void runCleanup(false)}
-          />
-
-          <AuditPanel
-            events={auditEvents}
-            loading={auditLoading}
-            onRefresh={() => void refreshAuditEvents()}
-          />
+                    <div className={styles.toolGrid}>
+                      <ActionTile
+                        icon="ri-list-check-3"
+                        title="最近任务"
+                        value={`${tasks.length} 条`}
+                        actionLabel="打开"
+                        loading={tasksLoading}
+                        onAction={() => setExportDrawer("tasks")}
+                      />
+                      <ActionTile
+                        icon="ri-delete-bin-6-line"
+                        title="产物清理"
+                        value={cleanupResult ? `释放 ${formatBytes(cleanupResult.freedBytes)}` : "待预演"}
+                        actionLabel="打开"
+                        loading={cleanupLoading}
+                        onAction={() => setExportDrawer("cleanup")}
+                      />
+                      <ActionTile
+                        icon="ri-shield-check-line"
+                        title="最近审计"
+                        value={`${auditEvents.length} 条`}
+                        actionLabel="打开"
+                        loading={auditLoading}
+                        onAction={() => setExportDrawer("audit")}
+                      />
+                    </div>
                   </div>
                 </div>
               ),
@@ -823,6 +755,57 @@ export const DeploymentPackageExportView: React.FC = () => {
           ]}
         />
       </div>
+
+      <Drawer
+        title={exportDrawerTitle(exportDrawer)}
+        open={Boolean(exportDrawer)}
+        onClose={() => setExportDrawer(null)}
+        width="min(1080px, 92vw)"
+        destroyOnClose
+      >
+        {exportDrawer === "preview" && preview ? (
+          <PreviewSummary preview={preview} project={selectedProject} targetProfile={targetDraft} />
+        ) : null}
+        {exportDrawer === "task" ? (
+          <TaskDetailPanel
+            task={task}
+            taskActionLoading={taskActionLoading}
+            downloadLoading={downloadLoading}
+            checksumDownloadLoading={checksumDownloadLoading}
+            onCancel={() => void cancelTask()}
+            onRetry={() => void retryTask()}
+            onDownloadChecksum={() => void downloadTaskChecksum()}
+            onDownloadArtifact={() => void downloadTaskArtifact()}
+          />
+        ) : null}
+        {exportDrawer === "tasks" ? (
+          <TaskListPanel
+            tasks={tasks}
+            loading={tasksLoading}
+            selectedTaskId={task?.taskId}
+            onSelect={(item) => {
+              setTask(item);
+              setExportDrawer("task");
+            }}
+            onRefresh={() => void refreshTasks()}
+          />
+        ) : null}
+        {exportDrawer === "cleanup" ? (
+          <CleanupPanel
+            result={cleanupResult}
+            loading={cleanupLoading}
+            onDryRun={() => void runCleanup(true)}
+            onCleanup={() => void runCleanup(false)}
+          />
+        ) : null}
+        {exportDrawer === "audit" ? (
+          <AuditPanel
+            events={auditEvents}
+            loading={auditLoading}
+            onRefresh={() => void refreshAuditEvents()}
+          />
+        ) : null}
+      </Drawer>
 
       <Modal
         title="注册业务平台"
@@ -995,6 +978,265 @@ function ValidationSummary({ result }: { result: NonNullable<PackageTask["result
         <span className={styles.muted}>缺失归档</span>
         <strong>{summary.missingImageArchiveCount ?? 0}</strong>
       </div>
+    </div>
+  );
+}
+
+function PreviewSnapshot({ preview }: { preview: PackagePreview }) {
+  const missingImages = (preview.imageEntries ?? []).filter((item) => item.sourceMissing).length;
+  return (
+    <div className={styles.snapshotGrid}>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>基础平台</span>
+        <strong>{preview.platformServices.length}</strong>
+      </div>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>业务平台</span>
+        <strong>{preview.businessServices.length}</strong>
+      </div>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>中间件</span>
+        <strong>{preview.middleware.length}</strong>
+      </div>
+      <div className={styles.metricItem}>
+        <span className={styles.muted}>镜像条目</span>
+        <strong>{preview.imageEntries.length}</strong>
+      </div>
+      <div className={styles.summaryRow}>
+        <span className={styles.muted}>数据库</span>
+        <Space size={6} wrap>
+          <Tag color={preview.database.domestic ? "red" : "blue"}>{preview.database.name}</Tag>
+          {missingImages ? <Tag color="red">{missingImages} 个镜像未匹配</Tag> : <Tag color="green">镜像已匹配</Tag>}
+        </Space>
+      </div>
+    </div>
+  );
+}
+
+function TaskStatusPanel({
+  task,
+  taskActionLoading,
+  downloadLoading,
+  checksumDownloadLoading,
+  onOpenDetail,
+  onCancel,
+  onRetry,
+  onDownloadChecksum,
+  onDownloadArtifact,
+}: {
+  task: PackageTask | null;
+  taskActionLoading: boolean;
+  downloadLoading: boolean;
+  checksumDownloadLoading: boolean;
+  onOpenDetail: () => void;
+  onCancel: () => void;
+  onRetry: () => void;
+  onDownloadChecksum: () => void;
+  onDownloadArtifact: () => void;
+}) {
+  return (
+    <div className={styles.resultPanel}>
+      <div className={styles.panelTitleRow}>
+        <h3 className={styles.sectionTitle}>当前任务</h3>
+        <Button size="small" icon={<i className="ri-file-list-3-line" />} disabled={!task} onClick={onOpenDetail}>详情</Button>
+      </div>
+      {task ? (
+        <>
+          <div className={styles.resultRow}>
+            <span className={styles.muted}>任务 ID</span>
+            <span className={styles.mono}>{task.taskId}</span>
+          </div>
+          <div className={styles.resultRow}>
+            <span className={styles.muted}>状态</span>
+            <Space size={6} wrap>
+              <Tag color={taskStatusColor(task.status)}>{task.status}</Tag>
+              <span>{task.message}</span>
+            </Space>
+          </div>
+          <Progress percent={task.progress} status={task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"} />
+          {task.result ? <ValidationSummary result={task.result} /> : null}
+          <TaskActions
+            task={task}
+            taskActionLoading={taskActionLoading}
+            downloadLoading={downloadLoading}
+            checksumDownloadLoading={checksumDownloadLoading}
+            onCancel={onCancel}
+            onRetry={onRetry}
+            onDownloadChecksum={onDownloadChecksum}
+            onDownloadArtifact={onDownloadArtifact}
+          />
+        </>
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务" />
+      )}
+    </div>
+  );
+}
+
+function TaskDetailPanel({
+  task,
+  taskActionLoading,
+  downloadLoading,
+  checksumDownloadLoading,
+  onCancel,
+  onRetry,
+  onDownloadChecksum,
+  onDownloadArtifact,
+}: {
+  task: PackageTask | null;
+  taskActionLoading: boolean;
+  downloadLoading: boolean;
+  checksumDownloadLoading: boolean;
+  onCancel: () => void;
+  onRetry: () => void;
+  onDownloadChecksum: () => void;
+  onDownloadArtifact: () => void;
+}) {
+  if (!task) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请选择任务" />;
+  return (
+    <div className={styles.resultPanel}>
+      <div className={styles.resultRow}>
+        <span className={styles.muted}>任务 ID</span>
+        <span className={styles.mono}>{task.taskId}</span>
+      </div>
+      <div className={styles.resultRow}>
+        <span className={styles.muted}>状态</span>
+        <Space size={6} wrap>
+          <Tag color={taskStatusColor(task.status)}>{task.status}</Tag>
+          <span>{task.message}</span>
+        </Space>
+      </div>
+      <Progress percent={task.progress} status={task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"} />
+      {task.result ? (
+        <>
+          <div className={styles.resultRow}>
+            <span className={styles.muted}>包 ID</span>
+            <span className={styles.mono}>{task.result.packageId}</span>
+          </div>
+          <div className={styles.resultRow}>
+            <span className={styles.muted}>SHA256</span>
+            <span className={styles.mono}>{task.result.sha256}</span>
+          </div>
+          <ValidationSummary result={task.result} />
+          <div className={styles.resultRow}>
+            <span className={styles.muted}>产物路径</span>
+            <Space direction="vertical" size={4}>
+              <span className={styles.mono}>{task.result.artifactPath}</span>
+              {task.result.checksumPath ? <span className={styles.mono}>{task.result.checksumPath}</span> : null}
+              <Tag color={task.artifactAvailable ? "green" : "default"}>{task.artifactAvailable ? "可下载" : "产物已清理"}</Tag>
+            </Space>
+          </div>
+        </>
+      ) : null}
+      {task.error ? (
+        <div className={styles.resultRow}>
+          <span className={styles.muted}>错误</span>
+          <span className={styles.mono}>{task.error}</span>
+        </div>
+      ) : null}
+      <div className={styles.resultRow}>
+        <span className={styles.muted}>日志</span>
+        <div className={styles.logBox}>
+          {task.logs.map((item, index) => (
+            <div key={`${index}-${item}`} className={styles.mono}>{item}</div>
+          ))}
+        </div>
+      </div>
+      <TaskActions
+        task={task}
+        taskActionLoading={taskActionLoading}
+        downloadLoading={downloadLoading}
+        checksumDownloadLoading={checksumDownloadLoading}
+        onCancel={onCancel}
+        onRetry={onRetry}
+        onDownloadChecksum={onDownloadChecksum}
+        onDownloadArtifact={onDownloadArtifact}
+      />
+    </div>
+  );
+}
+
+function TaskActions({
+  task,
+  taskActionLoading,
+  downloadLoading,
+  checksumDownloadLoading,
+  onCancel,
+  onRetry,
+  onDownloadChecksum,
+  onDownloadArtifact,
+}: {
+  task: PackageTask;
+  taskActionLoading: boolean;
+  downloadLoading: boolean;
+  checksumDownloadLoading: boolean;
+  onCancel: () => void;
+  onRetry: () => void;
+  onDownloadChecksum: () => void;
+  onDownloadArtifact: () => void;
+}) {
+  return (
+    <div className={styles.actions}>
+      <Button
+        icon={<i className="ri-close-circle-line" />}
+        loading={taskActionLoading}
+        disabled={task.status !== "pending" && task.status !== "running"}
+        onClick={onCancel}
+      >
+        取消任务
+      </Button>
+      <Button
+        icon={<i className="ri-restart-line" />}
+        loading={taskActionLoading}
+        disabled={task.status !== "failed" && task.status !== "canceled"}
+        onClick={onRetry}
+      >
+        重试任务
+      </Button>
+      <Button
+        icon={<i className="ri-file-shield-2-line" />}
+        loading={checksumDownloadLoading}
+        onClick={onDownloadChecksum}
+        disabled={!task.result || !task.artifactAvailable}
+      >
+        下载校验文件
+      </Button>
+      <Button
+        type="primary"
+        icon={<i className="ri-download-line" />}
+        loading={downloadLoading}
+        onClick={onDownloadArtifact}
+        disabled={!task.result || !task.artifactAvailable}
+      >
+        {task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}
+      </Button>
+    </div>
+  );
+}
+
+function ActionTile({
+  icon,
+  title,
+  value,
+  actionLabel,
+  loading,
+  onAction,
+}: {
+  icon: string;
+  title: string;
+  value: string;
+  actionLabel: string;
+  loading: boolean;
+  onAction: () => void;
+}) {
+  return (
+    <div className={styles.actionTile}>
+      <i className={icon} />
+      <span>
+        <strong>{title}</strong>
+        <span className={styles.muted}>{value}</span>
+      </span>
+      <Button size="small" loading={loading} onClick={onAction}>{actionLabel}</Button>
     </div>
   );
 }
@@ -1526,6 +1768,15 @@ function auditStatusColor(status: string) {
   if (status === "failed" || status === "error") return "error";
   if (status === "dry-run") return "blue";
   return "default";
+}
+
+function exportDrawerTitle(key: ExportDrawerKey | null) {
+  if (key === "preview") return "预览详情";
+  if (key === "task") return "任务详情";
+  if (key === "tasks") return "最近任务";
+  if (key === "cleanup") return "产物清理";
+  if (key === "audit") return "最近审计";
+  return "";
 }
 
 function formatBytes(value: number) {
