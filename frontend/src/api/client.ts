@@ -56,7 +56,11 @@ async function apiError(response: Response) {
   const text = await response.text();
   try {
     const payload = JSON.parse(text) as { detail?: unknown };
-    return new Error(typeof payload.detail === "string" ? payload.detail : text || response.statusText);
+    if (typeof payload.detail === "string") return new Error(payload.detail);
+    if (payload.detail && typeof payload.detail === "object" && "message" in payload.detail) {
+      return new Error(String((payload.detail as { message?: unknown }).message));
+    }
+    return new Error(text || response.statusText);
   } catch {
     return new Error(text || response.statusText);
   }

@@ -34,7 +34,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackagePreviewRequest,
     PackageTask,
 )
-from deployment_package_factory.services.deployment_packages.microservice_delivery import not_ready_microservices
+from deployment_package_factory.services.deployment_packages.microservice_delivery import microservice_delivery_not_ready_error
 from deployment_package_factory.services.deployment_packages.repositories import create_audit_repository, create_task_repository
 from deployment_package_factory.services.deployment_packages.repositories import create_business_platform_repository
 from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime, with_runtime_projects
@@ -234,9 +234,10 @@ async def create_deployment_package(
     try:
         registered_business = _registered_business_platforms()
         ensure_request_matches_runtime(payload, with_runtime_projects(load_catalog(), registered_business), registered_business)
-        not_ready = not_ready_microservices(_request_microservices(payload))
-        if not_ready:
-            raise ValueError("Registered microservices are not build-successful: " + ", ".join(not_ready))
+        delivery_error = microservice_delivery_not_ready_error(_request_microservices(payload))
+        if delivery_error["services"]:
+            _audit_package_create_blocked(request, payload, delivery_error, x_deployment_package_operator)
+            raise HTTPException(status_code=400, detail=delivery_error)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     repo = get_task_repository()
@@ -537,6 +538,28 @@ def _audit(
         )
     except Exception as exc:  # pragma: no cover - audit must not break package operations
         LOGGER.warning("Failed to record deployment package audit event: %s", exc)
+
+
+def _audit_package_create_blocked(
+    request: Request,
+    payload: PackageBuildRequest,
+    delivery_error: dict[str, object],
+    operator: str | None,
+) -> None:
+    _audit(
+        request,
+        action="package.create.blocked",
+        status="blocked",
+        message=str(delivery_error["message"]),
+        operator=operator,
+        metadata={
+            "code": delivery_error["code"],
+            "projectKey": payload.project_key,
+            "sourceEnv": payload.source_env,
+            "businessServices": [item.model_dump() for item in payload.business_services],
+            "services": delivery_error["services"],
+        },
+    )
 
 
 def _operator(request: Request, explicit_operator: str | None) -> str:

@@ -494,7 +494,7 @@ def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, mon
 
 def test_create_deployment_package_rejects_unbuilt_registered_microservice(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch)
-    _set_repo(monkeypatch, InMemoryTaskRepository(), tmp_path)
+    audit_repo = _set_repo(monkeypatch, InMemoryTaskRepository(), tmp_path)
     deployment_packages.get_microservice_repository().upsert(
         _microservice_request(),
         _microservice_result(delivery=_delivery("running")),
@@ -511,7 +511,16 @@ def test_create_deployment_package_rejects_unbuilt_registered_microservice(tmp_p
     )
 
     assert response.status_code == 400, response.text
-    assert "Registered microservices are not build-successful" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["code"] == "MICROSERVICE_DELIVERY_NOT_READY"
+    assert detail["services"][0]["serviceKey"] == "asset-service"
+    assert detail["services"][0]["buildStatus"] == "running"
+    assert "Asset Service" in detail["message"]
+    event = audit_repo.list(limit=1)[0]
+    assert event.action == "package.create.blocked"
+    assert event.status == "blocked"
+    assert event.metadata["code"] == "MICROSERVICE_DELIVERY_NOT_READY"
+    assert event.metadata["services"][0]["serviceKey"] == "asset-service"
 
 
 def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

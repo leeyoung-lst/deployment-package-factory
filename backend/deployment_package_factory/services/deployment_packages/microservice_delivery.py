@@ -26,3 +26,28 @@ def not_ready_microservices(services: list[dict]) -> list[str]:
         for service in services
         if not microservice_delivery_succeeded(service)
     ]
+
+
+def not_ready_microservice_details(services: list[dict]) -> list[dict[str, object]]:
+    return [
+        {
+            "projectId": service.get("projectId") or "",
+            "serviceKey": service.get("serviceKey") or "",
+            "serviceName": service.get("serviceName") or service.get("serviceKey") or "",
+            "status": (service.get("delivery") or {}).get("status") or "unknown",
+            "buildStatus": ((service.get("delivery") or {}).get("build") or {}).get("status") or "unknown",
+            "jenkinsUrl": ((service.get("delivery") or {}).get("build") or {}).get("url") or "",
+        }
+        for service in services
+        if not microservice_delivery_succeeded(service)
+    ]
+
+
+def microservice_delivery_not_ready_error(services: list[dict]) -> dict[str, object]:
+    details = not_ready_microservice_details(services)
+    names = "、".join(str(item["serviceName"]) for item in details)
+    return {
+        "code": "MICROSERVICE_DELIVERY_NOT_READY",
+        "message": f"以下注册微服务尚未构建成功：{names}",
+        "services": details,
+    }
