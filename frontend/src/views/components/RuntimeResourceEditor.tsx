@@ -10,7 +10,9 @@ interface Props {
 }
 
 export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) {
-  const source = runtimeSourceLabel({ source: resource.source, resolved: !resource.needsReview, value: resource.name });
+  const values = resource.items.map((item) => runtimeItemValue(resource, item, overrides));
+  const hasUnresolved = resource.needsReview || values.some((value) => !value.trim() || value.includes("__REPLACE_WITH_"));
+  const source = runtimeSourceLabel({ source: resource.source, resolved: !hasUnresolved, value: hasUnresolved ? "" : resource.name });
   return (
     <div className={styles.runtimeResource}>
       <div className={styles.runtimeResourceHeader}>
@@ -27,7 +29,8 @@ export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) 
       <div className={styles.runtimeFields}>
         {resource.items.map((item) => {
           const fieldName = item.overrideName || item.envName || `${resource.key}.${item.name}`;
-          const value = overrides[fieldName] ?? item.value ?? "";
+          const value = runtimeItemValue(resource, item, overrides);
+          const itemSource = runtimeSourceLabel({ ...item, value });
           const editor = item.sensitive ? (
             <Input.Password autoComplete="new-password" value={value} onChange={(event) => onChange(fieldName, event.target.value)} />
           ) : (
@@ -35,7 +38,10 @@ export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) 
           );
           return (
             <label key={fieldName} className={styles.runtimeField}>
-              <span className={styles.runtimeFieldLabel}>{item.label}</span>
+              <span className={styles.runtimeFieldLabel}>
+                {item.label}
+                <Tag color={itemSource.color}>{itemSource.text}</Tag>
+              </span>
               {editor}
             </label>
           );
@@ -43,4 +49,9 @@ export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) 
       </div>
     </div>
   );
+}
+
+function runtimeItemValue(resource: RuntimeResource, item: RuntimeResource["items"][number], overrides: Record<string, string>) {
+  const fieldName = item.overrideName || item.envName || `${resource.key}.${item.name}`;
+  return overrides[fieldName] ?? item.value ?? "";
 }
