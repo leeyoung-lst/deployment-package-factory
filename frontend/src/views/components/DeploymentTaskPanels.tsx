@@ -38,6 +38,7 @@ function TaskBody(props: TaskPanelProps & { detail?: boolean }) {
     <>
       <ResultRow label="任务 ID"><span className={styles.mono}>{task.taskId}</span></ResultRow>
       <ResultRow label="状态"><Space size={6} wrap><Tag color={taskStatusColor(task.status)}>{task.status}</Tag><span>{task.message}</span></Space></ResultRow>
+      <ResultRow label="镜像模式"><Tag color={taskImageMode(task) === "image-archive" ? "green" : "blue"}>{taskImageMode(task) === "image-archive" ? "镜像归档" : "镜像清单"}</Tag></ResultRow>
       <Progress percent={task.progress} status={task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"} />
       {task.result ? <ValidationSummary result={task.result} /> : null}
       {props.detail && task.result ? <TaskResultDetails task={task} /> : null}
@@ -51,6 +52,10 @@ function TaskBody(props: TaskPanelProps & { detail?: boolean }) {
 function TaskResultDetails({ task }: { task: PackageTask }) {
   if (!task.result) return null;
   return <><ResultRow label="包 ID"><span className={styles.mono}>{task.result.packageId}</span></ResultRow><ResultRow label="SHA256"><span className={styles.mono}>{task.result.sha256}</span></ResultRow><ResultRow label="产物路径"><Space direction="vertical" size={4}><span className={styles.mono}>{task.result.artifactPath}</span>{task.result.checksumPath ? <span className={styles.mono}>{task.result.checksumPath}</span> : null}<Tag color={task.artifactAvailable ? "green" : "default"}>{task.artifactAvailable ? "可下载" : "产物已清理"}</Tag></Space></ResultRow></>;
+}
+
+function taskImageMode(task: PackageTask) {
+  return String(task.result?.manifest?.imageMode || task.request.imageMode || "image-archive");
 }
 
 interface TaskPanelProps {

@@ -114,7 +114,8 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
       if (notReady.length) { notify.warning(`以下微服务尚未构建成功：${notReady.map((item) => item.serviceName || item.serviceKey).join("、")}`); return; }
       setBuilding(true);
       setBlockedMicroserviceKeys([]);
-      const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode: values.imageMode, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: values.imageMode === "image-archive" } });
+      const imageMode = values.imageMode ?? DEFAULT_IMAGE_MODE;
+      const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: imageMode === "image-archive" } });
       actionsRef.current.setTask(payload); void actionsRef.current.refreshTasks(); void actionsRef.current.refreshAuditEvents();
       notify.success("部署任务已创建"); setExportWizardOpen(false); setExportStep(0);
     } catch (error) {

@@ -118,6 +118,21 @@ class PackagePreviewRequest(BaseModel):
 class PackageBuildRequest(PackagePreviewRequest):
     image_mode: Literal["image-manifest", "image-archive"] = Field(default="image-manifest", alias="imageMode")
 
+    def normalized_for_create(self) -> "PackageBuildRequest":
+        if self.image_mode == "image-archive" or self.target_profile.export_images:
+            return self._with_image_archive()
+        if "image_mode" not in self.model_fields_set:
+            return self._with_image_archive()
+        return self
+
+    def _with_image_archive(self) -> "PackageBuildRequest":
+        return self.model_copy(
+            update={
+                "image_mode": "image-archive",
+                "target_profile": self.target_profile.model_copy(update={"export_images": True}),
+            }
+        )
+
 
 class ImageExportEnvironmentCheck(BaseModel):
     model_config = ConfigDict(populate_by_name=True)

@@ -231,6 +231,7 @@ async def create_deployment_package(
     request: Request,
     x_deployment_package_operator: str | None = Header(default=None),
 ) -> PackageTask:
+    payload = payload.normalized_for_create()
     try:
         registered_business = _registered_business_platforms()
         ensure_request_matches_runtime(payload, with_runtime_projects(load_catalog(), registered_business), registered_business)

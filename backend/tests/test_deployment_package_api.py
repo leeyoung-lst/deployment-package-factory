@@ -400,6 +400,7 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
             "deployModes": ["k8s", "docker-compose"],
             "businessServices": [{"name": "eam", "profile": "4x60"}],
             "database": "postgres",
+            "imageMode": "image-manifest",
         },
     )
 
@@ -455,7 +456,12 @@ def test_download_deployment_package_accepts_query_token(tmp_path, monkeypatch: 
     created = client.post(
         "/api/deployment-packages",
         headers={"Authorization": "Bearer secret-token"},
-        json={"sourceEnv": "test", "deployModes": ["k8s"], "businessServices": [{"name": "eam", "profile": "4x60"}]},
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "imageMode": "image-manifest",
+        },
     )
 
     assert created.status_code == 200, created.text
@@ -490,6 +496,31 @@ def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, mon
     task = repo.get(response.json()["taskId"])
     assert task is not None
     assert task.status == "pending"
+
+
+def test_create_deployment_package_defaults_to_image_archive(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+    repo = InMemoryTaskRepository()
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
+    monkeypatch.setattr(deployment_packages, "_SETTINGS", replace(deployment_packages._SETTINGS, execution_mode="worker"))
+
+    response = _client().post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["docker-compose"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "database": "postgres",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    task = repo.get(response.json()["taskId"])
+    assert task is not None
+    assert task.request["imageMode"] == "image-archive"
+    assert task.request["targetProfile"]["exportImages"] is True
+    event = audit_repo.list(limit=1)[0]
+    assert event.metadata["imageMode"] == "image-archive"
 
 
 def test_create_deployment_package_rejects_unbuilt_registered_microservice(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
