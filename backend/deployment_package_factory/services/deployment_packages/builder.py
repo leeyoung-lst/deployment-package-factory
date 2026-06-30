@@ -325,7 +325,9 @@ def _resolve_runtime_env(source_env: str, middleware_config: dict, business_name
         sources = definition.get("envSources") or {}
         for name, template_value in template.items():
             source = sources.get(name) or {}
-            values[name] = _resolve_env_value(name, source, namespaces, secret_cache) or str(template_value)
+            value = _resolve_env_value(name, source, namespaces, secret_cache)
+            if value:
+                values[name] = value
     return values
 
 

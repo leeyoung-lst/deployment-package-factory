@@ -111,6 +111,39 @@ def test_runtime_config_groups_use_probe_middleware_values() -> None:
     assert iotdb_password["value"] == "source-iotdb"
 
 
+def test_runtime_config_groups_keep_catalog_source_for_defaults() -> None:
+    request = PackageBuildRequest(
+        sourceEnv="test",
+        businessServices=[BusinessSelection(name="eam", profile="4x60")],
+        database="postgres",
+    )
+    catalog = load_catalog()
+    preview = resolve_package_preview(request, catalog)
+    middleware_config = {
+        key: catalog.middleware[key].model_dump(by_alias=True)
+        for key in ("camunda", "iotdb", "minio", "redis")
+    }
+    config = build_runtime_config(
+        request=request,
+        preview=preview,
+        middleware_config=middleware_config,
+        runtime_env={},
+    )
+
+    groups = {group["key"]: group for group in config["groups"]}
+    camunda_user = next(item for item in groups["camunda"]["items"] if item["name"] == "CAMUNDA_ADMIN_USER")
+    camunda_password = next(item for item in groups["camunda"]["items"] if item["name"] == "CAMUNDA_ADMIN_PASSWORD")
+    iotdb_user = next(item for item in groups["iotdb"]["items"] if item["name"] == "IOTDB_USER")
+    redis_password = next(item for item in groups["redis"]["items"] if item["name"] == "REDIS_PASSWORD")
+
+    assert camunda_user["source"] == "catalog"
+    assert camunda_password["source"] == "catalog"
+    assert camunda_password["resolved"] is False
+    assert iotdb_user["source"] == "catalog"
+    assert redis_password["source"] == "catalog"
+    assert redis_password["resolved"] is False
+
+
 def test_database_resource_overrides_are_scoped_per_resource() -> None:
     request = PackageBuildRequest(
         sourceEnv="test",

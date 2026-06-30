@@ -173,6 +173,47 @@ redis:
     assert probes[0].env["IOTDB_PASSWORD"] == "iotdb-from-yaml"
 
 
+def test_runtime_env_probes_map_generic_secret_keys_by_source_name() -> None:
+    def pod_reader(namespace: str) -> dict:
+        return {
+            "items": [
+                {
+                    "metadata": {"name": "middleware-client-0", "labels": {"app": "middleware-client"}},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "middleware-client",
+                                "envFrom": [
+                                    {"secretRef": {"name": "redis-secret"}},
+                                    {"secretRef": {"name": "qdrant-secret"}},
+                                    {"secretRef": {"name": "iotdb-secret"}},
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+
+    secrets = {
+        "redis-secret": {"password": "redis-generic-password"},
+        "qdrant-secret": {"api-key": "qdrant-generic-key"},
+        "iotdb-secret": {"password": "iotdb-generic-password"},
+    }
+    probes = runtime_env_probes(
+        "test",
+        None,
+        namespace_resolver=lambda source_env, business_namespaces=None: ["test-base-public"],
+        pod_reader=pod_reader,
+        secret_reader=lambda namespace, name: secrets.get(name, {}),
+        configmap_reader=lambda namespace, name: {},
+    )
+
+    assert probes[0].env["REDIS_PASSWORD"] == "redis-generic-password"
+    assert probes[0].env["QDRANT_API_KEY"] == "qdrant-generic-key"
+    assert probes[0].env["IOTDB_PASSWORD"] == "iotdb-generic-password"
+
+
 def test_runtime_env_probes_collect_single_line_properties_and_subpath_mounts() -> None:
     def pod_reader(namespace: str) -> dict:
         return {

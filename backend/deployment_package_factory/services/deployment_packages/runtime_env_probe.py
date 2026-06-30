@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from deployment_package_factory.services.deployment_packages.runtime_env_aliases import runtime_env_alias
+from deployment_package_factory.services.deployment_packages.runtime_env_aliases import runtime_env_alias, runtime_env_alias_for_source
 from deployment_package_factory.services.deployment_packages.runtime_resources import RuntimeEnvProbe
 
 
@@ -62,14 +62,14 @@ def _container_env(
         secret_name = ((source.get("secretRef") or {}).get("name") or "").strip()
         configmap_name = ((source.get("configMapRef") or {}).get("name") or "").strip()
         if secret_name:
-            values.update(_runtime_config_values(secret_reader(namespace, secret_name)))
+            values.update(_runtime_config_values(secret_reader(namespace, secret_name), secret_name))
         if configmap_name:
-            values.update(_runtime_config_values(configmap_reader(namespace, configmap_name)))
+            values.update(_runtime_config_values(configmap_reader(namespace, configmap_name), configmap_name))
     for item in container.get("env") or []:
         _apply_env_item(values, namespace, item, secret_reader, configmap_reader)
     for source_type, source_name, keys in _mounted_sources(container, volumes):
         reader = secret_reader if source_type == "secret" else configmap_reader
-        values.update(_runtime_config_values(_filter_keys(reader(namespace, source_name), keys)))
+        values.update(_runtime_config_values(_filter_keys(reader(namespace, source_name), keys), source_name))
     return {key: value for key, value in values.items() if value}
 
 
@@ -96,17 +96,17 @@ def _apply_env_item(
         _set_runtime_value(values, name, configmap_reader(namespace, str(configmap_ref["name"])).get(str(configmap_ref["key"]), ""))
 
 
-def _runtime_config_values(values: dict[str, str]) -> dict[str, str]:
+def _runtime_config_values(values: dict[str, str], source_name: str = "") -> dict[str, str]:
     result: dict[str, str] = {}
     for key, value in values.items():
-        _set_runtime_value(result, key, value)
+        _set_runtime_value(result, key, value, source_name)
     for content in values.values():
         result.update(_runtime_values_from_text(content))
     return {key: value for key, value in result.items() if value}
 
 
-def _set_runtime_value(values: dict[str, str], key: str, value: str) -> None:
-    normalized = _runtime_env_key(key)
+def _set_runtime_value(values: dict[str, str], key: str, value: str, source_name: str = "") -> None:
+    normalized = _runtime_env_key(key, source_name)
     if not normalized or not value:
         return
     if normalized == "REDIS_URL":
@@ -229,9 +229,9 @@ def _filter_keys(values: dict[str, str], keys: set[str] | None) -> dict[str, str
     return {key: value for key, value in values.items() if key in keys}
 
 
-def _runtime_env_key(key: str) -> str:
+def _runtime_env_key(key: str, source_name: str = "") -> str:
     normalized = re.sub(r"[^A-Za-z0-9]+", "_", key).strip("_").upper()
-    return runtime_env_alias(normalized)
+    return runtime_env_alias(normalized) or runtime_env_alias_for_source(source_name, key)
 
 
 def _service_key_from_pod(pod: dict, container: dict) -> str:

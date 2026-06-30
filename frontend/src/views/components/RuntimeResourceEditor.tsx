@@ -1,6 +1,7 @@
 import { Input, Space, Tag } from "antd";
 import type { RuntimeResource } from "../../api/deploymentPackages";
 import styles from "../DeploymentPackageExportView.module.css";
+import { runtimeSourceLabel } from "./runtimeConfigLabels";
 
 interface Props {
   resource: RuntimeResource;
@@ -8,14 +9,8 @@ interface Props {
   onChange: (name: string, value: string) => void;
 }
 
-const sourceText: Record<string, string> = {
-  "pod-env": "源环境识别",
-  "source-secret": "源环境密钥",
-  catalog: "待确认默认值",
-  user: "人工修改",
-};
-
 export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) {
+  const source = runtimeSourceLabel({ source: resource.source, resolved: !resource.needsReview, value: resource.name });
   return (
     <div className={styles.runtimeResource}>
       <div className={styles.runtimeResourceHeader}>
@@ -23,7 +18,7 @@ export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) 
           <h3>{resource.name}</h3>
           <Space size={6} wrap>
             <Tag color={resource.shared ? "blue" : "default"}>{resource.shared ? "共用资源" : "独立资源"}</Tag>
-            <Tag color={resource.source === "pod-env" ? "green" : "orange"}>{sourceText[resource.source] ?? resource.source}</Tag>
+            <Tag color={source.color}>{source.text}</Tag>
             {resource.needsReview ? <Tag color="warning">需确认</Tag> : null}
           </Space>
         </div>

@@ -316,6 +316,30 @@ def test_runtime_env_prefers_source_kubernetes_secret_over_process_env(monkeypat
     assert values["REDIS_PASSWORD"] == "k8s-secret-password"
 
 
+def test_runtime_env_does_not_return_catalog_placeholders_when_unresolved(monkeypatch) -> None:
+    monkeypatch.delenv("REDIS_PASSWORD", raising=False)
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: ["local-ai"])
+    monkeypatch.setattr(builder, "read_kubernetes_secret", lambda namespace, name: {})
+
+    values = builder._resolve_runtime_env(
+        "test",
+        {
+            "redis": {
+                "envTemplate": {"REDIS_PASSWORD": "__REPLACE_WITH_REDIS_PASSWORD__"},
+                "envSources": {
+                    "REDIS_PASSWORD": {
+                        "env": "REDIS_PASSWORD",
+                        "secretNames": ["local-ai-secrets"],
+                        "secretKeys": ["REDIS_PASSWORD"],
+                    }
+                },
+            }
+        },
+    )
+
+    assert values == {}
+
+
 def test_runtime_env_resolves_standard_middleware_secret_aliases(monkeypatch) -> None:
     monkeypatch.setattr(
         builder,

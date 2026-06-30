@@ -98,3 +98,30 @@ def runtime_env_alias(normalized: str) -> str:
     if normalized in RUNTIME_ENV_ALIASES:
         return RUNTIME_ENV_ALIASES[normalized]
     return normalized if normalized in CANONICAL_RUNTIME_ENV_NAMES else ""
+
+
+def runtime_env_alias_for_source(source_name: str, key: str) -> str:
+    normalized_key = _normalize(key)
+    direct = runtime_env_alias(normalized_key)
+    if direct:
+        return direct
+    source = _normalize(source_name)
+    if normalized_key not in {"PASSWORD", "ROOT_PASSWORD", "ADMIN_PASSWORD", "API_KEY"}:
+        return ""
+    if "REDIS" in source:
+        return "REDIS_PASSWORD"
+    if "MINIO" in source:
+        return "MINIO_ROOT_PASSWORD"
+    if "QDRANT" in source or "VECTOR" in source:
+        return "QDRANT_API_KEY"
+    if "IOTDB" in source:
+        return "IOTDB_PASSWORD"
+    if "CAMUNDA" in source:
+        return "CAMUNDA_ADMIN_PASSWORD"
+    if "POSTGRES" in source or "POSTGRESQL" in source or "DATABASE" in source:
+        return "DATABASE_PASSWORD"
+    return ""
+
+
+def _normalize(value: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in value).strip("_").upper()
