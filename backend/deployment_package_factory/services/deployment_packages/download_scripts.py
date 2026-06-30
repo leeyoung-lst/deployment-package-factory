@@ -3,11 +3,12 @@ from __future__ import annotations
 from urllib.parse import quote
 
 
-def render_download_script(package_id: str, sha256: str, *, shell: str, size: int, etag: str, token: str = "") -> str:
+def render_download_script(package_id: str, sha256: str, *, shell: str, size: int, etag: str, base_url: str = "", token: str = "") -> str:
     package_file = f"{package_id}.tar.gz"
     token_query = f"?deployment_package_token={quote(token)}" if token else ""
-    download_url = f"./{package_id}/download{token_query}"
-    checksum_url = f"./{package_id}/checksum{token_query}"
+    prefix = base_url.rstrip("/")
+    download_url = f"{prefix}/{package_id}/download{token_query}"
+    checksum_url = f"{prefix}/{package_id}/checksum{token_query}"
     if shell == "powershell":
         return _powershell_download_script(package_file, download_url, checksum_url, size, etag)
     return _bash_download_script(package_file, download_url, checksum_url, sha256, size, etag)
@@ -41,6 +42,8 @@ def _powershell_download_script(package_file: str, download_url: str, checksum_u
             "  $RangeStart = $Start + $Existing",
             "  $TempFile = \"$PartFile.tmp\"",
             "  curl.exe -fL --retry 20 --retry-delay 3 --retry-all-errors --connect-timeout 15 --speed-time 60 --speed-limit 1024 -H \"If-Range: $ETag\" -H \"Range: bytes=$RangeStart-$End\" -o $TempFile $DownloadUrl",
+            '  if ($LASTEXITCODE -ne 0) { throw "curl failed with exit code $LASTEXITCODE for bytes $RangeStart-$End" }',
+            '  if (-not (Test-Path $TempFile)) { throw "curl did not create expected temp file: $TempFile" }',
             "  if ($Existing -gt 0) {",
             "    $InputStream = [System.IO.File]::OpenRead($TempFile)",
             "    try { $OutputStream = [System.IO.File]::Open($PartFile, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write); try { $InputStream.CopyTo($OutputStream) } finally { $OutputStream.Dispose() } } finally { $InputStream.Dispose() }",
@@ -51,6 +54,7 @@ def _powershell_download_script(package_file: str, download_url: str, checksum_u
             "$Out = [System.IO.File]::Open($PackageFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)",
             "try { Get-ChildItem $PartDir -Filter 'part*' | Sort-Object Name | ForEach-Object { $In = [System.IO.File]::OpenRead($_.FullName); try { $In.CopyTo($Out) } finally { $In.Dispose() } } } finally { $Out.Dispose() }",
             "curl.exe -fL --retry 20 --retry-delay 3 --retry-all-errors --connect-timeout 15 -o $ChecksumFile $ChecksumUrl",
+            'if ($LASTEXITCODE -ne 0) { throw "checksum download failed with exit code $LASTEXITCODE" }',
             "$Expected = (Get-Content $ChecksumFile -Raw).Trim().Split()[0].ToUpperInvariant()",
             "$Actual = (Get-FileHash $PackageFile -Algorithm SHA256).Hash.ToUpperInvariant()",
             'if ($Actual -ne $Expected) { throw "SHA256 mismatch: expected $Expected actual $Actual" }',

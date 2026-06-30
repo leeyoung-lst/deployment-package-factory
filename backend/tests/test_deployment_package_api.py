@@ -605,13 +605,16 @@ def test_download_deployment_package_scripts_include_resume_and_verify(tmp_path,
 
     assert ps1.status_code == 200, ps1.text
     assert "ExecutionPolicy Bypass" in ps1.text
+    assert f"http://testserver/api/deployment-packages/{package_id}/download?deployment_package_token=abc" in ps1.text
     assert "Range: bytes=$RangeStart-$End" in ps1.text
     assert "If-Range: $ETag" in ps1.text
+    assert "curl failed with exit code" in ps1.text
     assert ".parts" in ps1.text
     assert "--retry 20" in ps1.text
     assert "Get-FileHash" in ps1.text
     assert "deployment_package_token=abc" in ps1.text
     assert shell.status_code == 200, shell.text
+    assert f"http://testserver/api/deployment-packages/{package_id}/download" in shell.text
     assert 'part_dir="$package_file.parts"' in shell.text
     assert "-r \"$range_start-$end\"" in shell.text
     assert "sha256sum" in shell.text

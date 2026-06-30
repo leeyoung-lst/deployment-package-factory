@@ -446,11 +446,12 @@ async def download_deployment_package_checksum(
 @router.get("/{package_id}/download-script.ps1")
 async def download_deployment_package_powershell_script(
     package_id: str,
+    request: Request,
     deployment_package_token: str = Query(default=""),
 ) -> Response:
     task, artifact = _completed_artifact(package_id)
     metadata = _download_metadata(task.result, artifact)
-    content = render_download_script(task.result.package_id, task.result.sha256, shell="powershell", size=metadata.size, etag=metadata.etag, token=deployment_package_token)
+    content = render_download_script(task.result.package_id, task.result.sha256, shell="powershell", size=metadata.size, etag=metadata.etag, base_url=_package_base_url(request), token=deployment_package_token)
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
@@ -461,11 +462,12 @@ async def download_deployment_package_powershell_script(
 @router.get("/{package_id}/download-script.sh")
 async def download_deployment_package_shell_script(
     package_id: str,
+    request: Request,
     deployment_package_token: str = Query(default=""),
 ) -> Response:
     task, artifact = _completed_artifact(package_id)
     metadata = _download_metadata(task.result, artifact)
-    content = render_download_script(task.result.package_id, task.result.sha256, shell="bash", size=metadata.size, etag=metadata.etag, token=deployment_package_token)
+    content = render_download_script(task.result.package_id, task.result.sha256, shell="bash", size=metadata.size, etag=metadata.etag, base_url=_package_base_url(request), token=deployment_package_token)
     return Response(
         content=content,
         media_type="text/x-shellscript; charset=utf-8",
@@ -482,6 +484,10 @@ def _find_completed_task(package_or_task_id: str) -> PackageTask | None:
         if candidate.result and candidate.result.package_id == package_or_task_id and candidate.status == "completed":
             return candidate
     return None
+
+
+def _package_base_url(request: Request) -> str:
+    return str(request.url_for("deployment_package_options")).rsplit("/options", 1)[0]
 
 
 def _completed_artifact(package_id: str) -> tuple[PackageTask, Path]:
