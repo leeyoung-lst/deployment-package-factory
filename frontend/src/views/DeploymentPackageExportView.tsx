@@ -19,7 +19,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
   const notify = useMemo(() => ({ error: message.error, info: message.info, success: message.success, warning: message.warning }), [message]);
   const actions = useDeploymentPackageActions(notify);
-  const { auditEvents, cancelTask, cleanupResult, copyResumeDownloadCommand, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshTasks, retryTask, runCleanup, setTask, task, tasks } = actions;
+  const { auditEvents, cancelTask, cleanupResult, copyResumeDownloadCommand, downloadResumeScript, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshTasks, retryTask, runCleanup, setTask, task, tasks } = actions;
   const deploymentState = useDeploymentPackageState(form);
   const {
     database,
@@ -79,6 +79,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         onDownloadArtifact={() => void downloadTaskArtifact()}
         onDownloadChecksum={() => void downloadTaskChecksum()}
         onCopyResumeCommand={() => void copyResumeDownloadCommand()}
+        onDownloadResumeScript={(shell) => void downloadResumeScript(shell)}
         onOpenDrawer={setExportDrawer}
         onRefreshPreview={() => void refreshPreview(makePreviewPayload())}
         onRetryTask={() => void retryTask()}
@@ -99,6 +100,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         onCleanup={() => void runCleanup(false)}
         onClose={() => setExportDrawer(null)}
         onCopyResumeCommand={() => void copyResumeDownloadCommand()}
+        onDownloadResumeScript={(shell) => void downloadResumeScript(shell)}
         onDownloadArtifact={() => void downloadTaskArtifact()}
         onDownloadChecksum={() => void downloadTaskChecksum()}
         onDryRunCleanup={() => void runCleanup(true)}

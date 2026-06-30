@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from email.utils import formatdate
 from pathlib import Path
 
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from deployment_package_factory.auth import require_api_token
 from deployment_package_factory.settings import load_settings
@@ -16,7 +17,8 @@ from deployment_package_factory.services.deployment_packages.cleanup import Clea
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
     resolve_package_preview,
 )
-from deployment_package_factory.services.deployment_packages.download_streaming import InvalidRangeError, iter_file_chunks, parse_range_header
+from deployment_package_factory.services.deployment_packages.download_scripts import render_download_script
+from deployment_package_factory.services.deployment_packages.download_streaming import DownloadMetadata, InvalidRangeError, iter_file_chunks, parse_range_header, should_ignore_range
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     KubernetesRuntimeError,
     RegisteredBusinessPlatform,
@@ -376,14 +378,10 @@ async def download_deployment_package(
     package_id: str,
     request: Request,
     range_header: str | None = Header(default=None, alias="Range"),
+    if_range: str | None = Header(default=None, alias="If-Range"),
     x_deployment_package_operator: str | None = Header(default=None),
 ) -> StreamingResponse:
-    task = _find_completed_task(package_id)
-    if task is None or task.result is None:
-        raise HTTPException(status_code=404, detail="Deployment package task not found")
-    artifact = Path(task.result.artifact_path)
-    if not artifact.exists():
-        raise HTTPException(status_code=404, detail="Deployment package artifact not found")
+    task, artifact = _completed_artifact(package_id)
     _audit(
         request,
         action="package.download",
@@ -393,17 +391,13 @@ async def download_deployment_package(
         operator=x_deployment_package_operator,
         metadata={"taskId": task.task_id, "artifactPath": task.result.artifact_path},
     )
-    file_size = artifact.stat().st_size
+    metadata = _download_metadata(task.result, artifact)
+    active_range = "" if should_ignore_range(if_range or "", metadata) else (range_header or "")
     try:
-        download_range = parse_range_header(range_header or "", file_size)
+        download_range = parse_range_header(active_range, metadata.size)
     except InvalidRangeError as exc:
-        raise HTTPException(status_code=416, detail=str(exc), headers={"Content-Range": f"bytes */{file_size}"}) from exc
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": f'attachment; filename="{artifact.name}"',
-        "Content-Length": str(download_range.length if download_range else file_size),
-        "X-Deployment-Package-Sha256": task.result.sha256,
-    }
+        raise HTTPException(status_code=416, detail=str(exc), headers={"Content-Range": f"bytes */{metadata.size}"}) from exc
+    headers = {**metadata.headers, "Content-Length": str(download_range.length if download_range else metadata.size)}
     if download_range:
         headers["Content-Range"] = download_range.content_range
     return StreamingResponse(
@@ -412,6 +406,12 @@ async def download_deployment_package(
         status_code=206 if download_range else 200,
         headers=headers,
     )
+
+
+@router.head("/{package_id}/download")
+async def head_deployment_package_download(package_id: str) -> Response:
+    task, artifact = _completed_artifact(package_id)
+    return Response(status_code=200, headers=_download_metadata(task.result, artifact).headers)
 
 
 @router.get("/{package_id}/checksum")
@@ -443,6 +443,36 @@ async def download_deployment_package_checksum(
     )
 
 
+@router.get("/{package_id}/download-script.ps1")
+async def download_deployment_package_powershell_script(
+    package_id: str,
+    deployment_package_token: str = Query(default=""),
+) -> Response:
+    task, artifact = _completed_artifact(package_id)
+    metadata = _download_metadata(task.result, artifact)
+    content = render_download_script(task.result.package_id, task.result.sha256, shell="powershell", size=metadata.size, etag=metadata.etag, token=deployment_package_token)
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{task.result.package_id}-download.ps1"'},
+    )
+
+
+@router.get("/{package_id}/download-script.sh")
+async def download_deployment_package_shell_script(
+    package_id: str,
+    deployment_package_token: str = Query(default=""),
+) -> Response:
+    task, artifact = _completed_artifact(package_id)
+    metadata = _download_metadata(task.result, artifact)
+    content = render_download_script(task.result.package_id, task.result.sha256, shell="bash", size=metadata.size, etag=metadata.etag, token=deployment_package_token)
+    return Response(
+        content=content,
+        media_type="text/x-shellscript; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{task.result.package_id}-download.sh"'},
+    )
+
+
 def _find_completed_task(package_or_task_id: str) -> PackageTask | None:
     repo = get_task_repository()
     task = repo.get(package_or_task_id)
@@ -452,6 +482,27 @@ def _find_completed_task(package_or_task_id: str) -> PackageTask | None:
         if candidate.result and candidate.result.package_id == package_or_task_id and candidate.status == "completed":
             return candidate
     return None
+
+
+def _completed_artifact(package_id: str) -> tuple[PackageTask, Path]:
+    task = _find_completed_task(package_id)
+    if task is None or task.result is None:
+        raise HTTPException(status_code=404, detail="Deployment package task not found")
+    artifact = Path(task.result.artifact_path)
+    if not artifact.exists():
+        raise HTTPException(status_code=404, detail="Deployment package artifact not found")
+    return task, artifact
+
+
+def _download_metadata(result: PackageBuildResult, artifact: Path) -> DownloadMetadata:
+    stat = artifact.stat()
+    return DownloadMetadata(
+        filename=artifact.name,
+        size=stat.st_size,
+        sha256=result.sha256,
+        etag=f'"{result.sha256}"',
+        last_modified=formatdate(stat.st_mtime, usegmt=True),
+    )
 
 
 def _checksum_path(result: PackageBuildResult) -> Path:

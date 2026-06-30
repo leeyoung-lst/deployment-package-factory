@@ -344,3 +344,8 @@ export function downloadDeploymentPackage(packageId: string) {
 export function downloadDeploymentPackageChecksum(packageId: string) {
   return buildDownloadUrl(`/api/deployment-packages/${encodeURIComponent(packageId)}/checksum`);
 }
+
+export function downloadDeploymentPackageScript(packageId: string, shell: "powershell" | "bash") {
+  const suffix = shell === "powershell" ? "download-script.ps1" : "download-script.sh";
+  return buildDownloadUrl(`/api/deployment-packages/${encodeURIComponent(packageId)}/${suffix}`);
+}

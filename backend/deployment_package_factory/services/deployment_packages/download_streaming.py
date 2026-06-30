@@ -9,6 +9,26 @@ class InvalidRangeError(ValueError):
 
 
 @dataclass(frozen=True)
+class DownloadMetadata:
+    filename: str
+    size: int
+    sha256: str
+    etag: str
+    last_modified: str
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": f'attachment; filename="{self.filename}"',
+            "Content-Length": str(self.size),
+            "ETag": self.etag,
+            "Last-Modified": self.last_modified,
+            "X-Deployment-Package-Sha256": self.sha256,
+        }
+
+
+@dataclass(frozen=True)
 class DownloadRange:
     start: int
     end: int
@@ -41,6 +61,13 @@ def parse_range_header(value: str, total: int) -> DownloadRange | None:
     if start < 0 or end < start or start >= total:
         raise InvalidRangeError("Requested range is not satisfiable.")
     return DownloadRange(start=start, end=min(end, total - 1), total=total)
+
+
+def should_ignore_range(if_range: str, metadata: DownloadMetadata) -> bool:
+    if not if_range:
+        return False
+    value = if_range.strip()
+    return value not in {metadata.etag, metadata.last_modified}
 
 
 def iter_file_chunks(path: Path, *, start: int = 0, end: int | None = None, chunk_size: int = 1024 * 1024):

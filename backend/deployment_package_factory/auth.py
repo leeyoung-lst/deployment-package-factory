@@ -37,4 +37,4 @@ def _extract_token(authorization: str | None, fallback: str | None, query_token:
 
 def _allows_query_token(request: Request) -> bool:
     path = request.url.path.rstrip("/")
-    return path.endswith("/download") or path.endswith("/checksum")
+    return path.endswith("/download") or path.endswith("/checksum") or path.endswith("/download-script.ps1") or path.endswith("/download-script.sh")

@@ -32,6 +32,7 @@ interface Props {
   onCancelTask: () => void;
   onCopyResumeCommand: () => void;
   onDisableBusiness: (item: DeploymentServiceOption) => void;
+  onDownloadResumeScript: (shell: "powershell" | "bash") => void;
   onDownloadArtifact: () => void;
   onDownloadChecksum: () => void;
   onOpenDrawer: (drawer: ExportDrawerKey) => void;
@@ -80,6 +81,7 @@ function exportTab(props: Props) {
         taskCount={props.taskCount}
         onCancelTask={props.onCancelTask}
         onCopyResumeCommand={props.onCopyResumeCommand}
+        onDownloadResumeScript={props.onDownloadResumeScript}
         onDownloadArtifact={props.onDownloadArtifact}
         onDownloadChecksum={props.onDownloadChecksum}
         onOpenDrawer={props.onOpenDrawer}

@@ -4,6 +4,7 @@ import {
   cleanupDeploymentPackages,
   downloadDeploymentPackage,
   downloadDeploymentPackageChecksum,
+  downloadDeploymentPackageScript,
   getDeploymentPackageTask,
   getImageExportEnvironment,
   listDeploymentPackageAuditEvents,
@@ -19,6 +20,7 @@ import {
   type PackageTask,
 } from "../../api/deploymentPackages";
 import { mergeTaskIntoList, triggerBrowserDownload } from "../components/deploymentPackageUtils";
+import { resumeDownloadCommand } from "./deploymentDownloadCommands";
 
 export function useDeploymentPackageActions(notify: NotifyHandlers) {
   const [preview, setPreview] = useState<PackagePreview | null>(null);
@@ -110,10 +112,8 @@ export function useDeploymentPackageActions(notify: NotifyHandlers) {
   const copyResumeDownloadCommand = useCallback(async () => {
     if (!taskRef.current?.result || !taskRef.current.artifactAvailable) return;
     const packageId = taskRef.current.result.packageId;
-    const filename = `${packageId}.tar.gz`;
-    const url = downloadDeploymentPackage(packageId);
     try {
-      await navigator.clipboard.writeText(`curl.exe -fL -C - -o ${filename} "${url}"`);
+      await navigator.clipboard.writeText(resumeDownloadCommand(packageId));
       notify.success("断点续传命令已复制");
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "复制断点续传命令失败");
@@ -128,7 +128,14 @@ export function useDeploymentPackageActions(notify: NotifyHandlers) {
     finally { patchLoading("checksum", false); }
   }, [notify, refreshAuditEvents]);
 
-  return { auditEvents, cancelTask, cleanupResult, copyResumeDownloadCommand, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshSelectedTask, refreshTasks, retryTask, runCleanup, setTask, task, tasks };
+  const downloadResumeScript = useCallback((shell: "powershell" | "bash") => {
+    if (!taskRef.current?.result || !taskRef.current.artifactAvailable) return;
+    const packageId = taskRef.current.result.packageId;
+    const extension = shell === "powershell" ? "ps1" : "sh";
+    triggerBrowserDownload(downloadDeploymentPackageScript(packageId, shell), `${packageId}-download.${extension}`);
+  }, []);
+
+  return { auditEvents, cancelTask, cleanupResult, copyResumeDownloadCommand, downloadResumeScript, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshSelectedTask, refreshTasks, retryTask, runCleanup, setTask, task, tasks };
 }
 
 interface NotifyHandlers {

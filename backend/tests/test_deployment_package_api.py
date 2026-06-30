@@ -424,6 +424,8 @@ def test_create_get_and_download_deployment_package(tmp_path, monkeypatch: pytes
     assert downloaded.headers["content-type"] == "application/gzip"
     assert downloaded.headers["accept-ranges"] == "bytes"
     assert downloaded.headers["content-length"] == str(task["result"]["artifactSize"])
+    assert downloaded.headers["etag"] == f'"{task["result"]["sha256"]}"'
+    assert downloaded.headers["last-modified"]
     assert f"local-ai-prod-package-{package_id}.tar.gz" in downloaded.headers["content-disposition"]
     assert downloaded.headers["x-deployment-package-sha256"] == task["result"]["sha256"]
     assert downloaded.content
@@ -508,6 +510,141 @@ def test_download_deployment_package_supports_range_resume(tmp_path, monkeypatch
     assert response.headers["content-length"] == "16"
     assert response.headers["content-range"] == f"bytes 10-25/{artifact.stat().st_size}"
     assert response.content == expected
+
+
+def test_head_deployment_package_download_returns_resume_metadata(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+    task_repo = InMemoryTaskRepository()
+    _set_repo(monkeypatch, task_repo, tmp_path)
+    monkeypatch.setattr(
+        task_executor,
+        "build_deployment_package",
+        lambda payload, output_dir=None: builder.build_deployment_package(payload, output_dir=tmp_path),
+    )
+    client = _client()
+    created = client.post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "imageMode": "image-manifest",
+        },
+    )
+    task = _wait_for_task(client, created.json()["taskId"])
+    package_id = task["result"]["packageId"]
+
+    response = client.head(f"/api/deployment-packages/{package_id}/download")
+
+    assert response.status_code == 200
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-length"] == str(task["result"]["artifactSize"])
+    assert response.headers["etag"] == f'"{task["result"]["sha256"]}"'
+    assert response.headers["last-modified"]
+    assert response.content == b""
+
+
+def test_download_deployment_package_honors_if_range(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+    task_repo = InMemoryTaskRepository()
+    _set_repo(monkeypatch, task_repo, tmp_path)
+    monkeypatch.setattr(
+        task_executor,
+        "build_deployment_package",
+        lambda payload, output_dir=None: builder.build_deployment_package(payload, output_dir=tmp_path),
+    )
+    client = _client()
+    created = client.post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "imageMode": "image-manifest",
+        },
+    )
+    task = _wait_for_task(client, created.json()["taskId"])
+    package_id = task["result"]["packageId"]
+    artifact = Path(task["result"]["artifactPath"])
+    etag = f'"{task["result"]["sha256"]}"'
+
+    matched = client.get(f"/api/deployment-packages/{package_id}/download", headers={"Range": "bytes=0-3", "If-Range": etag})
+    stale = client.get(f"/api/deployment-packages/{package_id}/download", headers={"Range": "bytes=0-3", "If-Range": '"stale"'})
+
+    assert matched.status_code == 206, matched.text
+    assert matched.content == artifact.read_bytes()[:4]
+    assert stale.status_code == 200, stale.text
+    assert stale.headers["content-length"] == str(artifact.stat().st_size)
+    assert stale.content == artifact.read_bytes()
+
+
+def test_download_deployment_package_scripts_include_resume_and_verify(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+    task_repo = InMemoryTaskRepository()
+    _set_repo(monkeypatch, task_repo, tmp_path)
+    monkeypatch.setattr(
+        task_executor,
+        "build_deployment_package",
+        lambda payload, output_dir=None: builder.build_deployment_package(payload, output_dir=tmp_path),
+    )
+    client = _client()
+    created = client.post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "imageMode": "image-manifest",
+        },
+    )
+    task = _wait_for_task(client, created.json()["taskId"])
+    package_id = task["result"]["packageId"]
+
+    ps1 = client.get(f"/api/deployment-packages/{package_id}/download-script.ps1?deployment_package_token=abc")
+    shell = client.get(f"/api/deployment-packages/{package_id}/download-script.sh")
+
+    assert ps1.status_code == 200, ps1.text
+    assert "Range: bytes=$RangeStart-$End" in ps1.text
+    assert "If-Range: $ETag" in ps1.text
+    assert ".parts" in ps1.text
+    assert "--retry 20" in ps1.text
+    assert "Get-FileHash" in ps1.text
+    assert "deployment_package_token=abc" in ps1.text
+    assert shell.status_code == 200, shell.text
+    assert 'part_dir="$package_file.parts"' in shell.text
+    assert "-r \"$range_start-$end\"" in shell.text
+    assert "sha256sum" in shell.text
+    assert task["result"]["sha256"] in shell.text
+
+
+def test_download_script_accepts_query_token(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_API_TOKEN", "secret-token")
+    _mock_runtime_environment(monkeypatch)
+    task_repo = InMemoryTaskRepository()
+    _set_repo(monkeypatch, task_repo, tmp_path)
+    monkeypatch.setattr(
+        task_executor,
+        "build_deployment_package",
+        lambda payload, output_dir=None: builder.build_deployment_package(payload, output_dir=tmp_path),
+    )
+    client = _client()
+    created = client.post(
+        "/api/deployment-packages",
+        headers={"Authorization": "Bearer secret-token"},
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "imageMode": "image-manifest",
+        },
+    )
+    task = _wait_for_task(client, created.json()["taskId"], headers={"Authorization": "Bearer secret-token"})
+    package_id = task["result"]["packageId"]
+
+    response = client.get(f"/api/deployment-packages/{package_id}/download-script.ps1?deployment_package_token=secret-token")
+
+    assert response.status_code == 200, response.text
+    assert "deployment_package_token=secret-token" in response.text
 
 
 def test_download_deployment_package_rejects_invalid_range(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
