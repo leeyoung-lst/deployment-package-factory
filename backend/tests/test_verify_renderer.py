@@ -24,6 +24,8 @@ def test_render_package_verify_files_exports_shell_and_powershell_entries() -> N
     assert "$VerifierVersion = '1.0.0'" in by_path["verify.ps1"].content
     assert "Get-FileHash -Algorithm SHA256" in by_path["verify.ps1"].content
     assert "[System.Security.Cryptography.SHA256]::Create()" in by_path["verify.ps1"].content
+    assert "[System.Text.Encoding]::UTF8" in by_path["verify.ps1"].content
+    assert "Read-Utf8Text (Join-Path $ScriptDir 'manifest.json')" in by_path["verify.ps1"].content
     assert "ConvertFrom-Json" in by_path["verify.ps1"].content
     assert "quality-gate.ps1" in by_path["verify.ps1"].content
     assert "docker-compose/.env" in by_path["verify.ps1"].content

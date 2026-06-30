@@ -19,6 +19,7 @@ DPF_BUSINESS_KEY_LABEL = f"{DPF_LABEL_PREFIX}/business-key"
 DPF_STATUS_LABEL = f"{DPF_LABEL_PREFIX}/status"
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "deployment-package-factory"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
@@ -27,8 +28,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default="deploy/source-environments")
     args = parser.parse_args()
 
-    config_path = Path(args.config)
-    output_dir = Path(args.output_dir)
+    config_path = _repo_path(Path(args.config))
+    output_dir = _repo_path(Path(args.output_dir))
     rendered = render_source_environment_manifests(config_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "namespaces.yaml").write_text(rendered, encoding="utf-8")
@@ -42,6 +43,7 @@ def main() -> None:
 
 
 def render_source_environment_manifests(config_path: Path) -> str:
+    config_path = _repo_path(config_path)
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     documents: list[dict] = []
     for env in config.get("environments", []):
@@ -62,6 +64,12 @@ def render_source_environment_manifests(config_path: Path) -> str:
                 )
             )
     return "---\n".join(yaml.safe_dump(item, sort_keys=False, allow_unicode=True) for item in documents)
+
+
+def _repo_path(path: Path) -> Path:
+    if path.is_absolute() or path.exists():
+        return path
+    return REPO_ROOT / path
 
 
 def business_namespace(env: str, product: str, profile: str) -> str:

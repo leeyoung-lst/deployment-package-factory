@@ -566,22 +566,14 @@ def test_generated_powershell_verifier_rejects_unsigned_package_files(tmp_path) 
     )
     root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
 
-    clean = subprocess.run(
-        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(root / "verify.ps1")],
-        capture_output=True,
-        text=True,
-    )
-    assert clean.returncode == 0, clean.stderr + clean.stdout
+    clean = _run_powershell(powershell, root / "verify.ps1")
+    assert clean.returncode == 0, _subprocess_output(clean)
 
     (root / "unexpected.txt").write_text("not signed\n", encoding="utf-8")
-    tampered = subprocess.run(
-        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(root / "verify.ps1")],
-        capture_output=True,
-        text=True,
-    )
+    tampered = _run_powershell(powershell, root / "verify.ps1")
 
     assert tampered.returncode != 0
-    assert "SHA256SUMS file set mismatch" in tampered.stderr + tampered.stdout
+    assert "SHA256SUMS file set mismatch" in _subprocess_output(tampered)
 
 
 def test_generated_powershell_verifier_allows_runtime_env_file(tmp_path) -> None:
@@ -597,13 +589,23 @@ def test_generated_powershell_verifier_allows_runtime_env_file(tmp_path) -> None
     env_file = root / "docker-compose" / ".env"
     env_file.write_text(env_template.read_text(encoding="utf-8").replace("__REPLACE_WITH_", "local_"), encoding="utf-8")
 
-    verified = subprocess.run(
-        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(root / "verify.ps1")],
+    verified = _run_powershell(powershell, root / "verify.ps1")
+
+    assert verified.returncode == 0, _subprocess_output(verified)
+
+
+def _run_powershell(powershell: str, script: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
-    assert verified.returncode == 0, verified.stderr + verified.stdout
+
+def _subprocess_output(result: subprocess.CompletedProcess[str]) -> str:
+    return (result.stderr or "") + (result.stdout or "")
 
 
 def test_rendered_k8s_and_compose_include_business_middleware_and_registry(tmp_path) -> None:
