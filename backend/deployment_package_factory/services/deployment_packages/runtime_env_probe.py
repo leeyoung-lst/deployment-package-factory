@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 import yaml
 
+from deployment_package_factory.services.deployment_packages.runtime_env_aliases import runtime_env_alias
 from deployment_package_factory.services.deployment_packages.runtime_resources import RuntimeEnvProbe
 
 
@@ -105,7 +107,21 @@ def _runtime_config_values(values: dict[str, str]) -> dict[str, str]:
 
 def _set_runtime_value(values: dict[str, str], key: str, value: str) -> None:
     normalized = _runtime_env_key(key)
-    if normalized and value:
+    if not normalized or not value:
+        return
+    if normalized == "REDIS_URL":
+        password = _url_credentials(value)[1]
+        if password:
+            values["REDIS_PASSWORD"] = password
+        return
+    if normalized == "IOTDB_URL":
+        username, password = _url_credentials(value)
+        if username:
+            values["IOTDB_USER"] = username
+        if password:
+            values["IOTDB_PASSWORD"] = password
+        return
+    if normalized:
         values[normalized] = str(value)
 
 
@@ -215,62 +231,7 @@ def _filter_keys(values: dict[str, str], keys: set[str] | None) -> dict[str, str
 
 def _runtime_env_key(key: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9]+", "_", key).strip("_").upper()
-    aliases = {
-        "DB_NAME": "DATABASE_NAME",
-        "DB_DATABASE": "DATABASE_NAME",
-        "POSTGRES_DB": "DATABASE_NAME",
-        "POSTGRES_DATABASE": "DATABASE_NAME",
-        "POSTGRESQL_DATABASE": "DATABASE_NAME",
-        "DM_DATABASE": "DATABASE_NAME",
-        "DB_URL": "DATABASE_URL",
-        "DATASOURCE_URL": "DATABASE_URL",
-        "SPRING_DATASOURCE_URL": "DATABASE_URL",
-        "POSTGRES_URL": "DATABASE_URL",
-        "POSTGRESQL_URL": "DATABASE_URL",
-        "DB_USER": "DATABASE_USER",
-        "DB_USERNAME": "DATABASE_USER",
-        "DATASOURCE_USERNAME": "DATABASE_USER",
-        "DATASOURCE_USER": "DATABASE_USER",
-        "SPRING_DATASOURCE_USERNAME": "DATABASE_USER",
-        "POSTGRES_USER": "DATABASE_USER",
-        "POSTGRES_USERNAME": "DATABASE_USER",
-        "POSTGRESQL_USER": "DATABASE_USER",
-        "POSTGRESQL_USERNAME": "DATABASE_USER",
-        "DM_USERNAME": "DATABASE_USER",
-        "DB_PASSWORD": "DATABASE_PASSWORD",
-        "DATASOURCE_PASSWORD": "DATABASE_PASSWORD",
-        "SPRING_DATASOURCE_PASSWORD": "DATABASE_PASSWORD",
-        "POSTGRES_PASSWORD": "DATABASE_PASSWORD",
-        "POSTGRESQL_PASSWORD": "DATABASE_PASSWORD",
-        "DM_PASSWORD": "DATABASE_PASSWORD",
-        "SPRING_DATASOURCE_SCHEMA": "DATABASE_SCHEMA",
-        "SPRING_DATASOURCE_HIKARI_SCHEMA": "DATABASE_SCHEMA",
-        "SPRING_JPA_PROPERTIES_HIBERNATE_DEFAULT_SCHEMA": "DATABASE_SCHEMA",
-        "DB_SCHEMA": "DATABASE_SCHEMA",
-        "POSTGRES_DSN": "POSTGRES_DSN",
-        "POSTGRES_SCHEMA": "POSTGRES_SCHEMA",
-        "POSTGRESQL_SCHEMA": "POSTGRES_SCHEMA",
-        "MINIO_BUCKET": "MINIO_BUCKET",
-        "MINIO_DEFAULT_BUCKET": "MINIO_BUCKET",
-        "MINIO_BUCKET_NAME": "MINIO_BUCKET",
-        "MINIO_BUCKETS": "MINIO_BUCKETS",
-        "S3_BUCKET": "S3_BUCKET",
-        "S3_BUCKET_NAME": "S3_BUCKET",
-        "DOCUMENT_BUCKET": "DOCUMENT_BUCKET",
-        "DOCUMENTS_BUCKET": "DOCUMENT_BUCKET",
-        "FILE_BUCKET": "DOCUMENT_BUCKET",
-        "OSS_BUCKET": "DOCUMENT_BUCKET",
-        "QDRANT_COLLECTION": "QDRANT_COLLECTION",
-        "QDRANT_COLLECTION_NAME": "QDRANT_COLLECTION",
-        "QDRANT_COLLECTIONS": "QDRANT_COLLECTIONS",
-        "VECTOR_COLLECTION": "VECTOR_COLLECTION",
-        "VECTOR_COLLECTION_NAME": "VECTOR_COLLECTION",
-    }
-    if normalized in aliases:
-        return aliases[normalized]
-    if normalized in {"DATABASE_NAME", "DATABASE_URL", "DATABASE_USER", "DATABASE_PASSWORD", "DATABASE_SCHEMA"}:
-        return normalized
-    return ""
+    return runtime_env_alias(normalized)
 
 
 def _service_key_from_pod(pod: dict, container: dict) -> str:
@@ -280,3 +241,8 @@ def _service_key_from_pod(pod: dict, container: dict) -> str:
             return str(labels[key])
     name = container.get("name") or (pod.get("metadata") or {}).get("name") or "service"
     return str(name)
+
+
+def _url_credentials(value: str) -> tuple[str, str]:
+    parsed = urlparse(value[5:] if value.startswith("jdbc:") else value)
+    return parsed.username or "", parsed.password or ""

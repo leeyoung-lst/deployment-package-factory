@@ -64,6 +64,53 @@ def test_runtime_config_overrides_feed_env_values() -> None:
     assert env_values["DATABASE_PASSWORD"] == "prod-password"
 
 
+def test_runtime_config_groups_use_probe_middleware_values() -> None:
+    request = PackageBuildRequest(
+        sourceEnv="test",
+        platformServices=["ai-agent"],
+        businessServices=[BusinessSelection(name="eam", profile="4x60")],
+        database="postgres",
+    )
+    catalog = load_catalog()
+    preview = resolve_package_preview(request, catalog)
+    middleware_config = {
+        key: catalog.middleware[key].model_dump(by_alias=True)
+        for key in ("redis", "qdrant", "iotdb")
+    }
+    config = build_runtime_config(
+        request=request,
+        preview=preview,
+        middleware_config=middleware_config,
+        runtime_env={
+            "REDIS_PASSWORD": "__REPLACE_WITH_REDIS_PASSWORD__",
+            "QDRANT_API_KEY": "__REPLACE_WITH_QDRANT_API_KEY__",
+            "IOTDB_PASSWORD": "__REPLACE_WITH_IOTDB_PASSWORD__",
+        },
+        probes=[
+            RuntimeEnvProbe(
+                "eam",
+                "EAM",
+                {
+                    "REDIS_PASSWORD": "source-redis",
+                    "QDRANT_API_KEY": "source-qdrant",
+                    "IOTDB_USER": "root",
+                    "IOTDB_PASSWORD": "source-iotdb",
+                },
+            )
+        ],
+    )
+
+    groups = {group["key"]: group for group in config["groups"]}
+    redis_password = next(item for item in groups["redis"]["items"] if item["name"] == "REDIS_PASSWORD")
+    qdrant_key = next(item for item in groups["qdrant"]["items"] if item["name"] == "QDRANT_API_KEY")
+    iotdb_password = next(item for item in groups["iotdb"]["items"] if item["name"] == "IOTDB_PASSWORD")
+
+    assert redis_password["value"] == "source-redis"
+    assert redis_password["source"] == "pod-env"
+    assert qdrant_key["value"] == "source-qdrant"
+    assert iotdb_password["value"] == "source-iotdb"
+
+
 def test_database_resource_overrides_are_scoped_per_resource() -> None:
     request = PackageBuildRequest(
         sourceEnv="test",

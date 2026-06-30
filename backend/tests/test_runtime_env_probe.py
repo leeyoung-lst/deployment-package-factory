@@ -129,6 +129,50 @@ qdrant:
     assert probes[0].env["QDRANT_COLLECTION"] == "iam_memory"
 
 
+def test_runtime_env_probes_collect_middleware_credentials_from_yaml() -> None:
+    probes = runtime_env_probes(
+        "test",
+        None,
+        namespace_resolver=lambda source_env, business_namespaces=None: ["test-base-public"],
+        pod_reader=lambda namespace: {
+            "items": [
+                {
+                    "metadata": {"name": "platform-0", "labels": {"app": "platform"}},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "platform",
+                                "envFrom": [{"configMapRef": {"name": "platform-config"}}],
+                            }
+                        ]
+                    },
+                }
+            ]
+        },
+        secret_reader=lambda namespace, name: {},
+        configmap_reader=lambda namespace, name: {
+            "application.yml": """
+spring:
+  data:
+    redis:
+      password: redis-from-yaml
+qdrant:
+  service:
+    api-key: qdrant-from-yaml
+iotdb:
+  url: iotdb://root:iotdb-from-yaml@iotdb:6667
+redis:
+  uri: redis://:redis-from-uri@redis:6379/0
+"""
+        },
+    )
+
+    assert probes[0].env["REDIS_PASSWORD"] == "redis-from-uri"
+    assert probes[0].env["QDRANT_API_KEY"] == "qdrant-from-yaml"
+    assert probes[0].env["IOTDB_USER"] == "root"
+    assert probes[0].env["IOTDB_PASSWORD"] == "iotdb-from-yaml"
+
+
 def test_runtime_env_probes_collect_single_line_properties_and_subpath_mounts() -> None:
     def pod_reader(namespace: str) -> dict:
         return {
