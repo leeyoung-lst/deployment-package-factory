@@ -364,9 +364,9 @@ def test_build_deployment_package_applies_runtime_config_overrides(tmp_path, mon
             database="postgres",
             runtimeConfigOverrides={
                 "DATABASE_NAME": "eam_prod",
-                "DATABASE_SCHEMA": "eam_schema",
                 "DATABASE_USER": "eam_user",
                 "DATABASE_PASSWORD": "prod-password",
+                "databaseschema-postgres-eam-prod-public.schema": "eam_schema",
             },
         ),
         output_dir=tmp_path,

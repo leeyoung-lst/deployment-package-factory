@@ -74,10 +74,6 @@ def runtime_env_from_config(runtime_config: dict) -> dict[str, str]:
     for group in runtime_config.get("groups", []):
         for item in group.get("items", []):
             values[str(item["name"])] = str(item.get("value") or "")
-    for resource in runtime_config.get("resources", []):
-        for item in resource.get("items", []):
-            if item.get("envName"):
-                values[str(item["envName"])] = str(item.get("value") or "")
     return values
 
 
@@ -282,10 +278,7 @@ def _apply_resource_overrides(resource: dict, overrides: dict[str, str]) -> dict
 
 
 def _resource_override_name(resource_key: str, item: dict) -> str:
-    env_name = str(item.get("envName") or "")
     name = str(item.get("name") or "")
-    if env_name and env_name != name:
-        return env_name
     return f"{resource_key}.{name}"
 
 

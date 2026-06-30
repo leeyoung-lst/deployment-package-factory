@@ -64,6 +64,38 @@ def test_runtime_config_overrides_feed_env_values() -> None:
     assert env_values["DATABASE_PASSWORD"] == "prod-password"
 
 
+def test_database_resource_overrides_are_scoped_per_resource() -> None:
+    request = PackageBuildRequest(
+        sourceEnv="test",
+        businessServices=[BusinessSelection(name="eam", profile="4x60")],
+        database="postgres",
+        runtimeConfigOverrides={
+            "databaseschema-postgres-local-ai-public.databaseName": "eam_prod",
+            "databaseschema-postgres-local-ai-public.schema": "eam_schema",
+            "databaseschema-postgres-local-ai-public.username": "eam_user",
+            "databaseschema-postgres-local-ai-public.password": "prod-password",
+        },
+    )
+    catalog = load_catalog()
+    preview = resolve_package_preview(request, catalog)
+    config = build_runtime_config(
+        request=request,
+        preview=preview,
+        middleware_config={"postgres": catalog.database_options["postgres"].model_dump(by_alias=True)},
+        runtime_env={},
+    )
+
+    database = next(item for item in config["resources"] if item["type"] == "databaseSchema")
+    values = {item["name"]: item["value"] for item in database["items"]}
+    env_values = runtime_env_from_config(config)
+
+    assert database["name"] == "postgres eam_prod.eam_schema"
+    assert values["username"] == "eam_user"
+    assert values["password"] == "prod-password"
+    assert env_values["DATABASE_NAME"] == "local_ai"
+    assert env_values["DATABASE_PASSWORD"] == "__REPLACE_WITH_DATABASE_PASSWORD__"
+
+
 def test_runtime_resource_item_overrides_are_scoped_by_resource_key() -> None:
     request = PackageBuildRequest(
         sourceEnv="test",
