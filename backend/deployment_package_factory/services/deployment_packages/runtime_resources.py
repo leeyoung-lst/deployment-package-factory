@@ -102,11 +102,11 @@ def _parse_database_probe(database_key: str, probe: RuntimeEnvProbe, env_values:
     dsn = _first_env(probe.env, DATABASE_ENV_NAMES)
     if not dsn:
         return None
-    parsed = urlparse(dsn)
+    parsed = urlparse(_normalize_dsn(dsn))
     database_name = parsed.path.strip("/") or env_values.get("DATABASE_NAME") or "local_ai"
     schema = _first_env(probe.env, SCHEMA_ENV_NAMES) or _schema_from_query(parsed.query) or "public"
-    username = parsed.username or env_values.get("DATABASE_USER") or "local_ai"
-    password = parsed.password or env_values.get("DATABASE_PASSWORD") or ""
+    username = parsed.username or probe.env.get("DATABASE_USER") or env_values.get("DATABASE_USER") or "local_ai"
+    password = parsed.password or probe.env.get("DATABASE_PASSWORD") or env_values.get("DATABASE_PASSWORD") or ""
     key = _resource_key("databaseSchema", database_key, database_name, schema)
     return _database_resource(key, database_key, database_name, schema, username, password, [probe.service_key], source="pod-env")
 
@@ -329,6 +329,12 @@ def _schema_from_query(query: str) -> str:
         if values.get(key):
             return values[key][0]
     return ""
+
+
+def _normalize_dsn(dsn: str) -> str:
+    if dsn.startswith("jdbc:"):
+        return dsn[5:]
+    return dsn
 
 
 def _split_values(value: str) -> list[str]:

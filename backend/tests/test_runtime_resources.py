@@ -123,3 +123,33 @@ def test_runtime_resource_item_overrides_are_scoped_by_resource_key() -> None:
     assert len(buckets) == 1
     assert buckets[0]["name"] == "eam-docs-prod"
     assert buckets[0]["usedBy"] == ["eam", "file-documents"]
+
+
+def test_database_resource_uses_jdbc_url_and_probe_credentials() -> None:
+    request = PackageBuildRequest(sourceEnv="test", platformServices=["iam"], database="postgres")
+    catalog = load_catalog()
+    preview = resolve_package_preview(request, catalog)
+    config = build_runtime_config(
+        request=request,
+        preview=preview,
+        middleware_config={"postgres": catalog.database_options["postgres"].model_dump(by_alias=True)},
+        runtime_env={},
+        probes=[
+            RuntimeEnvProbe(
+                "iam",
+                "IAM",
+                {
+                    "DATABASE_URL": "jdbc:postgresql://postgres:5432/local_ai?currentSchema=iam",
+                    "DATABASE_USER": "iam_user",
+                    "DATABASE_PASSWORD": "iam_password",
+                },
+            )
+        ],
+    )
+
+    database = next(item for item in config["resources"] if item["type"] == "databaseSchema")
+    values = {item["name"]: item["value"] for item in database["items"]}
+
+    assert database["name"] == "postgres local_ai.iam"
+    assert values["username"] == "iam_user"
+    assert values["password"] == "iam_password"

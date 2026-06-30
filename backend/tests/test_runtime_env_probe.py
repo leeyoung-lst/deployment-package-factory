@@ -72,3 +72,58 @@ def test_runtime_env_probes_supports_legacy_single_arg_namespace_resolver() -> N
 
     assert probes[0].service_key == "eam"
     assert probes[0].env["DATABASE_URL"] == "postgresql://u:p@db:5432/eam"
+
+
+def test_runtime_env_probes_collect_nested_yaml_and_mounted_sources() -> None:
+    def pod_reader(namespace: str) -> dict:
+        return {
+            "items": [
+                {
+                    "metadata": {"name": "iam-0", "labels": {"app": "iam"}},
+                    "spec": {
+                        "volumes": [
+                            {"name": "app-config", "configMap": {"name": "iam-config", "items": [{"key": "application.yml"}]}},
+                            {"name": "app-secret", "secret": {"secretName": "iam-secret", "items": [{"key": "db-password"}]}},
+                        ],
+                        "containers": [
+                            {
+                                "name": "iam",
+                                "volumeMounts": [
+                                    {"name": "app-config", "mountPath": "/config"},
+                                    {"name": "app-secret", "mountPath": "/secret"},
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+
+    probes = runtime_env_probes(
+        "test",
+        None,
+        namespace_resolver=lambda source_env, business_namespaces=None: ["test-base-public"],
+        pod_reader=pod_reader,
+        secret_reader=lambda namespace, name: {"db-password": "mounted-secret"},
+        configmap_reader=lambda namespace, name: {
+            "application.yml": """
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/local_ai?currentSchema=iam
+    username: iam_user
+    hikari:
+      schema: iam
+document:
+  bucket: iam-docs
+qdrant:
+  collection-name: iam_memory
+"""
+        },
+    )
+
+    assert probes[0].env["DATABASE_URL"].startswith("jdbc:postgresql://")
+    assert probes[0].env["DATABASE_USER"] == "iam_user"
+    assert probes[0].env["DATABASE_PASSWORD"] == "mounted-secret"
+    assert probes[0].env["DATABASE_SCHEMA"] == "iam"
+    assert probes[0].env["DOCUMENT_BUCKET"] == "iam-docs"
+    assert probes[0].env["QDRANT_COLLECTION"] == "iam_memory"
