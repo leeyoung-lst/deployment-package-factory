@@ -17,6 +17,8 @@ def _powershell_download_script(package_file: str, download_url: str, checksum_u
     checksum_file = f"{package_file}.sha256"
     return "\n".join(
         [
+            "# If Windows blocks this unsigned script, run it with:",
+            "# powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\<this-file>.ps1",
             "$ErrorActionPreference = 'Stop'",
             f"$PackageFile = '{package_file}'",
             f"$ChecksumFile = '{checksum_file}'",

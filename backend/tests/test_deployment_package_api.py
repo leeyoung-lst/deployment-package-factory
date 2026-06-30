@@ -604,6 +604,7 @@ def test_download_deployment_package_scripts_include_resume_and_verify(tmp_path,
     shell = client.get(f"/api/deployment-packages/{package_id}/download-script.sh")
 
     assert ps1.status_code == 200, ps1.text
+    assert "ExecutionPolicy Bypass" in ps1.text
     assert "Range: bytes=$RangeStart-$End" in ps1.text
     assert "If-Range: $ETag" in ps1.text
     assert ".parts" in ps1.text
