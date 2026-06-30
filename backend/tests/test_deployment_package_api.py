@@ -672,6 +672,25 @@ def test_list_deployment_package_audit_events(tmp_path, monkeypatch: pytest.Monk
     assert response.json()[0]["action"] == "package.create"
 
 
+def test_list_deployment_package_audit_events_filters(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = InMemoryTaskRepository()
+    audit_repo = _set_repo(monkeypatch, repo, tmp_path)
+    audit_repo.record(action="package.create", status="accepted", target_id="task-1")
+    audit_repo.record(action="package.create.blocked", status="blocked", target_id="task-2")
+    audit_repo.record(action="package.download", status="completed", target_id="pkg-1")
+
+    blocked = _client().get("/api/deployment-packages/audit-events?status=blocked")
+    package_creates = _client().get("/api/deployment-packages/audit-events?actionPrefix=package.create")
+    downloads = _client().get("/api/deployment-packages/audit-events?action=package.download&limit=1")
+
+    assert blocked.status_code == 200, blocked.text
+    assert [item["action"] for item in blocked.json()] == ["package.create.blocked"]
+    assert package_creates.status_code == 200, package_creates.text
+    assert {item["action"] for item in package_creates.json()} == {"package.create", "package.create.blocked"}
+    assert downloads.status_code == 200, downloads.text
+    assert [item["action"] for item in downloads.json()] == ["package.download"]
+
+
 def _app() -> FastAPI:
     app = FastAPI()
     app.include_router(deployment_packages.router)

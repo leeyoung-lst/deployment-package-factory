@@ -389,12 +389,32 @@ class PostgresAuditEventRepository:
         self._with_schema_retry(insert_event)
         return event
 
-    def list(self, limit: int = 100) -> list[AuditEvent]:
+    def list(
+        self,
+        limit: int = 100,
+        *,
+        status: str = "",
+        action: str = "",
+        action_prefix: str = "",
+    ) -> list[AuditEvent]:
         def fetch_rows() -> list[dict]:
+            where: list[str] = []
+            params: list[object] = []
+            if status:
+                where.append("status = %s")
+                params.append(status)
+            if action:
+                where.append("action = %s")
+                params.append(action)
+            if action_prefix:
+                where.append("action like %s")
+                params.append(f"{action_prefix}%")
+            where_sql = f" where {' and '.join(where)}" if where else ""
+            params.append(max(1, min(500, limit)))
             with self._connect() as conn:
                 return conn.execute(
-                    "select * from audit_events order by created_at desc limit %s",
-                    (max(1, min(500, limit)),),
+                    f"select * from audit_events{where_sql} order by created_at desc limit %s",
+                    tuple(params),
                 ).fetchall()
 
         rows = self._with_schema_retry(fetch_rows)

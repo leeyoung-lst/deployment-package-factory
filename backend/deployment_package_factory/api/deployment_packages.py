@@ -4,7 +4,7 @@ from pathlib import Path
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from deployment_package_factory.auth import require_api_token
@@ -264,8 +264,13 @@ async def create_deployment_package(
 
 
 @router.get("/audit-events", response_model=list[AuditEvent])
-async def list_deployment_package_audit_events(limit: int = 100) -> list[AuditEvent]:
-    return get_audit_repository().list(limit=limit)
+async def list_deployment_package_audit_events(
+    limit: int = 100,
+    status: str = "",
+    action: str = "",
+    action_prefix: str = Query(default="", alias="actionPrefix"),
+) -> list[AuditEvent]:
+    return get_audit_repository().list(limit=limit, status=status, action=action, action_prefix=action_prefix)
 
 
 @router.get("/tasks", response_model=list[PackageTask])

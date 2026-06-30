@@ -254,8 +254,22 @@ class InMemoryAuditEventRepository:
         self.events.append(event)
         return event
 
-    def list(self, limit: int = 100) -> list[AuditEvent]:
-        return list(reversed(self.events))[: max(1, min(500, limit))]
+    def list(
+        self,
+        limit: int = 100,
+        *,
+        status: str = "",
+        action: str = "",
+        action_prefix: str = "",
+    ) -> list[AuditEvent]:
+        events = list(reversed(self.events))
+        if status:
+            events = [event for event in events if event.status == status]
+        if action:
+            events = [event for event in events if event.action == action]
+        if action_prefix:
+            events = [event for event in events if event.action.startswith(action_prefix)]
+        return events[: max(1, min(500, limit))]
 
     def metrics_summary(self) -> dict:
         by_action: dict[str, int] = {}
