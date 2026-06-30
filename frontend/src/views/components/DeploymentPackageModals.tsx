@@ -72,6 +72,9 @@ export function DeploymentPackageModals(props: Props) {
         onTargetDraftChange={state.setTargetDraft}
         refreshingMicroservices={controller.refreshingMicroservices}
         retryingMicroserviceId={controller.retryingMicroserviceId}
+        runtimeConfig={state.runtimeConfig}
+        runtimeConfigOverrides={state.runtimeConfigOverrides}
+        onRuntimeConfigChange={controller.updateRuntimeConfigOverride}
       />
       <BusinessPlatformRegistrationModal form={props.registerForm} loading={controller.registeringBusiness} open={controller.registerModalOpen} options={props.options} onCancel={() => controller.setRegisterModalOpen(false)} onSubmit={() => void controller.submitBusinessRegistration()} />
     </>

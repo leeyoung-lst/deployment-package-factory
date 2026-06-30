@@ -73,7 +73,7 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     if (step === 0 && !state.productVersion && (state.selectedProject?.versions.length ?? 0) > 0) { notify.warning("请选择产品版本"); return false; }
     if (step === 0 && (!state.sourceEnv || !state.deployMode)) { notify.warning("请选择来源环境和部署方式"); return false; }
     if (step === 2 && !state.database) { notify.warning("请选择数据库中间件"); return false; }
-    if (step === 3) await form.validateFields(["env", "namespacePrefix", "domain"]);
+    if (step === 4) await form.validateFields(["env", "namespacePrefix", "domain"]);
     return true;
   }, [exportStep, form, notify]);
 
@@ -107,7 +107,7 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
 
   const buildPackage = useCallback(async () => {
     try {
-      if (!(await validateExportStep(0)) || !(await validateExportStep(2)) || !(await validateExportStep(3))) return;
+      if (!(await validateExportStep(0)) || !(await validateExportStep(2)) || !(await validateExportStep(4))) return;
       const values = await form.validateFields();
       const state = stateRef.current;
       const notReady = notReadyRegisteredMicroservices(state.businessServices, state.businessOptionsForSourceEnv, state.options?.microservices ?? []);
@@ -115,7 +115,7 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
       setBuilding(true);
       setBlockedMicroserviceKeys([]);
       const imageMode = values.imageMode ?? DEFAULT_IMAGE_MODE;
-      const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: imageMode === "image-archive" } });
+      const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode, runtimeConfigOverrides: state.runtimeConfigOverrides, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: imageMode === "image-archive" } });
       actionsRef.current.setTask(payload); void actionsRef.current.refreshTasks(); void actionsRef.current.refreshAuditEvents();
       notify.success("部署任务已创建"); setExportWizardOpen(false); setExportStep(0);
     } catch (error) {
@@ -141,7 +141,11 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     stateRef.current.setBusinessServices(checkedValues.map(String));
   };
 
-  return { blockedMicroserviceKeys, buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openBlockedMicroservices, openExportWizard, openRegisterModal, ...microserviceActions, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
+  const updateRuntimeConfigOverride = (name: string, value: string) => {
+    stateRef.current.setRuntimeConfigOverrides((current) => ({ ...current, [name]: value }));
+  };
+
+  return { blockedMicroserviceKeys, buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openBlockedMicroservices, openExportWizard, openRegisterModal, updateRuntimeConfigOverride, ...microserviceActions, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
 }
 
 function isMicroserviceDeliveryBlocked(error: unknown): error is ApiError {

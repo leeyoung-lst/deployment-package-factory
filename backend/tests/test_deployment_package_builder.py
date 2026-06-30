@@ -353,6 +353,78 @@ def test_runtime_env_resolves_standard_middleware_secret_aliases(monkeypatch) ->
     assert "__REPLACE_WITH_" not in compose_env
 
 
+def test_build_deployment_package_applies_runtime_config_overrides(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: [])
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            businessServices=[BusinessSelection(name="eam", profile="4x60")],
+            database="postgres",
+            runtimeConfigOverrides={
+                "DATABASE_NAME": "eam_prod",
+                "DATABASE_SCHEMA": "eam_schema",
+                "DATABASE_USER": "eam_user",
+                "DATABASE_PASSWORD": "prod-password",
+            },
+        ),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
+    init_sql = (root / "init" / "postgres" / "001_schema.sql").read_text(encoding="utf-8")
+    package_manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+
+    assert "DATABASE_NAME=eam_prod" in compose_env
+    assert "DATABASE_USER=eam_user" in compose_env
+    assert "DATABASE_PASSWORD=prod-password" in compose_env
+    assert "CREATE SCHEMA IF NOT EXISTS eam_schema;" in init_sql
+    assert "prod-password" not in json.dumps(result.manifest, ensure_ascii=False)
+    assert "prod-password" not in json.dumps(package_manifest, ensure_ascii=False)
+    password_items = [
+        item
+        for group in package_manifest["runtimeConfig"]["groups"]
+        for item in group["items"]
+        if item["envName"] == "DATABASE_PASSWORD"
+    ]
+    assert password_items[0]["value"] == "******"
+
+
+def test_runtime_env_probes_read_pod_env_and_secret_refs(monkeypatch) -> None:
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: ["test-base-public"])
+    monkeypatch.setattr(
+        builder,
+        "read_kubernetes_pods",
+        lambda namespace: {
+            "items": [
+                {
+                    "metadata": {"name": "eam-0", "labels": {"app.kubernetes.io/name": "eam"}},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "eam",
+                                "env": [
+                                    {"name": "DATABASE_URL", "value": "postgresql://app:pw@postgres:5432/local_ai?currentSchema=eam"},
+                                    {"name": "MINIO_BUCKET", "valueFrom": {"secretKeyRef": {"name": "eam-secret", "key": "MINIO_BUCKET"}}},
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(builder, "read_kubernetes_secret", lambda namespace, name: {"MINIO_BUCKET": "eam-docs"})
+
+    probes = builder._runtime_env_probes("test")
+
+    assert probes[0].service_key == "eam"
+    assert probes[0].env["DATABASE_URL"].endswith("currentSchema=eam")
+    assert probes[0].env["MINIO_BUCKET"] == "eam-docs"
+
+
 def test_build_deployment_package_includes_frontend_support_images_without_deploying_them(tmp_path) -> None:
     result = build_deployment_package(
         PackageBuildRequest(

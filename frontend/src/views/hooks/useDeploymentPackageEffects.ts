@@ -25,6 +25,11 @@ export function useDeploymentPackageEffects(deploymentState: DeploymentState, ac
   }, [businessServices, database, deployMode, makePreviewPayload, options, platformServices, productVersion, projectKey, refreshPreview, sourceEnv]);
 
   useEffect(() => {
+    if (!actions.preview?.runtimeConfig) return;
+    deploymentState.setRuntimeConfig(actions.preview.runtimeConfig);
+  }, [actions.preview?.runtimeConfig, deploymentState]);
+
+  useEffect(() => {
     if (!task || task.status === "completed" || task.status === "failed" || task.status === "canceled") return;
     const timer = window.setInterval(() => {
       void refreshSelectedTask(task.taskId).then((payload) => {

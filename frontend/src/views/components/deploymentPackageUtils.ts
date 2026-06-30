@@ -13,7 +13,7 @@ export const DEFAULT_TARGET = {
 };
 export type TargetDraft = typeof DEFAULT_TARGET & { imageMode?: "image-manifest" | "image-archive" };
 export const DEFAULT_IMAGE_MODE: TargetDraft["imageMode"] = "image-archive";
-export const EXPORT_WIZARD_STEPS = ["产品范围", "平台能力", "中间件与镜像", "目标环境", "确认导出"];
+export const EXPORT_WIZARD_STEPS = ["产品范围", "平台能力", "中间件与镜像", "运行配置", "目标环境", "确认导出"];
 
 export function taskStatusColor(status: PackageTask["status"]) {
   if (status === "completed") return "success";

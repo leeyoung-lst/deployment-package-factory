@@ -44,6 +44,12 @@ from deployment_package_factory.services.deployment_packages.kubernetes_runtime 
 )
 from deployment_package_factory.services.deployment_packages.project_overlay_renderer import render_project_overlay_files
 from deployment_package_factory.services.deployment_packages.quality_renderer import QUALITY_GATE_CHECKS, QUALITY_GATE_VERSION, render_quality_gate_files
+from deployment_package_factory.services.deployment_packages.runtime_resources import (
+    RuntimeEnvProbe,
+    build_runtime_config,
+    public_runtime_config,
+    runtime_env_from_config,
+)
 from deployment_package_factory.services.deployment_packages.values_renderer import render_values_files
 from deployment_package_factory.services.deployment_packages.verify_renderer import VERIFIER_VERSION, render_package_verify_files
 
@@ -245,6 +251,15 @@ def _manifest(
 ) -> dict:
     middleware_config = _middleware_config(request, preview)
     runtime_env = _resolve_runtime_env(request.source_env, middleware_config, _request_business_namespaces(request))
+    runtime_env.update(request.runtime_config_overrides)
+    runtime_config = build_runtime_config(
+        request=request,
+        preview=preview,
+        middleware_config=middleware_config,
+        runtime_env=runtime_env,
+        probes=_runtime_env_probes(request.source_env, _request_business_namespaces(request)),
+    )
+    runtime_env.update(runtime_env_from_config(runtime_config))
     return {
         "packageId": package_id,
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -262,6 +277,7 @@ def _manifest(
         "businessServices": [item.key for item in preview.business_services],
         "middleware": [item.key for item in preview.middleware],
         "middlewareConfig": middleware_config,
+        "runtimeConfig": runtime_config,
         "_runtimeEnv": runtime_env,
         "targetProfile": request.target_profile.model_dump(by_alias=True),
         "images": preview.images,
@@ -285,7 +301,10 @@ def _middleware_config(request: PackageBuildRequest, preview) -> dict:
 
 
 def _public_manifest(manifest: dict) -> dict:
-    return {key: value for key, value in manifest.items() if not key.startswith("_")}
+    public = {key: value for key, value in manifest.items() if not key.startswith("_") and key != "runtimeConfig"}
+    if "runtimeConfig" in manifest:
+        public["runtimeConfig"] = public_runtime_config(manifest["runtimeConfig"], include_values=False)
+    return public
 
 
 def _resolve_runtime_env(source_env: str, middleware_config: dict, business_namespaces: list[str] | None = None) -> dict[str, str]:
@@ -626,6 +645,54 @@ def _list_runtime_images(namespaces: list[str]) -> list[RuntimeSourceImage]:
                     )
                 )
     return runtime_images
+
+
+def _runtime_env_probes(source_env: str, business_namespaces: list[str] | None = None) -> list[RuntimeEnvProbe]:
+    try:
+        namespaces = _source_env_namespaces(source_env, business_namespaces)
+    except TypeError:
+        namespaces = _source_env_namespaces(source_env)
+    if not namespaces:
+        return []
+    probes: list[RuntimeEnvProbe] = []
+    for namespace in namespaces:
+        payload = read_kubernetes_pods(namespace)
+        for pod in payload.get("items", []):
+            for container in (pod.get("spec") or {}).get("containers", []):
+                env = _container_env(namespace, container)
+                if env:
+                    probes.append(
+                        RuntimeEnvProbe(
+                            service_key=_service_key_from_pod(pod, container),
+                            service_name=container.get("name") or (pod.get("metadata") or {}).get("name", ""),
+                            env=env,
+                        )
+                    )
+    return probes
+
+
+def _container_env(namespace: str, container: dict) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for item in container.get("env") or []:
+        name = str(item.get("name") or "")
+        if not name:
+            continue
+        if "value" in item:
+            values[name] = str(item.get("value") or "")
+            continue
+        secret_ref = ((item.get("valueFrom") or {}).get("secretKeyRef") or {})
+        if secret_ref.get("name") and secret_ref.get("key"):
+            values[name] = read_kubernetes_secret(namespace, str(secret_ref["name"])).get(str(secret_ref["key"]), "")
+    return {key: value for key, value in values.items() if value}
+
+
+def _service_key_from_pod(pod: dict, container: dict) -> str:
+    labels = (pod.get("metadata") or {}).get("labels") or {}
+    for key in ("app.kubernetes.io/name", "app", "local-ai.io/product"):
+        if labels.get(key):
+            return str(labels[key])
+    name = container.get("name") or (pod.get("metadata") or {}).get("name") or "service"
+    return str(name)
 
 
 def _best_runtime_image(catalog_ref: str, runtime_images: list[RuntimeSourceImage]) -> RuntimeSourceImage | None:

@@ -117,6 +117,7 @@ class PackagePreviewRequest(BaseModel):
 
 class PackageBuildRequest(PackagePreviewRequest):
     image_mode: Literal["image-manifest", "image-archive"] = Field(default="image-manifest", alias="imageMode")
+    runtime_config_overrides: dict[str, str] = Field(default_factory=dict, alias="runtimeConfigOverrides")
 
     def normalized_for_create(self) -> "PackageBuildRequest":
         if self.image_mode == "image-archive" or self.target_profile.export_images:
@@ -200,6 +201,7 @@ class PackagePreview(BaseModel):
     database: DatabaseOption
     images: dict[str, list[str]]
     image_entries: list[dict] = Field(default_factory=list, alias="imageEntries")
+    runtime_config: dict = Field(default_factory=dict, alias="runtimeConfig")
     warnings: list[str] = Field(default_factory=list)
 
 

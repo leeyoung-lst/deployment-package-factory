@@ -159,6 +159,10 @@ def test_deployment_package_preview_returns_resolved_dependencies(monkeypatch: p
     assert {"postgres", "redis", "minio", "camunda", "iotdb"}.issubset(middleware_keys)
     assert "local-ai-eam-service" in payload["images"]["business"]
     assert "192.168.10.210/local-ai/mqtt-collector:k8s" in payload["images"]["business"]
+    assert payload["runtimeConfig"]["resources"]
+    database_resources = [item for item in payload["runtimeConfig"]["resources"] if item["type"] == "databaseSchema"]
+    assert database_resources[0]["items"][0]["label"] == "数据库名"
+    assert any(group["key"] == "postgres" for group in payload["runtimeConfig"]["groups"])
 
 
 def test_deployment_package_preview_returns_runtime_image_entries(monkeypatch: pytest.MonkeyPatch) -> None:

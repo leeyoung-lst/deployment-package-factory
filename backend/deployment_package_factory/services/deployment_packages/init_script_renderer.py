@@ -139,27 +139,48 @@ def _init_readme(manifest: dict) -> str:
 
 
 def _postgres_schema_sql(manifest: dict) -> str:
+    resources = _resources_by_type(manifest, "databaseSchema")
     services = "\n".join(f"-- service: {item}" for item in manifest["platformServices"] + manifest["businessServices"])
+    schema_lines = [
+        f"CREATE SCHEMA IF NOT EXISTS {_sql_ident(_resource_value(resource, 'schema', 'public'))};"
+        for resource in resources
+        if (resource.get("middlewareKey") or manifest.get("database")) == "postgres"
+    ]
+    if not schema_lines:
+        schema_lines = ["CREATE SCHEMA IF NOT EXISTS local_ai_platform;"]
     return (
         "-- PostgreSQL schema initialization placeholder.\n"
         "-- Idempotent production SQL should use CREATE IF NOT EXISTS and upsert semantics.\n"
         f"{services}\n"
-        "CREATE SCHEMA IF NOT EXISTS local_ai_platform;\n"
+        + "\n".join(dict.fromkeys(schema_lines))
+        + "\n"
     )
 
 
 def _dm_schema_sql(manifest: dict) -> str:
     services = "\n".join(f"-- service: {item}" for item in manifest["platformServices"] + manifest["businessServices"])
+    resources = _resources_by_type(manifest, "databaseSchema")
+    schema_lines = [
+        f"-- DM schema resource: {_resource_value(resource, 'databaseName', 'LOCAL_AI')}.{_resource_value(resource, 'schema', 'PUBLIC')}"
+        for resource in resources
+        if (resource.get("middlewareKey") or manifest.get("database")) == "dm"
+    ]
     return (
         "-- DM schema initialization placeholder.\n"
         "-- Idempotent production SQL should guard existing users, schemas, and seed rows.\n"
         f"{services}\n"
-        "-- TODO: create DM schema with production account and tablespace policy.\n"
+        + ("\n".join(dict.fromkeys(schema_lines)) + "\n" if schema_lines else "")
+        + "-- TODO: create DM schema with production account and tablespace policy.\n"
     )
 
 
 def _minio_init_script(manifest: dict) -> str:
-    buckets = sorted(set(manifest["businessServices"]) | {"platform-documents"})
+    buckets = [
+        _resource_value(resource, "bucket", resource.get("name", ""))
+        for resource in _resources_by_type(manifest, "bucket")
+    ]
+    if not buckets:
+        buckets = sorted(set(manifest["businessServices"]) | {"platform-documents"})
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -186,7 +207,7 @@ def _minio_init_script(manifest: dict) -> str:
         "}",
         "",
     ]
-    for bucket in buckets:
+    for bucket in sorted(dict.fromkeys(item for item in buckets if item)):
         lines.append(f'create_bucket "{bucket}"')
     lines.extend(
         [
@@ -206,7 +227,16 @@ def _minio_init_script(manifest: dict) -> str:
 
 
 def _qdrant_init_script(manifest: dict) -> str:
-    collections = sorted({"agent_memory", *(f"{item}_knowledge" for item in manifest["businessServices"])})
+    collection_specs = [
+        (
+            _resource_value(resource, "collection", resource.get("name", "")),
+            _resource_value(resource, "vectorSize", "1536"),
+            _resource_value(resource, "distance", "Cosine"),
+        )
+        for resource in _resources_by_type(manifest, "collection")
+    ]
+    if not collection_specs:
+        collection_specs = [(item, "1536", "Cosine") for item in sorted({"agent_memory", *(f"{item}_knowledge" for item in manifest["businessServices"])})]
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -228,8 +258,9 @@ def _qdrant_init_script(manifest: dict) -> str:
         "}",
         "",
     ]
-    for collection in collections:
-        lines.append(f'create_collection "{collection}" "1536" "Cosine"')
+    for collection, size, distance in sorted(dict.fromkeys(collection_specs)):
+        if collection:
+            lines.append(f'create_collection "{collection}" "{size}" "{distance}"')
     lines.extend(
         [
             "",
@@ -322,3 +353,24 @@ def _project_init_files(manifest: dict, template_dir: Path) -> list[RenderedInit
 
 def _has_unsafe_path_segment(path: str) -> bool:
     return any(segment in {"", ".", ".."} for segment in PurePosixPath(path).parts)
+
+
+def _resources_by_type(manifest: dict, resource_type: str) -> list[dict]:
+    runtime_config = manifest.get("runtimeConfig") or {}
+    return [resource for resource in runtime_config.get("resources", []) if resource.get("type") == resource_type]
+
+
+def _resource_value(resource: dict, name: str, default: str) -> str:
+    for item in resource.get("items", []):
+        if item.get("name") == name:
+            return str(item.get("value") or default)
+    return default
+
+
+def _sql_ident(value: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in value)
+    if not cleaned:
+        return "public"
+    if cleaned[0].isdigit():
+        cleaned = f"schema_{cleaned}"
+    return cleaned

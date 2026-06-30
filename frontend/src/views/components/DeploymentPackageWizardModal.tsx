@@ -2,6 +2,7 @@ import React from "react";
 import { Button, Form, Modal, Space, Steps } from "antd";
 import type { FormInstance } from "antd";
 import { DEFAULT_IMAGE_MODE, DEFAULT_TARGET, EXPORT_WIZARD_STEPS, type TargetDraft } from "./deploymentPackageUtils";
+import { DeploymentRuntimeConfigStep } from "./DeploymentRuntimeConfigStep";
 import { ConfirmStep, MiddlewareImageStep, PlatformServicesStep, ProductRangeStep, TargetProfileStep, type WizardStepProps } from "./DeploymentPackageWizardSteps";
 import styles from "../DeploymentPackageExportView.module.css";
 
@@ -27,8 +28,9 @@ export function DeploymentPackageWizardModal(props: Props) {
           {props.step === 0 ? <ProductRangeStep {...props} /> : null}
           {props.step === 1 ? <PlatformServicesStep {...props} /> : null}
           {props.step === 2 ? <MiddlewareImageStep {...props} /> : null}
-          {props.step === 3 ? <TargetProfileStep /> : null}
-          {props.step === 4 ? <ConfirmStep {...props} /> : null}
+          {props.step === 3 ? <DeploymentRuntimeConfigStep runtimeConfig={props.runtimeConfig} overrides={props.runtimeConfigOverrides} onChange={props.onRuntimeConfigChange} /> : null}
+          {props.step === 4 ? <TargetProfileStep /> : null}
+          {props.step === 5 ? <ConfirmStep {...props} /> : null}
         </div>
       </Form>
     </Modal>

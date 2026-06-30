@@ -12,6 +12,7 @@ from deployment_package_factory.auth import require_api_token
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.builder import PackageBuildError, check_image_export_environment
 from deployment_package_factory.services.deployment_packages import builder as package_builder
+from deployment_package_factory.services.deployment_packages.runtime_resources import build_runtime_config, public_runtime_config
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError, load_catalog
 from deployment_package_factory.services.deployment_packages.cleanup import CleanupPolicy, CleanupResult, cleanup_deployment_packages
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
@@ -143,7 +144,22 @@ async def deployment_package_preview(payload: PackagePreviewRequest) -> PackageP
             business_namespaces,
         )
         image_entries = package_builder._image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
-        return preview.model_copy(update={"image_entries": image_entries})
+        middleware_config = package_builder._middleware_config(request, preview)
+        runtime_env = package_builder._resolve_runtime_env(request.source_env, middleware_config, business_namespaces)
+        runtime_env.update(request.runtime_config_overrides)
+        runtime_config = build_runtime_config(
+            request=request,
+            preview=preview,
+            middleware_config=middleware_config,
+            runtime_env=runtime_env,
+            probes=package_builder._runtime_env_probes(request.source_env, business_namespaces),
+        )
+        return preview.model_copy(
+            update={
+                "image_entries": image_entries,
+                "runtime_config": public_runtime_config(runtime_config, include_values=True),
+            }
+        )
     except (CatalogError, PackageBuildError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -1,7 +1,7 @@
 import React from "react";
 import { Button, Checkbox, Empty, Form, Input, Radio, Select, Space, Tag } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
-import type { DeployMode, DeploymentPackageOptions, DeploymentServiceOption, ImageExportEnvironmentCheck, PackagePreview, ProjectProfile, RegisteredDeploymentMicroservice, SourceEnv } from "../../api/deploymentPackages";
+import type { DeployMode, DeploymentPackageOptions, DeploymentServiceOption, ImageExportEnvironmentCheck, PackagePreview, ProjectProfile, RegisteredDeploymentMicroservice, RuntimeConfigPreview, SourceEnv } from "../../api/deploymentPackages";
 import { businessOptionValue, microserviceDeliverySummary, TargetDraft } from "./deploymentPackageUtils";
 import { PreviewSnapshot } from "./DeploymentTaskPanels";
 import { MicroserviceDeliveryChecklist } from "./MicroserviceDeliveryChecklist";
@@ -83,4 +83,7 @@ export interface WizardStepProps {
   onSourceEnvChange: (value: SourceEnv) => void;
   refreshingMicroservices: boolean;
   retryingMicroserviceId: string;
+  runtimeConfig: RuntimeConfigPreview | null;
+  runtimeConfigOverrides: Record<string, string>;
+  onRuntimeConfigChange: (name: string, value: string) => void;
 }

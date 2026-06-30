@@ -101,11 +101,47 @@ export interface PackagePreviewRequest {
   businessServices: BusinessSelection[];
   database: string;
   targetProfile?: Partial<TargetProfile>;
+  runtimeConfigOverrides?: Record<string, string>;
 }
 
 export interface PackageBuildRequest extends PackagePreviewRequest {
   imageMode: "image-manifest" | "image-archive";
   targetProfile: TargetProfile;
+  runtimeConfigOverrides: Record<string, string>;
+}
+
+export interface RuntimeConfigItem {
+  name: string;
+  envName: string;
+  overrideName: string;
+  label: string;
+  value: string;
+  sensitive: boolean;
+  source: string;
+  resolved: boolean;
+}
+
+export interface RuntimeConfigGroup {
+  key: string;
+  name: string;
+  items: RuntimeConfigItem[];
+}
+
+export interface RuntimeResource {
+  key: string;
+  type: "databaseSchema" | "bucket" | "collection" | string;
+  name: string;
+  middlewareKey: string;
+  source: string;
+  needsReview: boolean;
+  shared: boolean;
+  usedBy: string[];
+  items: RuntimeConfigItem[];
+}
+
+export interface RuntimeConfigPreview {
+  groups: RuntimeConfigGroup[];
+  resources: RuntimeResource[];
 }
 
 export interface TargetProfile {
@@ -156,6 +192,7 @@ export interface PackagePreview {
   database: DatabaseOption;
   images: Record<string, string[]>;
   imageEntries: ImageEntry[];
+  runtimeConfig: RuntimeConfigPreview;
   warnings: string[];
 }
 

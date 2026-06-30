@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { FormInstance } from "antd";
-import type { BusinessSelection, DeployMode, DeploymentPackageOptions, DeploymentServiceOption, PackagePreviewRequest, SourceEnv } from "../../api/deploymentPackages";
+import type { BusinessSelection, DeployMode, DeploymentPackageOptions, DeploymentServiceOption, PackagePreviewRequest, RuntimeConfigPreview, SourceEnv } from "../../api/deploymentPackages";
 import type { SystemSettings } from "../../api/settings";
 import { businessOptionsForEnv, businessOptionValue, businessPlatformReadyForExport, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, parseBusinessOptionValue, serviceOptionsForEnv, type TargetDraft } from "../components/deploymentPackageUtils";
 
@@ -14,6 +14,8 @@ export function useDeploymentPackageState(form: FormInstance) {
   const [businessServices, setBusinessServices] = useState<string[]>([]);
   const [database, setDatabase] = useState("");
   const [targetDraft, setTargetDraft] = useState<TargetDraft>({ ...DEFAULT_TARGET, imageMode: DEFAULT_IMAGE_MODE });
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfigPreview | null>(null);
+  const [runtimeConfigOverrides, setRuntimeConfigOverrides] = useState<Record<string, string>>({});
   const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
 
   const requiredPlatformKeys = useMemo(() => options?.platformServices.filter((item) => item.required).map((item) => item.key) ?? [], [options]);
@@ -54,8 +56,8 @@ export function useDeploymentPackageState(form: FormInstance) {
       return { name: item?.key || fallback.key, profile: item?.profile || fallback.profile };
     });
     const { imageMode, ...previewTargetProfile } = targetDraft;
-    return { projectKey, productVersion, sourceEnv, deployModes: [deployMode], platformServices, businessServices: selectedBusiness, database, targetProfile: { ...previewTargetProfile, exportImages: imageMode === "image-archive" } };
-  }, [businessServices, database, deployMode, options?.businessServices, platformServices, productVersion, projectKey, sourceEnv, targetDraft]);
+    return { projectKey, productVersion, sourceEnv, deployModes: [deployMode], platformServices, businessServices: selectedBusiness, database, targetProfile: { ...previewTargetProfile, exportImages: imageMode === "image-archive" }, runtimeConfigOverrides: runtimeConfigOverrides };
+  }, [businessServices, database, deployMode, options?.businessServices, platformServices, productVersion, projectKey, runtimeConfigOverrides, sourceEnv, targetDraft]);
 
-  return { applyProjectDefaults, businessOptionsForSourceEnv, businessServices, database, databaseOptionsForSourceEnv, deployMode, makePreviewPayload, options, platformOptionsForSourceEnv, platformServices, productVersion, projectKey, registeredBusinessOptions, requiredPlatformKeys, selectedBusinessOptions, selectedDatabaseOption, selectedPlatformOptions, selectedProject, setBusinessServices, setDatabase, setDeployMode, setOptions, setPlatformServices, setProductVersion, setProjectKey, setSourceEnv, setSystemSettings, setTargetDraft, sourceEnv, targetDraft };
+  return { applyProjectDefaults, businessOptionsForSourceEnv, businessServices, database, databaseOptionsForSourceEnv, deployMode, makePreviewPayload, options, platformOptionsForSourceEnv, platformServices, productVersion, projectKey, registeredBusinessOptions, requiredPlatformKeys, runtimeConfig, runtimeConfigOverrides, selectedBusinessOptions, selectedDatabaseOption, selectedPlatformOptions, selectedProject, setBusinessServices, setDatabase, setDeployMode, setOptions, setPlatformServices, setProductVersion, setProjectKey, setRuntimeConfig, setRuntimeConfigOverrides, setSourceEnv, setSystemSettings, setTargetDraft, sourceEnv, targetDraft };
 }
