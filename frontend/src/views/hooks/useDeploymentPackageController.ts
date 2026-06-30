@@ -9,6 +9,7 @@ import {
   type DeploymentServiceOption,
   type SourceEnv,
 } from "../../api/deploymentPackages";
+import { ApiError } from "../../api/client";
 import { getSystemSettings } from "../../api/settings";
 import { businessOptionsForEnv, businessOptionValue, businessPlatformRowKey, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, EXPORT_WIZARD_STEPS, notReadyRegisteredMicroservices, serviceOptionsForEnv } from "../components/deploymentPackageUtils";
 import type { useDeploymentPackageActions } from "./useDeploymentPackageActions";
@@ -26,6 +27,7 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
   const [exportWizardOpen, setExportWizardOpen] = useState(false);
   const [exportStep, setExportStep] = useState(0);
   const [disablingBusinessKey, setDisablingBusinessKey] = useState("");
+  const [blockedMicroserviceKeys, setBlockedMicroserviceKeys] = useState<string[]>([]);
   const stateRef = useRef(deploymentState);
   const actionsRef = useRef(actions);
   const microserviceActions = useMicroserviceDeliveryActions(stateRef, actionsRef, notify);
@@ -104,10 +106,17 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
       const notReady = notReadyRegisteredMicroservices(state.businessServices, state.businessOptionsForSourceEnv, state.options?.microservices ?? []);
       if (notReady.length) { notify.warning(`以下微服务尚未构建成功：${notReady.map((item) => item.serviceName || item.serviceKey).join("、")}`); return; }
       setBuilding(true);
+      setBlockedMicroserviceKeys([]);
       const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode: values.imageMode, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: values.imageMode === "image-archive" } });
       actionsRef.current.setTask(payload); void actionsRef.current.refreshTasks(); void actionsRef.current.refreshAuditEvents();
       notify.success("部署任务已创建"); setExportWizardOpen(false); setExportStep(0);
-    } catch (error) { if (error instanceof Error) notify.error(error.message); }
+    } catch (error) {
+      if (isMicroserviceDeliveryBlocked(error)) {
+        setBlockedMicroserviceKeys(blockedServiceKeys(error.detail));
+        setExportStep(EXPORT_WIZARD_STEPS.length - 1);
+        notify.warning(`${error.message}，请刷新状态或重试交付`);
+      } else if (error instanceof Error) notify.error(error.message);
+    }
     finally { setBuilding(false); }
   }, [form, notify, validateExportStep]);
 
@@ -124,7 +133,18 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     stateRef.current.setBusinessServices(checkedValues.map(String));
   };
 
-  return { buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openExportWizard, openRegisterModal, ...microserviceActions, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
+  return { blockedMicroserviceKeys, buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openExportWizard, openRegisterModal, ...microserviceActions, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
+}
+
+function isMicroserviceDeliveryBlocked(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.code === "MICROSERVICE_DELIVERY_NOT_READY";
+}
+
+function blockedServiceKeys(detail: unknown) {
+  if (!detail || typeof detail !== "object" || !("services" in detail)) return [];
+  const services = (detail as { services?: unknown }).services;
+  if (!Array.isArray(services)) return [];
+  return services.map((item) => typeof item === "object" && item && "serviceKey" in item ? String((item as { serviceKey?: unknown }).serviceKey || "") : "").filter(Boolean);
 }
 
 interface NotifyHandlers {

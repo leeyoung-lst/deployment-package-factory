@@ -222,6 +222,11 @@
   background: rgba(248, 250, 252, 0.76);
 }
 
+.deliveryBlocked {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(254, 242, 242, 0.78);
+}
+
 .deliverySteps {
   display: grid;
   grid-column: 1 / -1;

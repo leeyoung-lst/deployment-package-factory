@@ -24,6 +24,20 @@ const buildEnv = readRuntimeEnv();
 export const BASE = runtimeConfig.apiBaseUrl ?? buildEnv.VITE_API_BASE_URL ?? "";
 const API_TOKEN = runtimeConfig.apiToken ?? buildEnv.VITE_DEPLOYMENT_PACKAGE_API_TOKEN ?? "";
 
+export class ApiError extends Error {
+  status: number;
+  detail?: unknown;
+  code?: string;
+
+  constructor(message: string, status: number, detail?: unknown, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+    this.code = code;
+  }
+}
+
 export function authHeaders(): Record<string, string> {
   return API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {};
 }
@@ -56,12 +70,13 @@ async function apiError(response: Response) {
   const text = await response.text();
   try {
     const payload = JSON.parse(text) as { detail?: unknown };
-    if (typeof payload.detail === "string") return new Error(payload.detail);
+    if (typeof payload.detail === "string") return new ApiError(payload.detail, response.status, payload.detail);
     if (payload.detail && typeof payload.detail === "object" && "message" in payload.detail) {
-      return new Error(String((payload.detail as { message?: unknown }).message));
+      const detail = payload.detail as { code?: unknown; message?: unknown };
+      return new ApiError(String(detail.message), response.status, payload.detail, typeof detail.code === "string" ? detail.code : undefined);
     }
-    return new Error(text || response.statusText);
+    return new ApiError(text || response.statusText, response.status, payload.detail);
   } catch {
-    return new Error(text || response.statusText);
+    return new ApiError(text || response.statusText, response.status);
   }
 }

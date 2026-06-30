@@ -30,6 +30,7 @@ export function DeploymentPackageModals(props: Props) {
       <DeploymentPackageWizardModal
         businessOptionsForSourceEnv={state.businessOptionsForSourceEnv}
         businessServices={state.businessServices}
+        blockedMicroserviceKeys={controller.blockedMicroserviceKeys}
         building={controller.building}
         buildDisabled={notReadyMicroservices.length > 0 || controller.refreshingMicroservices}
         database={state.database}
