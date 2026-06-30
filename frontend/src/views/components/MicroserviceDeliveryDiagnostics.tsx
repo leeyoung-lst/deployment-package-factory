@@ -3,6 +3,8 @@ import type { MicroserviceScaffoldResult } from "../../api/microservices";
 import styles from "../MicroserviceRegistrationView.module.css";
 
 const STATUS_COLOR: Record<string, string> = {
+  success: "green",
+  running: "processing",
   ready: "green",
   pending: "orange",
   failed: "red",
@@ -12,6 +14,16 @@ const STATUS_COLOR: Record<string, string> = {
 export function MicroserviceDeliveryDiagnostics({ delivery }: { delivery: MicroserviceScaffoldResult["delivery"] }) {
   return (
     <div className={styles.deliveryDiagnostics}>
+      {delivery.build ? (
+        <section className={styles.deliveryStep}>
+          <div className={styles.deliveryStepHeader}>
+            <strong>Jenkins 构建状态</strong>
+            <Tag color={STATUS_COLOR[delivery.build.status] || "default"}>{delivery.build.status}</Tag>
+          </div>
+          {delivery.build.url ? <span className={styles.mono}>{delivery.build.url}</span> : null}
+          <span>{delivery.build.message}</span>
+        </section>
+      ) : null}
       {delivery.steps.map((step) => (
         <section key={step.name} className={styles.deliveryStep}>
           <div className={styles.deliveryStepHeader}>

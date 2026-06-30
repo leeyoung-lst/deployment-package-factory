@@ -21,6 +21,18 @@ def prepare_microservice_delivery(request, result, settings: SystemSettings, pro
     return {"status": _overall_status(steps), "steps": steps}
 
 
+def refresh_delivery_status(delivery: dict[str, object], settings: SystemSettings) -> dict[str, object]:
+    steps = list(delivery.get("steps", []))
+    build_step = next((step for step in steps if step.get("name") == "jenkins-job" and step.get("target")), None)
+    if not build_step or not settings.jenkins.base_url or not settings.jenkins.username or not settings.jenkins.password:
+        return {"status": delivery.get("status", "unknown"), "steps": steps, "build": {"status": "unknown", "message": "Jenkins 构建地址或凭据不可用。"}}
+    try:
+        build = JenkinsClient(settings.jenkins.base_url, settings.jenkins.username, settings.jenkins.password).read_build_status(str(build_step["target"]))
+    except DeliveryError as exc:
+        build = {"status": "unknown", "message": str(exc), "url": str(build_step["target"])}
+    return {"status": _delivery_status_with_build(str(delivery.get("status", "unknown")), build), "steps": steps, "build": build}
+
+
 def _prepare_git_project(request, settings: SystemSettings, project_root: Path | None) -> dict[str, str]:
     started = perf_counter()
     target = git_repository_url(request)
@@ -114,6 +126,27 @@ class JenkinsClient:
         _bytes_request("POST", url, {"Authorization": self.auth}, None)
         return url
 
+    def read_build_status(self, build_url: str) -> dict[str, object]:
+        data = _json_request("GET", f"{build_url.rstrip('/')}/api/json", {"Authorization": self.auth})
+        building = bool(data.get("building"))
+        result = str(data.get("result") or "").lower()
+        if building:
+            status = "running"
+        elif result == "success":
+            status = "success"
+        elif result:
+            status = "failed"
+        else:
+            status = "queued"
+        return {
+            "status": status,
+            "result": result or None,
+            "building": building,
+            "url": str(data.get("url") or build_url),
+            "number": data.get("number"),
+            "message": _build_message(status),
+        }
+
 
 def _push_initial_commit(project_root: Path, remote_url: str, token: str) -> None:
     if not shutil.which("git"):
@@ -186,3 +219,22 @@ def _overall_status(steps: list[dict[str, object]]) -> str:
     if statuses == {"skipped"}:
         return "skipped"
     return "ready"
+
+
+def _delivery_status_with_build(current: str, build: dict[str, object]) -> str:
+    if build.get("status") == "failed":
+        return "failed"
+    if build.get("status") in {"queued", "running"}:
+        return "running"
+    if build.get("status") == "success" and current == "ready":
+        return "success"
+    return current
+
+
+def _build_message(status: str) -> str:
+    return {
+        "queued": "Jenkins 构建已进入队列。",
+        "running": "Jenkins 构建正在执行。",
+        "success": "Jenkins 构建成功。",
+        "failed": "Jenkins 构建失败。",
+    }.get(status, "Jenkins 构建状态未知。")

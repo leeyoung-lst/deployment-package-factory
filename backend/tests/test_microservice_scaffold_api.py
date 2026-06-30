@@ -563,6 +563,65 @@ def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeyp
     assert ("jenkins-build", "/job/factory-services/job/asset-retry") in calls
 
 
+def test_get_microservice_delivery_status_refreshes_jenkins_build(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+
+    class FakeGitLabClient:
+        def __init__(self, base_url: str, token: str) -> None:
+            pass
+
+        def ensure_project(self, group: str, service_key: str) -> str:
+            return f"https://git.local/scm/{group}/{service_key}.git"
+
+    class FakeJenkinsClient:
+        def __init__(self, base_url: str, username: str, token: str) -> None:
+            pass
+
+        def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> str:
+            return f"/job/{folder}/job/{service_key}"
+
+        def trigger_build(self, job_path: str) -> str:
+            return f"https://jenkins.local{job_path}/1"
+
+        def read_build_status(self, build_url: str) -> dict[str, object]:
+            return {"status": "success", "result": "success", "building": False, "url": build_url, "number": 1, "message": "Jenkins 构建成功。"}
+
+    monkeypatch.setattr(
+        microservices,
+        "_system_settings",
+        lambda: SystemSettings(
+            git=GitSettings(baseUrl="https://git.local/scm", group="factory-services", token="git-token"),
+            harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
+            jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
+        ),
+    )
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.GitLabClient", FakeGitLabClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: None)
+
+    client = _client()
+    created = client.post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-status",
+            "serviceName": "资产状态服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    project_id = created.json()["projectId"]
+    refreshed = client.get(f"/api/microservices/{project_id}/delivery/status")
+
+    assert refreshed.status_code == 200, refreshed.text
+    payload = refreshed.json()
+    assert payload["delivery"]["status"] == "success"
+    assert payload["delivery"]["build"]["status"] == "success"
+    assert payload["microservice"]["delivery"]["build"]["number"] == 1
+
+
 def test_register_microservice_rejects_registry_path(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())

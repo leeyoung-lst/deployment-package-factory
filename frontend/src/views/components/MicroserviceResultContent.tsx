@@ -5,7 +5,7 @@ import { MicroserviceCommandField } from "./MicroserviceCommandField";
 import { MicroserviceDeliveryDiagnostics } from "./MicroserviceDeliveryDiagnostics";
 import { MicroserviceResultRow } from "./MicroserviceResultRow";
 
-export function MicroserviceResultContent({ result, retrying, onCopy, onRetryDelivery }: { result: MicroserviceScaffoldResult; retrying: boolean; onCopy: (value: string) => void; onRetryDelivery: () => void }) {
+export function MicroserviceResultContent({ result, retrying, refreshing, onCopy, onRefreshDelivery, onRetryDelivery }: { result: MicroserviceScaffoldResult; retrying: boolean; refreshing: boolean; onCopy: (value: string) => void; onRefreshDelivery: () => void; onRetryDelivery: () => void }) {
   return (
     <div className={styles.resultGrid}>
       <MicroserviceResultRow label="业务平台"><Space size={6} wrap><Tag color="purple">{result.businessPlatformName}</Tag><span className={styles.mono}>{result.businessPlatformNamespace}</span></Space></MicroserviceResultRow>
@@ -15,7 +15,7 @@ export function MicroserviceResultContent({ result, retrying, onCopy, onRetryDel
       <MicroserviceResultRow label="项目包"><span className={styles.mono}>{result.artifactName}</span></MicroserviceResultRow>
       <MicroserviceResultRow label="生成自检"><Tag color={result.validation.passed ? "green" : "red"}>{result.validation.passed ? "通过" : "未通过"}</Tag></MicroserviceResultRow>
       <div className={styles.validationList}>{result.validation.checks.map((item) => <span key={item.name} className={item.passed ? styles.validationPassed : styles.validationFailed}><i className={item.passed ? "ri-checkbox-circle-line" : "ri-close-circle-line"} /><span>{item.message}</span></span>)}</div>
-      <MicroserviceResultRow label="交付准备"><Space wrap><Tag color={result.delivery.status === "ready" ? "green" : result.delivery.status === "pending" ? "orange" : result.delivery.status === "failed" ? "red" : "default"}>{result.delivery.status}</Tag>{result.delivery.steps.some((step) => step.retryable) ? <Button size="small" loading={retrying} onClick={onRetryDelivery}>重试交付</Button> : null}</Space></MicroserviceResultRow>
+      <MicroserviceResultRow label="交付准备"><Space wrap><Tag color={result.delivery.status === "success" ? "green" : result.delivery.status === "ready" ? "blue" : result.delivery.status === "running" ? "processing" : result.delivery.status === "pending" ? "orange" : result.delivery.status === "failed" ? "red" : "default"}>{result.delivery.status}</Tag><Button size="small" loading={refreshing} onClick={onRefreshDelivery}>刷新构建</Button>{result.delivery.steps.some((step) => step.retryable) ? <Button size="small" loading={retrying} onClick={onRetryDelivery}>重试交付</Button> : null}</Space></MicroserviceResultRow>
       <MicroserviceDeliveryDiagnostics delivery={result.delivery} />
       <MicroserviceResultRow label="本地初始化"><MicroserviceCommandField value={result.cloneCommand} onCopy={onCopy} /></MicroserviceResultRow>
       <MicroserviceResultRow label="构建镜像"><MicroserviceCommandField value={result.buildCommand} onCopy={onCopy} /></MicroserviceResultRow>

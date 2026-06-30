@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormInstance } from "antd";
 import { getDeploymentPackageOptions, type DeploymentPackageOptions, type SourceEnv } from "../../api/deploymentPackages";
 import { getSystemSettings, type SystemSettings } from "../../api/settings";
-import { getMicroserviceScaffoldOptions, listMicroservices, registerMicroservice, retryMicroserviceDelivery, type MicroserviceScaffoldOptions, type MicroserviceScaffoldResult, type RegisteredMicroservice } from "../../api/microservices";
+import { getMicroserviceDeliveryStatus, getMicroserviceScaffoldOptions, listMicroservices, registerMicroservice, retryMicroserviceDelivery, type MicroserviceScaffoldOptions, type MicroserviceScaffoldResult, type RegisteredMicroservice } from "../../api/microservices";
 import { businessPlatformValue, normalizeK8sName, normalizePathValue, normalizeRegistry, parseApiErrorDetails, parseBusinessPlatformValue } from "../components/microserviceUtils";
 
 export const DEFAULT_MICROSERVICE_VALUES = {
@@ -35,6 +35,7 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [retryingDelivery, setRetryingDelivery] = useState(false);
+  const [refreshingDelivery, setRefreshingDelivery] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
 
@@ -101,7 +102,23 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
     }
   };
 
+  const refreshDeliveryStatus = async () => {
+    if (!result) return false;
+    setRefreshingDelivery(true);
+    try {
+      const payload = await getMicroserviceDeliveryStatus(result.projectId);
+      setResult({ ...result, delivery: payload.delivery });
+      setRegisteredServices(await listMicroservices());
+      return true;
+    } catch (error) {
+      notifyError(error instanceof Error ? error.message : "构建状态刷新失败");
+      return false;
+    } finally {
+      setRefreshingDelivery(false);
+    }
+  };
+
   useEffect(() => { void loadOptions(); }, []);
 
-  return { businessPlatforms, currentStep, deploymentOptions, formValues, loading, options, registeredServices, result, retryingDelivery, selectedPlatform, submitting, systemSettings, wizardOpen, loadOptions, normalizeCurrentInputs, retryDelivery, setCurrentStep, setFormValues, setRegisteredServices, setWizardOpen, submit };
+  return { businessPlatforms, currentStep, deploymentOptions, formValues, loading, options, refreshingDelivery, registeredServices, result, retryingDelivery, selectedPlatform, submitting, systemSettings, wizardOpen, loadOptions, normalizeCurrentInputs, refreshDeliveryStatus, retryDelivery, setCurrentStep, setFormValues, setRegisteredServices, setWizardOpen, submit };
 }

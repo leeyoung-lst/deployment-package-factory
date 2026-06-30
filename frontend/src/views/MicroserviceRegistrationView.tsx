@@ -56,7 +56,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
           </Space>
         </div>
         <div className={styles.contentGrid}>
-          <MicroserviceResultPanel result={state.result} retrying={state.retryingDelivery} onCopy={copyCommand} onRetryDelivery={() => void state.retryDelivery().then((ok) => ok && message.success("交付已重试"))} />
+          <MicroserviceResultPanel result={state.result} retrying={state.retryingDelivery} refreshing={state.refreshingDelivery} onCopy={copyCommand} onRefreshDelivery={() => void state.refreshDeliveryStatus().then((ok) => ok && message.success("构建状态已刷新"))} onRetryDelivery={() => void state.retryDelivery().then((ok) => ok && message.success("交付已重试"))} />
           <RegisteredMicroservicesPanel services={state.registeredServices} onRefresh={() => void refreshServices()} />
         </div>
       </Spin>

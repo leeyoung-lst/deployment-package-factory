@@ -49,6 +49,7 @@ export interface MicroserviceScaffoldResult {
   delivery: {
     status: string;
     steps: Array<MicroserviceDeliveryStep>;
+    build?: MicroserviceBuildStatus;
   };
   generatedFiles: string[];
   validation: {
@@ -83,6 +84,7 @@ export interface RegisteredMicroservice {
   delivery: {
     status: string;
     steps: Array<MicroserviceDeliveryStep>;
+    build?: MicroserviceBuildStatus;
   };
   k8sNamespace: string;
   artifactName: string;
@@ -106,6 +108,15 @@ export interface MicroserviceDeliveryStep {
   elapsedMs: number;
 }
 
+export interface MicroserviceBuildStatus {
+  status: string;
+  result?: string | null;
+  building?: boolean;
+  url?: string;
+  number?: number | null;
+  message: string;
+}
+
 export function getMicroserviceScaffoldOptions() {
   return request<MicroserviceScaffoldOptions>("/api/microservices/options");
 }
@@ -121,6 +132,12 @@ export function retryMicroserviceDelivery(projectId: string) {
   return request<{ projectId: string; delivery: MicroserviceScaffoldResult["delivery"]; microservice: RegisteredMicroservice | null }>(
     `/api/microservices/${encodeURIComponent(projectId)}/delivery/retry`,
     { method: "POST" },
+  );
+}
+
+export function getMicroserviceDeliveryStatus(projectId: string) {
+  return request<{ projectId: string; delivery: MicroserviceScaffoldResult["delivery"]; microservice: RegisteredMicroservice | null }>(
+    `/api/microservices/${encodeURIComponent(projectId)}/delivery/status`,
   );
 }
 

@@ -13,7 +13,7 @@ from deployment_package_factory.api.deployment_packages import (
 )
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
-from deployment_package_factory.services.microservices.delivery import prepare_microservice_delivery
+from deployment_package_factory.services.microservices.delivery import prepare_microservice_delivery, refresh_delivery_status
 from deployment_package_factory.services.microservices.scaffold import (
     MicroserviceScaffoldOptions,
     MicroserviceScaffoldRequest,
@@ -128,6 +128,17 @@ async def retry_microservice_delivery(project_id: str) -> dict:
     defaults = _system_settings()
     project_root = find_scaffold_project_root(project_id, output_dir=_output_dir())
     delivery = prepare_microservice_delivery(request, _result_stub(row), defaults, project_root)
+    updated = repo.update_delivery(project_id, delivery)
+    return {"projectId": project_id, "delivery": delivery, "microservice": updated}
+
+
+@router.get("/{project_id}/delivery/status", response_model=dict)
+async def get_microservice_delivery_status(project_id: str) -> dict:
+    repo = get_microservice_repository()
+    row = repo.get_by_project_id(project_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Microservice registration not found")
+    delivery = refresh_delivery_status(row.get("delivery", {}), _system_settings())
     updated = repo.update_delivery(project_id, delivery)
     return {"projectId": project_id, "delivery": delivery, "microservice": updated}
 
