@@ -1,7 +1,7 @@
 import React from "react";
 import { Button, Empty, Popconfirm, Progress, Space, Tag } from "antd";
 import type { AuditEvent, CleanupResult, PackageTask } from "../../api/deploymentPackages";
-import { auditStatusColor, formatBytes, taskStatusColor } from "./deploymentPackageUtils";
+import { auditActionLabel, auditStatusColor, formatBytes, taskStatusColor } from "./deploymentPackageUtils";
 import styles from "../DeploymentPackageExportView.module.css";
 
 export function ValidationSummary({ result }: { result: NonNullable<PackageTask["result"]> }) {
@@ -74,7 +74,31 @@ export function ActionTile({ icon, title, value, actionLabel, loading, onAction 
 }
 
 export function AuditPanel({ events, loading, onRefresh }: { events: AuditEvent[]; loading: boolean; onRefresh: () => void }) {
-  return <div className={styles.resultPanel}><div className={styles.panelTitleRow}><h3 className={styles.sectionTitle}>最近审计</h3><Button size="small" icon={<i className="ri-shield-check-line" />} loading={loading} onClick={onRefresh}>刷新</Button></div>{events.length ? <div className={styles.taskList}>{events.map((event) => <div key={event.eventId} className={styles.taskItem}><span className={styles.taskItemMain}><span className={styles.mono}>{event.action}</span><span className={styles.muted}>{event.message || event.targetId || event.createdAt}</span></span><Space size={4}>{event.operator ? <Tag>{event.operator}</Tag> : null}<Tag color={auditStatusColor(event.status)}>{event.status}</Tag></Space></div>)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审计日志" />}</div>;
+  return <div className={styles.resultPanel}><div className={styles.panelTitleRow}><h3 className={styles.sectionTitle}>最近审计</h3><Button size="small" icon={<i className="ri-shield-check-line" />} loading={loading} onClick={onRefresh}>刷新</Button></div>{events.length ? <div className={styles.taskList}>{events.map((event) => <AuditItem event={event} key={event.eventId} />)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审计日志" />}</div>;
+}
+
+function AuditItem({ event }: { event: AuditEvent }) {
+  return <div className={styles.taskItem}><span className={styles.taskItemMain}><span className={styles.mono}>{auditActionLabel(event.action)}</span><span className={styles.muted}>{event.message || event.targetId || event.createdAt}</span><AuditBlockedServices event={event} /></span><Space size={4}>{event.operator ? <Tag>{event.operator}</Tag> : null}<Tag color={auditStatusColor(event.status)}>{event.status}</Tag></Space></div>;
+}
+
+function AuditBlockedServices({ event }: { event: AuditEvent }) {
+  const services = auditBlockedServices(event);
+  if (!services.length) return null;
+  return <div className={styles.auditServiceList}>{services.map((service) => <span className={styles.auditServiceItem} key={service.serviceKey}><strong>{service.serviceName || service.serviceKey}</strong><Tag color={service.buildStatus === "failed" ? "error" : "warning"}>{service.buildStatus || service.status}</Tag>{service.jenkinsUrl ? <Button size="small" href={service.jenkinsUrl} target="_blank">Jenkins</Button> : null}</span>)}</div>;
+}
+
+function auditBlockedServices(event: AuditEvent): AuditBlockedService[] {
+  const services = event.metadata.services;
+  if (event.action !== "package.create.blocked" || !Array.isArray(services)) return [];
+  return services.filter((item): item is AuditBlockedService => Boolean(item && typeof item === "object" && "serviceKey" in item));
+}
+
+interface AuditBlockedService {
+  serviceKey: string;
+  serviceName?: string;
+  status?: string;
+  buildStatus?: string;
+  jenkinsUrl?: string;
 }
 
 export function TaskListPanel({ tasks, loading, selectedTaskId, onSelect, onRefresh }: { tasks: PackageTask[]; loading: boolean; selectedTaskId?: string; onSelect: (task: PackageTask) => void; onRefresh: () => void }) {

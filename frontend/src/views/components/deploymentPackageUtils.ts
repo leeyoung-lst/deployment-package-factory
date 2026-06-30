@@ -26,8 +26,17 @@ export function taskStatusColor(status: PackageTask["status"]) {
 export function auditStatusColor(status: string) {
   if (status === "completed" || status === "accepted") return "success";
   if (status === "failed" || status === "error") return "error";
+  if (status === "blocked") return "warning";
   if (status === "dry-run") return "blue";
   return "default";
+}
+
+export function auditActionLabel(action: string) {
+  if (action === "package.create.blocked") return "导包被阻断";
+  if (action === "package.create") return "创建导包任务";
+  if (action === "package.download") return "下载部署包";
+  if (action === "package.checksum.download") return "下载校验文件";
+  return action;
 }
 
 export function exportDrawerTitle(key: ExportDrawerKey | null) {
