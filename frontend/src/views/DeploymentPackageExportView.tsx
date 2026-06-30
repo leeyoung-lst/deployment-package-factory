@@ -93,6 +93,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         targetDraft={targetDraft}
         task={task}
         tasks={tasks}
+        onAuditFilterChange={(query) => void refreshAuditEvents(query)}
         onCancelTask={() => void cancelTask()}
         onCleanup={() => void runCleanup(false)}
         onClose={() => setExportDrawer(null)}

@@ -1,21 +1,35 @@
 import { useMemo, useState } from "react";
 import { Button, Empty, Segmented, Space, Tag } from "antd";
-import type { AuditEvent } from "../../api/deploymentPackages";
+import type { AuditEvent, AuditEventQuery } from "../../api/deploymentPackages";
 import { auditActionLabel, auditStatusColor } from "./deploymentPackageUtils";
 import styles from "../DeploymentPackageExportView.module.css";
 
 type AuditFilter = "all" | "blocked" | "failed" | "package" | "download" | "cleanup";
 
-export function AuditPanel({ events, loading, onRefresh, onResolveBlocked }: { events: AuditEvent[]; loading: boolean; onRefresh: () => void; onResolveBlocked: (serviceKeys: string[]) => void }) {
+export function AuditPanel({ events, loading, onFilterChange, onRefresh, onResolveBlocked }: { events: AuditEvent[]; loading: boolean; onFilterChange: (query: AuditEventQuery) => void; onRefresh: () => void; onResolveBlocked: (serviceKeys: string[]) => void }) {
   const [filter, setFilter] = useState<AuditFilter>("all");
   const filtered = useMemo(() => events.filter((event) => auditFilterMatches(event, filter)), [events, filter]);
+  const changeFilter = (value: string | number) => {
+    const next = value as AuditFilter;
+    setFilter(next);
+    onFilterChange(auditFilterQuery(next));
+  };
   return (
     <div className={styles.resultPanel}>
       <div className={styles.panelTitleRow}><h3 className={styles.sectionTitle}>最近审计</h3><Button size="small" icon={<i className="ri-shield-check-line" />} loading={loading} onClick={onRefresh}>刷新</Button></div>
-      <Segmented size="small" value={filter} options={[{ label: "全部", value: "all" }, { label: "阻断", value: "blocked" }, { label: "失败", value: "failed" }, { label: "导包", value: "package" }, { label: "下载", value: "download" }, { label: "清理", value: "cleanup" }]} onChange={(value) => setFilter(value as AuditFilter)} />
+      <Segmented size="small" value={filter} options={[{ label: "全部", value: "all" }, { label: "阻断", value: "blocked" }, { label: "失败", value: "failed" }, { label: "导包", value: "package" }, { label: "下载", value: "download" }, { label: "清理", value: "cleanup" }]} onChange={changeFilter} />
       {filtered.length ? <div className={styles.taskList}>{filtered.map((event) => <AuditItem event={event} key={event.eventId} onResolveBlocked={onResolveBlocked} />)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无匹配审计日志" />}
     </div>
   );
+}
+
+function auditFilterQuery(filter: AuditFilter): AuditEventQuery {
+  if (filter === "blocked") return { limit: 20, status: "blocked" };
+  if (filter === "failed") return { limit: 20 };
+  if (filter === "package") return { limit: 20, actionPrefix: "package.create" };
+  if (filter === "download") return { limit: 20, actionPrefix: "package.download" };
+  if (filter === "cleanup") return { limit: 20, actionPrefix: "package.cleanup" };
+  return { limit: 20 };
 }
 
 function AuditItem({ event, onResolveBlocked }: { event: AuditEvent; onResolveBlocked: (serviceKeys: string[]) => void }) {

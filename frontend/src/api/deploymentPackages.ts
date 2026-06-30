@@ -258,6 +258,13 @@ export interface AuditEvent {
   createdAt: string;
 }
 
+export interface AuditEventQuery {
+  limit?: number;
+  status?: string;
+  action?: string;
+  actionPrefix?: string;
+}
+
 export function getDeploymentPackageOptions() {
   return request<DeploymentPackageOptions>("/api/deployment-packages/options");
 }
@@ -303,8 +310,13 @@ export function listDeploymentPackageTasks(limit = 20) {
   return request<PackageTask[]>(`/api/deployment-packages/tasks?limit=${encodeURIComponent(String(limit))}`);
 }
 
-export function listDeploymentPackageAuditEvents(limit = 20) {
-  return request<AuditEvent[]>(`/api/deployment-packages/audit-events?limit=${encodeURIComponent(String(limit))}`);
+export function listDeploymentPackageAuditEvents(query: AuditEventQuery = { limit: 20 }) {
+  const search = new URLSearchParams();
+  search.set("limit", String(query.limit ?? 20));
+  if (query.status) search.set("status", query.status);
+  if (query.action) search.set("action", query.action);
+  if (query.actionPrefix) search.set("actionPrefix", query.actionPrefix);
+  return request<AuditEvent[]>(`/api/deployment-packages/audit-events?${search.toString()}`);
 }
 
 export function cancelDeploymentPackageTask(taskId: string) {

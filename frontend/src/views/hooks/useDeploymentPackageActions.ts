@@ -10,6 +10,7 @@ import {
   listDeploymentPackageTasks,
   previewDeploymentPackage,
   retryDeploymentPackageTask,
+  type AuditEventQuery,
   type AuditEvent,
   type CleanupResult,
   type ImageExportEnvironmentCheck,
@@ -28,6 +29,7 @@ export function useDeploymentPackageActions(notify: NotifyHandlers) {
   const [imageEnvironment, setImageEnvironment] = useState<ImageExportEnvironmentCheck | null>(null);
   const [loading, setLoading] = useState({ preview: false, tasks: false, audit: false, cleanup: false, imageEnvironment: false, download: false, checksum: false, taskAction: false });
   const taskRef = useRef<PackageTask | null>(null);
+  const auditQueryRef = useRef<AuditEventQuery>({ limit: 20 });
   useEffect(() => { taskRef.current = task; }, [task]);
 
   const patchLoading = (key: keyof typeof loading, value: boolean) => setLoading((current) => ({ ...current, [key]: value }));
@@ -53,9 +55,11 @@ export function useDeploymentPackageActions(notify: NotifyHandlers) {
     finally { patchLoading("tasks", false); }
   }, [notify]);
 
-  const refreshAuditEvents = useCallback(async () => {
+  const refreshAuditEvents = useCallback(async (query?: AuditEventQuery) => {
+    const nextQuery = query ?? auditQueryRef.current;
+    auditQueryRef.current = nextQuery;
     patchLoading("audit", true);
-    try { setAuditEvents(await listDeploymentPackageAuditEvents(20)); }
+    try { setAuditEvents(await listDeploymentPackageAuditEvents(nextQuery)); }
     catch (error) { notify.error(error instanceof Error ? error.message : "审计日志刷新失败"); }
     finally { patchLoading("audit", false); }
   }, [notify]);
