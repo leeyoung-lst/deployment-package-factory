@@ -38,6 +38,7 @@ from deployment_package_factory.services.deployment_packages.kubernetes_runtime 
     create_image_export_pod,
     delete_pod,
     get_pod,
+    read_kubernetes_configmap,
     read_kubernetes_secret,
     read_kubernetes_pods,
     source_env_namespaces,
@@ -50,6 +51,7 @@ from deployment_package_factory.services.deployment_packages.runtime_resources i
     public_runtime_config,
     runtime_env_from_config,
 )
+from deployment_package_factory.services.deployment_packages.runtime_env_probe import runtime_env_probes
 from deployment_package_factory.services.deployment_packages.values_renderer import render_values_files
 from deployment_package_factory.services.deployment_packages.verify_renderer import VERIFIER_VERSION, render_package_verify_files
 
@@ -648,51 +650,14 @@ def _list_runtime_images(namespaces: list[str]) -> list[RuntimeSourceImage]:
 
 
 def _runtime_env_probes(source_env: str, business_namespaces: list[str] | None = None) -> list[RuntimeEnvProbe]:
-    try:
-        namespaces = _source_env_namespaces(source_env, business_namespaces)
-    except TypeError:
-        namespaces = _source_env_namespaces(source_env)
-    if not namespaces:
-        return []
-    probes: list[RuntimeEnvProbe] = []
-    for namespace in namespaces:
-        payload = read_kubernetes_pods(namespace)
-        for pod in payload.get("items", []):
-            for container in (pod.get("spec") or {}).get("containers", []):
-                env = _container_env(namespace, container)
-                if env:
-                    probes.append(
-                        RuntimeEnvProbe(
-                            service_key=_service_key_from_pod(pod, container),
-                            service_name=container.get("name") or (pod.get("metadata") or {}).get("name", ""),
-                            env=env,
-                        )
-                    )
-    return probes
-
-
-def _container_env(namespace: str, container: dict) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for item in container.get("env") or []:
-        name = str(item.get("name") or "")
-        if not name:
-            continue
-        if "value" in item:
-            values[name] = str(item.get("value") or "")
-            continue
-        secret_ref = ((item.get("valueFrom") or {}).get("secretKeyRef") or {})
-        if secret_ref.get("name") and secret_ref.get("key"):
-            values[name] = read_kubernetes_secret(namespace, str(secret_ref["name"])).get(str(secret_ref["key"]), "")
-    return {key: value for key, value in values.items() if value}
-
-
-def _service_key_from_pod(pod: dict, container: dict) -> str:
-    labels = (pod.get("metadata") or {}).get("labels") or {}
-    for key in ("app.kubernetes.io/name", "app", "local-ai.io/product"):
-        if labels.get(key):
-            return str(labels[key])
-    name = container.get("name") or (pod.get("metadata") or {}).get("name") or "service"
-    return str(name)
+    return runtime_env_probes(
+        source_env,
+        business_namespaces,
+        namespace_resolver=_source_env_namespaces,
+        pod_reader=read_kubernetes_pods,
+        secret_reader=read_kubernetes_secret,
+        configmap_reader=read_kubernetes_configmap,
+    )
 
 
 def _best_runtime_image(catalog_ref: str, runtime_images: list[RuntimeSourceImage]) -> RuntimeSourceImage | None:

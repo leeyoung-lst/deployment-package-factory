@@ -425,6 +425,59 @@ def test_runtime_env_probes_read_pod_env_and_secret_refs(monkeypatch) -> None:
     assert probes[0].env["MINIO_BUCKET"] == "eam-docs"
 
 
+def test_runtime_env_probes_read_env_from_and_configmap_key_refs(monkeypatch) -> None:
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: ["test-base-public"])
+    monkeypatch.setattr(
+        builder,
+        "read_kubernetes_pods",
+        lambda namespace: {
+            "items": [
+                {
+                    "metadata": {"name": "agent-0", "labels": {"app": "ai-agent"}},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "agent",
+                                "envFrom": [
+                                    {"secretRef": {"name": "agent-secret"}},
+                                    {"configMapRef": {"name": "agent-config"}},
+                                ],
+                                "env": [
+                                    {"name": "QDRANT_COLLECTION", "valueFrom": {"configMapKeyRef": {"name": "agent-config", "key": "collection"}}},
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(builder, "read_kubernetes_secret", lambda namespace, name: {"DATABASE_PASSWORD": "secret-db-password"})
+    monkeypatch.setattr(
+        builder,
+        "read_kubernetes_configmap",
+        lambda namespace, name: {
+            "spring.datasource.schema": "agent",
+            "application.properties": (
+                "spring.datasource.url=postgresql://agent:pw@postgres:5432/ai_agent?currentSchema=agent\n"
+                "spring.datasource.username=agent\n"
+                "document.bucket=agent-docs\n"
+            ),
+            "collection": "agent_memory",
+        },
+    )
+
+    probes = builder._runtime_env_probes("test")
+
+    assert probes[0].service_key == "ai-agent"
+    assert probes[0].env["DATABASE_URL"].endswith("currentSchema=agent")
+    assert probes[0].env["DATABASE_USER"] == "agent"
+    assert probes[0].env["DATABASE_PASSWORD"] == "secret-db-password"
+    assert probes[0].env["DATABASE_SCHEMA"] == "agent"
+    assert probes[0].env["DOCUMENT_BUCKET"] == "agent-docs"
+    assert probes[0].env["QDRANT_COLLECTION"] == "agent_memory"
+
+
 def test_build_deployment_package_includes_frontend_support_images_without_deploying_them(tmp_path) -> None:
     result = build_deployment_package(
         PackageBuildRequest(

@@ -136,3 +136,20 @@ def test_read_kubernetes_secret_decodes_data_and_string_data(monkeypatch, tmp_pa
         "REDIS_PASSWORD": "redis-secret",
         "MINIO_ROOT_PASSWORD": "minio-secret",
     }
+
+
+def test_read_kubernetes_configmap_returns_data(monkeypatch, tmp_path) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN_PATH", str(token_path))
+
+    def fake_request_json(method: str, path: str, token: str, body: dict | None = None, content_type: str = "application/json") -> dict:
+        assert method == "GET"
+        assert path == "/api/v1/namespaces/local-ai/configmaps/app-config"
+        return {"data": {"DATABASE_URL": "postgresql://app@postgres:5432/app"}}
+
+    monkeypatch.setattr(kubernetes_runtime, "_request_json", fake_request_json)
+
+    assert kubernetes_runtime.read_kubernetes_configmap("local-ai", "app-config") == {
+        "DATABASE_URL": "postgresql://app@postgres:5432/app"
+    }

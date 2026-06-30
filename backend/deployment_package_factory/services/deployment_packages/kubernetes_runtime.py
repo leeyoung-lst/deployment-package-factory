@@ -231,6 +231,19 @@ def read_kubernetes_secret(namespace: str, name: str, token: str | None = None) 
     return values
 
 
+def read_kubernetes_configmap(namespace: str, name: str, token: str | None = None) -> dict[str, str]:
+    access_token = token or _service_account_token()
+    if not access_token:
+        return {}
+    try:
+        payload = _request_json("GET", f"/api/v1/namespaces/{quote(namespace, safe='')}/configmaps/{quote(name, safe='')}", access_token)
+    except KubernetesRuntimeError:
+        return {}
+    values = {str(key): str(value) for key, value in (payload.get("data") or {}).items()}
+    values.update({str(key): str(value) for key, value in (payload.get("binaryData") or {}).items()})
+    return values
+
+
 def create_image_export_pod(
     *,
     namespace: str,
