@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { FormInstance } from "antd";
 import type { BusinessSelection, DeployMode, DeploymentPackageOptions, DeploymentServiceOption, PackagePreviewRequest, SourceEnv } from "../../api/deploymentPackages";
 import type { SystemSettings } from "../../api/settings";
-import { businessOptionsForEnv, businessOptionValue, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, parseBusinessOptionValue, serviceOptionsForEnv, type TargetDraft } from "../components/deploymentPackageUtils";
+import { businessOptionsForEnv, businessOptionValue, businessPlatformReadyForExport, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, parseBusinessOptionValue, serviceOptionsForEnv, type TargetDraft } from "../components/deploymentPackageUtils";
 
 export function useDeploymentPackageState(form: FormInstance) {
   const [options, setOptions] = useState<DeploymentPackageOptions | null>(null);
@@ -37,7 +37,8 @@ export function useDeploymentPackageState(form: FormInstance) {
     setSourceEnv(projectSourceEnv);
     setDeployMode(project.defaultDeployModes[0] || "k8s");
     setPlatformServices(project.defaultPlatformServices.filter((item) => serviceOptionsForEnv(sourceOptions?.platformServices ?? [], projectSourceEnv).some((option) => option.key === item)));
-    setBusinessServices(project.defaultBusinessServices.map((item) => businessOptionValue({ key: item.name, profile: item.profile })).filter((value) => businessOptionsForEnv(sourceOptions?.businessServices ?? [], projectSourceEnv).some((item) => businessOptionValue(item) === value)));
+    const readyBusinessOptions = businessOptionsForEnv(sourceOptions?.businessServices ?? [], projectSourceEnv).filter((item) => businessPlatformReadyForExport(item, sourceOptions?.microservices ?? []));
+    setBusinessServices(project.defaultBusinessServices.map((item) => businessOptionValue({ key: item.name, profile: item.profile })).filter((value) => readyBusinessOptions.some((item) => businessOptionValue(item) === value)));
     const projectDatabases = serviceOptionsForEnv(sourceOptions?.databaseOptions ?? [], projectSourceEnv);
     setDatabase(projectDatabases.some((item) => item.key === project.defaultDatabase) ? project.defaultDatabase : (projectDatabases[0]?.key ?? ""));
     const settings = settingsOverride ?? systemSettings;

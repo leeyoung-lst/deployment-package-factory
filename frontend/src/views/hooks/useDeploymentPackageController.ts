@@ -10,7 +10,7 @@ import {
   type SourceEnv,
 } from "../../api/deploymentPackages";
 import { getSystemSettings } from "../../api/settings";
-import { businessOptionsForEnv, businessOptionValue, businessPlatformRowKey, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, EXPORT_WIZARD_STEPS, serviceOptionsForEnv } from "../components/deploymentPackageUtils";
+import { businessOptionsForEnv, businessOptionValue, businessPlatformRowKey, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, EXPORT_WIZARD_STEPS, notReadyRegisteredMicroservices, serviceOptionsForEnv } from "../components/deploymentPackageUtils";
 import type { useDeploymentPackageActions } from "./useDeploymentPackageActions";
 import type { useDeploymentPackageState } from "./useDeploymentPackageState";
 
@@ -98,8 +98,11 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     try {
       if (!(await validateExportStep(0)) || !(await validateExportStep(2)) || !(await validateExportStep(3))) return;
       const values = await form.validateFields();
+      const state = stateRef.current;
+      const notReady = notReadyRegisteredMicroservices(state.businessServices, state.businessOptionsForSourceEnv, state.options?.microservices ?? []);
+      if (notReady.length) { notify.warning(`以下微服务尚未构建成功：${notReady.map((item) => item.serviceName || item.serviceKey).join("、")}`); return; }
       setBuilding(true);
-      const payload = await createDeploymentPackage({ ...stateRef.current.makePreviewPayload(), imageMode: values.imageMode, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: values.imageMode === "image-archive" } });
+      const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode: values.imageMode, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: values.imageMode === "image-archive" } });
       actionsRef.current.setTask(payload); void actionsRef.current.refreshTasks(); void actionsRef.current.refreshAuditEvents();
       notify.success("部署任务已创建"); setExportWizardOpen(false); setExportStep(0);
     } catch (error) { if (error instanceof Error) notify.error(error.message); }

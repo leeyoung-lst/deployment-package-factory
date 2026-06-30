@@ -52,6 +52,38 @@ export interface RegisteredDeploymentMicroservice {
   image: string;
   k8sNamespace: string;
   status: string;
+  gitRepositoryUrl?: string;
+  buildCommand?: string;
+  deployCommand?: string;
+  jenkinsJob?: string;
+  delivery?: MicroserviceDelivery;
+}
+
+export interface MicroserviceDelivery {
+  status?: string;
+  steps?: MicroserviceDeliveryStep[];
+  build?: MicroserviceBuildStatus;
+}
+
+export interface MicroserviceDeliveryStep {
+  name: string;
+  status: string;
+  message?: string;
+  target?: string;
+  phase?: string;
+  action?: string;
+  retryable?: boolean;
+  elapsedMs?: number;
+  hint?: string;
+}
+
+export interface MicroserviceBuildStatus {
+  status?: string;
+  result?: string | null;
+  building?: boolean;
+  url?: string;
+  number?: number | null;
+  message?: string;
 }
 
 export interface BusinessSelection {

@@ -29,6 +29,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackageBuildResult,
     ProjectProfile,
 )
+from deployment_package_factory.services.deployment_packages.microservice_delivery import microservice_delivery_succeeded, microservice_delivery_warning
 from deployment_package_factory.services.microservices.repository import create_microservice_repository
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
@@ -493,14 +494,17 @@ def _preview_with_registered_microservices(preview, microservices: list[dict]):
         return preview
     images = {group: list(values) for group, values in preview.images.items()}
     business_images = images.setdefault("business", [])
+    warnings = list(preview.warnings)
     for service in microservices:
+        if not microservice_delivery_succeeded(service):
+            warnings.append(microservice_delivery_warning(service))
         image = str(service.get("image") or "").strip()
         if not image:
             continue
         if _matches_catalog_image(business_images, image):
             continue
         business_images.append(image)
-    return preview.model_copy(update={"images": images})
+    return preview.model_copy(update={"images": images, "warnings": list(dict.fromkeys(warnings))})
 
 
 def _registered_microservices_for_request(request: PackageBuildRequest) -> list[dict]:

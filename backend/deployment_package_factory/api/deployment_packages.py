@@ -34,6 +34,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackagePreviewRequest,
     PackageTask,
 )
+from deployment_package_factory.services.deployment_packages.microservice_delivery import not_ready_microservices
 from deployment_package_factory.services.deployment_packages.repositories import create_audit_repository, create_task_repository
 from deployment_package_factory.services.deployment_packages.repositories import create_business_platform_repository
 from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime, with_runtime_projects
@@ -233,6 +234,9 @@ async def create_deployment_package(
     try:
         registered_business = _registered_business_platforms()
         ensure_request_matches_runtime(payload, with_runtime_projects(load_catalog(), registered_business), registered_business)
+        not_ready = not_ready_microservices(_request_microservices(payload))
+        if not_ready:
+            raise ValueError("Registered microservices are not build-successful: " + ", ".join(not_ready))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     repo = get_task_repository()

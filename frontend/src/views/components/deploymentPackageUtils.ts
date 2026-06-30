@@ -1,4 +1,4 @@
-import type { DeploymentServiceOption, PackageTask, SourceEnv } from "../../api/deploymentPackages";
+import type { DeploymentServiceOption, PackageTask, RegisteredDeploymentMicroservice, SourceEnv } from "../../api/deploymentPackages";
 
 export type ExportDrawerKey = "preview" | "task" | "tasks" | "cleanup" | "audit";
 export const DEFAULT_TARGET = {
@@ -64,6 +64,36 @@ export function mergeTaskIntoList(tasks: PackageTask[], task: PackageTask) {
 
 export function businessOptionsForEnv(items: DeploymentServiceOption[], sourceEnv: SourceEnv) {
   return items.filter((item) => item.registered && item.sourceEnv === sourceEnv && item.status !== "disabled");
+}
+
+export function microservicesForBusinessPlatform(item: Pick<DeploymentServiceOption, "sourceEnv" | "key" | "profile">, microservices: RegisteredDeploymentMicroservice[]) {
+  return microservices.filter((service) => service.sourceEnv === item.sourceEnv && service.businessPlatformKey === item.key && service.businessPlatformProfile === (item.profile || ""));
+}
+
+export function microserviceDeliverySucceeded(service: RegisteredDeploymentMicroservice) {
+  return service.delivery?.status === "success" || service.delivery?.build?.status === "success";
+}
+
+export function businessPlatformReadyForExport(item: Pick<DeploymentServiceOption, "sourceEnv" | "key" | "profile">, microservices: RegisteredDeploymentMicroservice[]) {
+  const services = microservicesForBusinessPlatform(item, microservices);
+  return services.length === 0 || services.every(microserviceDeliverySucceeded);
+}
+
+export function microserviceDeliverySummary(item: Pick<DeploymentServiceOption, "sourceEnv" | "key" | "profile">, microservices: RegisteredDeploymentMicroservice[]) {
+  const services = microservicesForBusinessPlatform(item, microservices);
+  if (services.length === 0) return { color: "default", label: "无微服务" };
+  if (services.every(microserviceDeliverySucceeded)) return { color: "success", label: `${services.length} 个已成功` };
+  if (services.some((service) => service.delivery?.build?.status === "running" || service.delivery?.status === "running")) return { color: "processing", label: "构建中" };
+  if (services.some((service) => service.delivery?.build?.status === "failed" || service.delivery?.status === "failed")) return { color: "error", label: "有失败" };
+  return { color: "warning", label: "未完成" };
+}
+
+export function notReadyRegisteredMicroservices(values: string[], options: DeploymentServiceOption[], microservices: RegisteredDeploymentMicroservice[]) {
+  const selected = new Set(values);
+  return options
+    .filter((item) => selected.has(businessOptionValue(item)))
+    .flatMap((item) => microservicesForBusinessPlatform(item, microservices))
+    .filter((service) => !microserviceDeliverySucceeded(service));
 }
 
 export function businessOptionValue(item: Pick<DeploymentServiceOption, "key" | "profile">) {

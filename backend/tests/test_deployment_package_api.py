@@ -204,9 +204,30 @@ def test_deployment_package_preview_includes_registered_microservices(monkeypatc
     assert response.status_code == 200, response.text
     payload = response.json()
     by_catalog = {item["catalogRef"]: item for item in payload["imageEntries"]}
-    assert "registry.local/business/asset-service" in payload["images"]["business"]
+    assert "registry.local/business/asset-service:prod" in payload["images"]["business"]
     assert by_catalog["registry.local/business/asset-service:prod"]["group"] == "business"
     assert by_catalog["registry.local/business/asset-service:prod"]["targetRef"] == "harbor.prod/local-ai/business/asset-service:prod"
+
+
+def test_deployment_package_preview_warns_for_unbuilt_registered_microservice(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+    deployment_packages.get_microservice_repository().upsert(
+        _microservice_request(),
+        _microservice_result(delivery=_delivery("failed")),
+    )
+
+    response = _client().post(
+        "/api/deployment-packages/preview",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "database": "postgres",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert any("asset-service" in warning and "failed" in warning for warning in response.json()["warnings"])
 
 
 def test_deployment_package_preview_can_select_observability(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -471,6 +492,28 @@ def test_create_deployment_package_worker_mode_leaves_task_pending(tmp_path, mon
     assert task.status == "pending"
 
 
+def test_create_deployment_package_rejects_unbuilt_registered_microservice(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_runtime_environment(monkeypatch)
+    _set_repo(monkeypatch, InMemoryTaskRepository(), tmp_path)
+    deployment_packages.get_microservice_repository().upsert(
+        _microservice_request(),
+        _microservice_result(delivery=_delivery("running")),
+    )
+
+    response = _client().post(
+        "/api/deployment-packages",
+        json={
+            "sourceEnv": "test",
+            "deployModes": ["k8s"],
+            "businessServices": [{"name": "eam", "profile": "4x60"}],
+            "database": "postgres",
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert "Registered microservices are not build-successful" in response.json()["detail"]
+
+
 def test_create_deployment_package_returns_400_when_image_export_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_runtime_environment(monkeypatch)
     repo = InMemoryTaskRepository()
@@ -654,7 +697,7 @@ def _microservice_request() -> MicroserviceScaffoldRequest:
     )
 
 
-def _microservice_result() -> MicroserviceScaffoldResult:
+def _microservice_result(delivery: dict[str, object] | None = None) -> MicroserviceScaffoldResult:
     return MicroserviceScaffoldResult(
         projectId="svc-test",
         serviceKey="asset-service",
@@ -672,8 +715,24 @@ def _microservice_result() -> MicroserviceScaffoldResult:
         downloadUrl="/api/microservices/svc-test/download",
         downloadCommand="curl -o asset-service.tar.gz /api/microservices/svc-test/download",
         cloneCommand="git clone file:///tmp/asset-service",
+        image="registry.local/business/asset-service:prod",
+        delivery=delivery or _delivery("success"),
         generatedFiles=[],
     )
+
+
+def _delivery(status: str) -> dict[str, object]:
+    return {
+        "status": status,
+        "steps": [],
+        "build": {
+            "status": status,
+            "result": "SUCCESS" if status == "success" else status.upper(),
+            "building": status == "running",
+            "url": "http://jenkins/job/asset-service/1",
+            "number": 1,
+        },
+    }
 
 
 def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business: bool = True) -> None:

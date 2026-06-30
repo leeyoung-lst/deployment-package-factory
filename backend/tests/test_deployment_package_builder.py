@@ -139,7 +139,8 @@ def test_build_deployment_package_includes_registered_microservices(tmp_path, mo
 
     by_catalog = {item["catalogRef"]: item for item in result.manifest["imageEntries"]}
     assert result.manifest["registeredMicroservices"][0]["serviceKey"] == "asset-service"
-    assert "registry.local/business/asset-service" in result.manifest["images"]["business"]
+    assert result.manifest["registeredMicroservices"][0]["delivery"]["build"]["status"] == "success"
+    assert "registry.local/business/asset-service:prod" in result.manifest["images"]["business"]
     assert by_catalog["registry.local/business/asset-service:prod"]["targetRef"] == "harbor.prod/local-ai/business/asset-service:prod"
     assert "business registry.local/business/asset-service:prod harbor.prod/local-ai/business/asset-service:prod" in images_txt
     assert "name: asset-service" in k8s_deployments
@@ -1231,5 +1232,17 @@ def _microservice_result() -> MicroserviceScaffoldResult:
         downloadUrl="/api/microservices/svc-test/download",
         downloadCommand="curl -o asset-service.tar.gz /api/microservices/svc-test/download",
         cloneCommand="git clone file:///tmp/asset-service",
+        image="registry.local/business/asset-service:prod",
+        delivery={
+            "status": "success",
+            "steps": [],
+            "build": {
+                "status": "success",
+                "result": "SUCCESS",
+                "building": False,
+                "url": "http://jenkins/job/asset-service/1",
+                "number": 1,
+            },
+        },
         generatedFiles=[],
     )
