@@ -101,6 +101,10 @@ export const DeploymentPackageExportView: React.FC = () => {
         onDryRunCleanup={() => void runCleanup(true)}
         onRefreshAudit={() => void refreshAuditEvents()}
         onRefreshTasks={() => void refreshTasks()}
+        onResolveBlockedAudit={(serviceKeys) => {
+          controller.openBlockedMicroservices(serviceKeys);
+          setExportDrawer(null);
+        }}
         onRetryTask={() => void retryTask()}
         onSelectTask={(item) => {
           setTask(item);

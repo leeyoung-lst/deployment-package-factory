@@ -60,6 +60,13 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     setExportStep(0); setExportWizardOpen(true);
   }, [form]);
 
+  const openBlockedMicroservices = useCallback((serviceKeys: string[]) => {
+    form.setFieldsValue({ ...DEFAULT_TARGET, ...stateRef.current.targetDraft, imageMode: stateRef.current.targetDraft.imageMode ?? DEFAULT_IMAGE_MODE });
+    setBlockedMicroserviceKeys(serviceKeys);
+    setExportStep(EXPORT_WIZARD_STEPS.length - 1);
+    setExportWizardOpen(true);
+  }, [form]);
+
   const validateExportStep = useCallback(async (step = exportStep) => {
     const state = stateRef.current;
     if (step === 0 && !state.projectKey && state.options?.projects.length) { notify.warning("请选择项目"); return false; }
@@ -133,7 +140,7 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     stateRef.current.setBusinessServices(checkedValues.map(String));
   };
 
-  return { blockedMicroserviceKeys, buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openExportWizard, openRegisterModal, ...microserviceActions, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
+  return { blockedMicroserviceKeys, buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openBlockedMicroservices, openExportWizard, openRegisterModal, ...microserviceActions, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
 }
 
 function isMicroserviceDeliveryBlocked(error: unknown): error is ApiError {
