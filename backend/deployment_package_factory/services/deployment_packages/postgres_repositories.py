@@ -247,7 +247,7 @@ class PostgresPackageTaskRepository:
             raise KeyError(task_id)
         if task.status not in {"failed", "canceled"}:
             raise ValueError(f"Task {task_id} cannot be retried from status {task.status}.")
-        request = PackageBuildRequest.model_validate(task.request)
+        request = PackageBuildRequest.model_validate(task.request).with_image_archive()
         retry_task = self.create(request)
         return self.update(
             retry_task.task_id,

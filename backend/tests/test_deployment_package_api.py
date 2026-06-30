@@ -651,6 +651,27 @@ def test_retry_failed_deployment_package_task(tmp_path, monkeypatch: pytest.Monk
     assert retry_event.metadata["sourceTaskId"] == task.task_id
 
 
+def test_retry_normalizes_legacy_manifest_task_to_image_archive(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = InMemoryTaskRepository()
+    _set_repo(monkeypatch, repo, tmp_path)
+    monkeypatch.setattr(deployment_packages, "_SETTINGS", replace(deployment_packages._SETTINGS, execution_mode="worker"))
+    task = repo.create(
+        PackageBuildRequest(
+            businessServices=[BusinessSelection(name="eam")],
+            imageMode="image-manifest",
+        )
+    )
+    repo.mark_failed(task.task_id, "legacy manifest task failed")
+
+    response = _client().post(f"/api/deployment-packages/tasks/{task.task_id}/retry")
+
+    assert response.status_code == 200, response.text
+    retry_task = repo.get(response.json()["taskId"])
+    assert retry_task is not None
+    assert retry_task.request["imageMode"] == "image-archive"
+    assert retry_task.request["targetProfile"]["exportImages"] is True
+
+
 def test_running_task_cancel_request_discards_result(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = InMemoryTaskRepository()
     _set_repo(monkeypatch, repo, tmp_path)

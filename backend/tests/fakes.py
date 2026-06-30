@@ -163,7 +163,7 @@ class InMemoryTaskRepository:
         task = self._require(task_id)
         if task.status not in {"failed", "canceled"}:
             raise ValueError(f"Task {task_id} cannot be retried from status {task.status}.")
-        retry_task = self.create(PackageBuildRequest.model_validate(task.request))
+        retry_task = self.create(PackageBuildRequest.model_validate(task.request).with_image_archive())
         return self.update(retry_task.task_id, message=f"由任务 {task_id} 重试创建", log=f"由任务 {task_id} 重试创建")
 
     def is_cancel_requested(self, task_id: str) -> bool:
