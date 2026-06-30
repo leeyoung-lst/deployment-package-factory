@@ -30,6 +30,7 @@ interface Props {
   task: PackageTask | null;
   taskCount: number;
   onCancelTask: () => void;
+  onCopyResumeCommand: () => void;
   onDisableBusiness: (item: DeploymentServiceOption) => void;
   onDownloadArtifact: () => void;
   onDownloadChecksum: () => void;
@@ -78,6 +79,7 @@ function exportTab(props: Props) {
         task={props.task}
         taskCount={props.taskCount}
         onCancelTask={props.onCancelTask}
+        onCopyResumeCommand={props.onCopyResumeCommand}
         onDownloadArtifact={props.onDownloadArtifact}
         onDownloadChecksum={props.onDownloadChecksum}
         onOpenDrawer={props.onOpenDrawer}

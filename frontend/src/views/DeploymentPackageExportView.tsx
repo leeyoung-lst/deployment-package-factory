@@ -19,7 +19,7 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
   const notify = useMemo(() => ({ error: message.error, info: message.info, success: message.success, warning: message.warning }), [message]);
   const actions = useDeploymentPackageActions(notify);
-  const { auditEvents, cancelTask, cleanupResult, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshTasks, retryTask, runCleanup, setTask, task, tasks } = actions;
+  const { auditEvents, cancelTask, cleanupResult, copyResumeDownloadCommand, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshTasks, retryTask, runCleanup, setTask, task, tasks } = actions;
   const deploymentState = useDeploymentPackageState(form);
   const {
     database,
@@ -78,6 +78,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         onDisableBusiness={(item) => void controller.disableBusiness(item)}
         onDownloadArtifact={() => void downloadTaskArtifact()}
         onDownloadChecksum={() => void downloadTaskChecksum()}
+        onCopyResumeCommand={() => void copyResumeDownloadCommand()}
         onOpenDrawer={setExportDrawer}
         onRefreshPreview={() => void refreshPreview(makePreviewPayload())}
         onRetryTask={() => void retryTask()}
@@ -97,6 +98,7 @@ export const DeploymentPackageExportView: React.FC = () => {
         onCancelTask={() => void cancelTask()}
         onCleanup={() => void runCleanup(false)}
         onClose={() => setExportDrawer(null)}
+        onCopyResumeCommand={() => void copyResumeDownloadCommand()}
         onDownloadArtifact={() => void downloadTaskArtifact()}
         onDownloadChecksum={() => void downloadTaskChecksum()}
         onDryRunCleanup={() => void runCleanup(true)}

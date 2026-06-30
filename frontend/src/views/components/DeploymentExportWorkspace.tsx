@@ -25,6 +25,7 @@ interface Props {
   task: PackageTask | null;
   taskCount: number;
   onCancelTask: () => void;
+  onCopyResumeCommand: () => void;
   onDownloadArtifact: () => void;
   onDownloadChecksum: () => void;
   onOpenDrawer: (drawer: ExportDrawerKey) => void;
@@ -69,6 +70,7 @@ export function DeploymentExportWorkspace(props: Props) {
         task={props.task}
         taskCount={props.taskCount}
         onCancelTask={props.onCancelTask}
+        onCopyResumeCommand={props.onCopyResumeCommand}
         onDownloadArtifact={props.onDownloadArtifact}
         onDownloadChecksum={props.onDownloadChecksum}
         onOpenDrawer={props.onOpenDrawer}

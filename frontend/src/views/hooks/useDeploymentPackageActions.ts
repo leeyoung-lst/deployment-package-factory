@@ -107,6 +107,19 @@ export function useDeploymentPackageActions(notify: NotifyHandlers) {
     finally { patchLoading("download", false); }
   }, [notify, refreshAuditEvents]);
 
+  const copyResumeDownloadCommand = useCallback(async () => {
+    if (!taskRef.current?.result || !taskRef.current.artifactAvailable) return;
+    const packageId = taskRef.current.result.packageId;
+    const filename = `${packageId}.tar.gz`;
+    const url = downloadDeploymentPackage(packageId);
+    try {
+      await navigator.clipboard.writeText(`curl.exe -fL -C - -o ${filename} "${url}"`);
+      notify.success("断点续传命令已复制");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "复制断点续传命令失败");
+    }
+  }, [notify]);
+
   const downloadTaskChecksum = useCallback(async () => {
     if (!taskRef.current?.result || !taskRef.current.artifactAvailable) return;
     patchLoading("checksum", true);
@@ -115,7 +128,7 @@ export function useDeploymentPackageActions(notify: NotifyHandlers) {
     finally { patchLoading("checksum", false); }
   }, [notify, refreshAuditEvents]);
 
-  return { auditEvents, cancelTask, cleanupResult, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshSelectedTask, refreshTasks, retryTask, runCleanup, setTask, task, tasks };
+  return { auditEvents, cancelTask, cleanupResult, copyResumeDownloadCommand, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshSelectedTask, refreshTasks, retryTask, runCleanup, setTask, task, tasks };
 }
 
 interface NotifyHandlers {

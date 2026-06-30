@@ -65,13 +65,14 @@ interface TaskPanelProps {
   checksumDownloadLoading: boolean;
   onCancel: () => void;
   onRetry: () => void;
+  onCopyResumeCommand: () => void;
   onDownloadChecksum: () => void;
   onDownloadArtifact: () => void;
 }
 
 function TaskActions(props: TaskPanelProps & { task: PackageTask }) {
   const task = props.task;
-  return <div className={styles.actions}><Button icon={<i className="ri-close-circle-line" />} loading={props.taskActionLoading} disabled={task.status !== "pending" && task.status !== "running"} onClick={props.onCancel}>取消任务</Button><Button icon={<i className="ri-restart-line" />} loading={props.taskActionLoading} disabled={task.status !== "failed" && task.status !== "canceled"} onClick={props.onRetry}>重试任务</Button><Button icon={<i className="ri-file-shield-2-line" />} loading={props.checksumDownloadLoading} onClick={props.onDownloadChecksum} disabled={!task.result || !task.artifactAvailable}>下载校验文件</Button><Button type="primary" icon={<i className="ri-download-line" />} loading={props.downloadLoading} onClick={props.onDownloadArtifact} disabled={!task.result || !task.artifactAvailable}>{task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}</Button></div>;
+  return <div className={styles.actions}><Button icon={<i className="ri-close-circle-line" />} loading={props.taskActionLoading} disabled={task.status !== "pending" && task.status !== "running"} onClick={props.onCancel}>取消任务</Button><Button icon={<i className="ri-restart-line" />} loading={props.taskActionLoading} disabled={task.status !== "failed" && task.status !== "canceled"} onClick={props.onRetry}>重试任务</Button><Button icon={<i className="ri-file-copy-line" />} onClick={props.onCopyResumeCommand} disabled={!task.result || !task.artifactAvailable}>复制续传命令</Button><Button icon={<i className="ri-file-shield-2-line" />} loading={props.checksumDownloadLoading} onClick={props.onDownloadChecksum} disabled={!task.result || !task.artifactAvailable}>下载校验文件</Button><Button type="primary" icon={<i className="ri-download-line" />} loading={props.downloadLoading} onClick={props.onDownloadArtifact} disabled={!task.result || !task.artifactAvailable}>{task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}</Button></div>;
 }
 
 export function ActionTile({ icon, title, value, actionLabel, loading, onAction }: { icon: string; title: string; value: string; actionLabel: string; loading: boolean; onAction: () => void }) {

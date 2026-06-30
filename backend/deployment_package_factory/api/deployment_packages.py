@@ -16,6 +16,7 @@ from deployment_package_factory.services.deployment_packages.cleanup import Clea
 from deployment_package_factory.services.deployment_packages.dependency_resolver import (
     resolve_package_preview,
 )
+from deployment_package_factory.services.deployment_packages.download_streaming import InvalidRangeError, iter_file_chunks, parse_range_header
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
     KubernetesRuntimeError,
     RegisteredBusinessPlatform,
@@ -42,7 +43,6 @@ from deployment_package_factory.services.deployment_packages.task_executor impor
 from deployment_package_factory.services.microservices.repository import create_microservice_repository
 
 LOGGER = logging.getLogger(__name__)
-DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
 router = APIRouter(
     prefix="/api/deployment-packages",
@@ -375,6 +375,7 @@ async def get_deployment_package(package_id: str) -> PackageBuildResult:
 async def download_deployment_package(
     package_id: str,
     request: Request,
+    range_header: str | None = Header(default=None, alias="Range"),
     x_deployment_package_operator: str | None = Header(default=None),
 ) -> StreamingResponse:
     task = _find_completed_task(package_id)
@@ -393,14 +394,23 @@ async def download_deployment_package(
         metadata={"taskId": task.task_id, "artifactPath": task.result.artifact_path},
     )
     file_size = artifact.stat().st_size
+    try:
+        download_range = parse_range_header(range_header or "", file_size)
+    except InvalidRangeError as exc:
+        raise HTTPException(status_code=416, detail=str(exc), headers={"Content-Range": f"bytes */{file_size}"}) from exc
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'attachment; filename="{artifact.name}"',
+        "Content-Length": str(download_range.length if download_range else file_size),
+        "X-Deployment-Package-Sha256": task.result.sha256,
+    }
+    if download_range:
+        headers["Content-Range"] = download_range.content_range
     return StreamingResponse(
-        _iter_file_chunks(artifact),
+        iter_file_chunks(artifact, start=download_range.start, end=download_range.end) if download_range else iter_file_chunks(artifact),
         media_type="application/gzip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{artifact.name}"',
-            "Content-Length": str(file_size),
-            "X-Deployment-Package-Sha256": task.result.sha256,
-        },
+        status_code=206 if download_range else 200,
+        headers=headers,
     )
 
 
@@ -449,15 +459,6 @@ def _checksum_path(result: PackageBuildResult) -> Path:
         return Path(result.checksum_path)
     artifact = Path(result.artifact_path)
     return artifact.with_name(f"{artifact.name}.sha256")
-
-
-def _iter_file_chunks(path: Path, chunk_size: int = DOWNLOAD_CHUNK_SIZE):
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(chunk_size)
-            if not chunk:
-                break
-            yield chunk
 
 
 def _registered_business_platforms() -> list[RegisteredBusinessPlatform]:
