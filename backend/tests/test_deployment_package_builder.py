@@ -377,6 +377,32 @@ def test_runtime_env_resolves_standard_middleware_secret_aliases(monkeypatch) ->
     assert "__REPLACE_WITH_" not in compose_env
 
 
+def test_runtime_env_resolves_camunda_default_admin_password_alias(monkeypatch) -> None:
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: ["test-middleware-public"])
+    monkeypatch.setattr(
+        builder,
+        "read_kubernetes_secret",
+        lambda namespace, name: {"DEFAULT_THREE_ADMIN_PASSWORD": "source-camunda-default-password"}
+        if (namespace, name) == ("test-middleware-public", "local-ai-secrets")
+        else {},
+    )
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            platformServices=["workflow-camunda"],
+            businessServices=[],
+            database="postgres",
+        )
+    )
+
+    root = Path(result.work_dir) / f"local-ai-prod-package-{result.package_id}"
+    compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
+
+    assert "CAMUNDA_ADMIN_PASSWORD=source-camunda-default-password" in compose_env
+
+
 def test_build_deployment_package_applies_runtime_config_overrides(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: [])
 

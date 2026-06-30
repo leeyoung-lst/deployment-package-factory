@@ -190,6 +190,7 @@ middleware:
         secretKeys:
           - CAMUNDA_ADMIN_PASSWORD
           - CAMUNDA_CLIENT_SECRET
+          - DEFAULT_THREE_ADMIN_PASSWORD
     composeEnvironment:
       CAMUNDA_ADMIN_USER: ${CAMUNDA_ADMIN_USER}
       CAMUNDA_ADMIN_PASSWORD: ${CAMUNDA_ADMIN_PASSWORD}

@@ -81,6 +81,15 @@ def test_runtime_env_probes_maps_generic_bucket_and_vector_config_by_source_name
     assert probes[0].env["QDRANT_API_KEY"] == "qdrant-api-key"
 
 
+def test_runtime_env_probes_maps_default_three_admin_password_to_camunda() -> None:
+    probes = _probe_with(
+        env_from=[{"secretRef": {"name": "local-ai-secrets"}}],
+        secrets={"local-ai-secrets": {"DEFAULT_THREE_ADMIN_PASSWORD": "camunda-default-password"}},
+    )
+
+    assert probes[0].env["CAMUNDA_ADMIN_PASSWORD"] == "camunda-default-password"
+
+
 def _probe_with(
     *,
     pod_env: list[dict] | None = None,
