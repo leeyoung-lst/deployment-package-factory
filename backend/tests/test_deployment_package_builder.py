@@ -316,6 +316,43 @@ def test_runtime_env_prefers_source_kubernetes_secret_over_process_env(monkeypat
     assert values["REDIS_PASSWORD"] == "k8s-secret-password"
 
 
+def test_runtime_env_resolves_standard_middleware_secret_aliases(monkeypatch) -> None:
+    monkeypatch.setattr(
+        builder,
+        "_source_env_namespaces",
+        lambda source_env, business_namespaces=None: ["test-middleware-public", "test-base-public", *(business_namespaces or [])],
+    )
+    secrets = {
+        ("test-middleware-public", "postgres-secret"): {"password": "source-db-password"},
+        ("test-middleware-public", "redis-secret"): {"password": "source-redis-password"},
+        ("test-middleware-public", "minio-secret"): {"root-password": "source-minio-password"},
+        ("test-base-public", "camunda-secret"): {"admin-password": "source-camunda-password"},
+        ("test-middleware-public", "iotdb-secret"): {"password": "source-iotdb-password"},
+    }
+    monkeypatch.setattr(builder, "read_kubernetes_secret", lambda namespace, name: secrets.get((namespace, name), {}))
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            businessServices=[BusinessSelection(name="eam", profile="4x60")],
+            database="postgres",
+        )
+    )
+
+    runtime_env = result.manifest["middlewareConfig"]
+    assert runtime_env["postgres"]["envTemplate"]["DATABASE_PASSWORD"] == "__REPLACE_WITH_DATABASE_PASSWORD__"
+    root = Path(result.work_dir) / f"local-ai-prod-package-{result.package_id}"
+    compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
+
+    assert "DATABASE_PASSWORD=source-db-password" in compose_env
+    assert "REDIS_PASSWORD=source-redis-password" in compose_env
+    assert "MINIO_ROOT_PASSWORD=source-minio-password" in compose_env
+    assert "CAMUNDA_ADMIN_PASSWORD=source-camunda-password" in compose_env
+    assert "IOTDB_PASSWORD=source-iotdb-password" in compose_env
+    assert "__REPLACE_WITH_" not in compose_env
+
+
 def test_build_deployment_package_includes_frontend_support_images_without_deploying_them(tmp_path) -> None:
     result = build_deployment_package(
         PackageBuildRequest(

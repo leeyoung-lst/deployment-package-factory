@@ -15,6 +15,10 @@ databaseOptions:
         secretNames:
           - local-ai-secrets
           - platform-runtime-secret
+          - middleware-runtime-secret
+          - dm
+          - dm-secret
+          - database-secret
         secretKeys:
           - DM_PASSWORD
     composeEnvironment:
@@ -45,6 +49,12 @@ databaseOptions:
         secretNames:
           - local-ai-secrets
           - platform-runtime-secret
+          - middleware-runtime-secret
+          - postgres
+          - postgresql
+          - postgres-secret
+          - postgresql-secret
+          - database-secret
         secretKeys:
           - DATABASE_PASSWORD
           - POSTGRES_PASSWORD
@@ -74,6 +84,9 @@ middleware:
         secretNames:
           - local-ai-secrets
           - platform-runtime-secret
+          - middleware-runtime-secret
+          - redis
+          - redis-secret
         secretKeys:
           - REDIS_PASSWORD
     composeEnvironment:
@@ -104,6 +117,9 @@ middleware:
         secretNames:
           - local-ai-secrets
           - platform-runtime-secret
+          - middleware-runtime-secret
+          - minio
+          - minio-secret
         secretKeys:
           - MINIO_ROOT_PASSWORD
           - MINIO_SECRET_KEY
@@ -138,6 +154,9 @@ middleware:
         secretNames:
           - local-ai-secrets
           - platform-runtime-secret
+          - middleware-runtime-secret
+          - qdrant
+          - qdrant-secret
         secretKeys:
           - QDRANT_API_KEY
           - QDRANT__SERVICE__API_KEY
@@ -165,6 +184,9 @@ middleware:
         secretNames:
           - local-ai-secrets
           - platform-runtime-secret
+          - middleware-runtime-secret
+          - camunda
+          - camunda-secret
         secretKeys:
           - CAMUNDA_ADMIN_PASSWORD
           - CAMUNDA_CLIENT_SECRET
@@ -193,6 +215,9 @@ middleware:
         secretNames:
           - local-ai-secrets
           - platform-runtime-secret
+          - middleware-runtime-secret
+          - iotdb
+          - iotdb-secret
         secretKeys:
           - IOTDB_PASSWORD
           - EAM_IOTDB_PASSWORD

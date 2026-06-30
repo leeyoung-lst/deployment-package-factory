@@ -59,6 +59,21 @@ def test_source_env_namespaces_includes_local_ai_labeled_namespaces(monkeypatch,
     ]
 
 
+def test_source_env_namespaces_includes_standard_namespaces_without_labels(monkeypatch, tmp_path) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN_PATH", str(token_path))
+    monkeypatch.delenv("DEPLOYMENT_PACKAGE_SOURCE_NAMESPACES_TEST", raising=False)
+    monkeypatch.delenv("DEPLOYMENT_PACKAGE_SOURCE_NAMESPACES", raising=False)
+    monkeypatch.setattr(kubernetes_runtime, "_request_json", lambda *args, **kwargs: {"items": []})
+    monkeypatch.setattr(kubernetes_runtime, "list_registered_business_platforms", lambda source_env: [])
+
+    assert kubernetes_runtime.source_env_namespaces("test") == [
+        "test-middleware-public",
+        "test-base-public",
+    ]
+
+
 def test_list_registered_business_platforms_discovers_local_ai_business_namespaces(monkeypatch, tmp_path) -> None:
     token_path = tmp_path / "token"
     token_path.write_text("token", encoding="utf-8")

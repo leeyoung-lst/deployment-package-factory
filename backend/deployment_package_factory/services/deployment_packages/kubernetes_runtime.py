@@ -53,12 +53,19 @@ def source_env_namespaces(source_env: str, business_namespaces: list[str] | None
     try:
         namespaces.extend(_list_namespaces_by_label(LOCAL_AI_ENV_LABEL, normalized_env))
         namespaces.extend(_list_namespaces_by_label(ENV_LABEL, normalized_env))
+        namespaces.extend(_standard_source_namespaces(normalized_env))
         namespaces.extend(business_namespaces or [])
         if business_namespaces is None:
             namespaces.extend(item.namespace for item in list_registered_business_platforms(source_env))
     except KubernetesRuntimeError:
         pass
     return list(dict.fromkeys(namespaces))
+
+
+def _standard_source_namespaces(source_env: str) -> list[str]:
+    if not source_env:
+        return []
+    return [f"{source_env}-middleware-public", f"{source_env}-base-public"]
 
 
 def business_namespace(source_env: str, business_key: str, profile: str = "") -> str:

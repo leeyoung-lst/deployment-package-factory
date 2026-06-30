@@ -52,6 +52,31 @@ DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "deployment-
 DEFAULT_CONTAINERD_SOCKET = "/run/containerd/containerd.sock"
 DockerRunner = Callable[[Sequence[str]], None]
 LOGGER = logging.getLogger(__name__)
+DEFAULT_RUNTIME_SECRET_NAMES = [
+    "local-ai-secrets",
+    "platform-runtime-secret",
+    "middleware-runtime-secret",
+    "middleware-secrets",
+    "runtime-secrets",
+]
+RUNTIME_SECRET_NAME_ALIASES = {
+    "DATABASE_PASSWORD": ["postgres", "postgresql", "postgres-secret", "postgresql-secret", "database-secret"],
+    "DM_PASSWORD": ["dm", "dm-secret", "database-secret"],
+    "REDIS_PASSWORD": ["redis", "redis-secret"],
+    "MINIO_ROOT_PASSWORD": ["minio", "minio-secret"],
+    "QDRANT_API_KEY": ["qdrant", "qdrant-secret"],
+    "CAMUNDA_ADMIN_PASSWORD": ["camunda", "camunda-secret"],
+    "IOTDB_PASSWORD": ["iotdb", "iotdb-secret"],
+}
+RUNTIME_SECRET_KEY_ALIASES = {
+    "DATABASE_PASSWORD": ["DATABASE_PASSWORD", "POSTGRES_PASSWORD", "POSTGRESQL_PASSWORD", "password"],
+    "DM_PASSWORD": ["DM_PASSWORD", "DAMENG_PASSWORD", "password"],
+    "REDIS_PASSWORD": ["REDIS_PASSWORD", "password"],
+    "MINIO_ROOT_PASSWORD": ["MINIO_ROOT_PASSWORD", "MINIO_SECRET_KEY", "root-password", "password"],
+    "QDRANT_API_KEY": ["QDRANT_API_KEY", "QDRANT__SERVICE__API_KEY", "api-key", "password"],
+    "CAMUNDA_ADMIN_PASSWORD": ["CAMUNDA_ADMIN_PASSWORD", "CAMUNDA_CLIENT_SECRET", "admin-password", "password"],
+    "IOTDB_PASSWORD": ["IOTDB_PASSWORD", "EAM_IOTDB_PASSWORD", "root_password", "password"],
+}
 
 
 class PackageBuildError(RuntimeError):
@@ -285,10 +310,8 @@ def _resolve_env_value(
     namespaces: list[str],
     secret_cache: dict[tuple[str, str], dict[str, str]],
 ) -> str:
-    secret_names = _source_list(source.get("secretNames"))
-    secret_keys = _source_list(source.get("secretKeys")) or [name]
-    if not secret_names:
-        secret_names = ["local-ai-secrets", "platform-runtime-secret"]
+    secret_names = _runtime_secret_names(name, source)
+    secret_keys = _runtime_secret_keys(name, source)
     for namespace in namespaces:
         for secret_name in secret_names:
             cache_key = (namespace, secret_name)
@@ -305,6 +328,20 @@ def _resolve_env_value(
         if value:
             return value
     return ""
+
+
+def _runtime_secret_names(name: str, source: dict) -> list[str]:
+    configured = _source_list(source.get("secretNames"))
+    values = [*configured, *DEFAULT_RUNTIME_SECRET_NAMES]
+    values.extend(RUNTIME_SECRET_NAME_ALIASES.get(name, []))
+    return list(dict.fromkeys(values))
+
+
+def _runtime_secret_keys(name: str, source: dict) -> list[str]:
+    configured = _source_list(source.get("secretKeys"))
+    values = [*configured, name]
+    values.extend(RUNTIME_SECRET_KEY_ALIASES.get(name, []))
+    return list(dict.fromkeys(values))
 
 
 def _source_list(value) -> list[str]:
