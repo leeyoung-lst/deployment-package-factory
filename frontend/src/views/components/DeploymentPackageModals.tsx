@@ -66,9 +66,11 @@ export function DeploymentPackageModals(props: Props) {
         onRefreshMicroservices={() => void controller.refreshMicroserviceDeliveries()}
         onRefreshPreview={props.onRefreshPreview}
         onRequiredPlatformClick={controller.onRequiredPlatformClick}
+        onRetryMicroservice={(projectId) => void controller.retryMicroservice(projectId)}
         onSourceEnvChange={state.setSourceEnv}
         onTargetDraftChange={state.setTargetDraft}
         refreshingMicroservices={controller.refreshingMicroservices}
+        retryingMicroserviceId={controller.retryingMicroserviceId}
       />
       <BusinessPlatformRegistrationModal form={props.registerForm} loading={controller.registeringBusiness} open={controller.registerModalOpen} options={props.options} onCancel={() => controller.setRegisterModalOpen(false)} onSubmit={() => void controller.submitBusinessRegistration()} />
     </>

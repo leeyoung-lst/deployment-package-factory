@@ -53,6 +53,7 @@ export interface RegisteredDeploymentMicroservice {
   k8sNamespace: string;
   status: string;
   gitRepositoryUrl?: string;
+  cloneCommand?: string;
   buildCommand?: string;
   deployCommand?: string;
   jenkinsJob?: string;

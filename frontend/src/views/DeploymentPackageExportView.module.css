@@ -222,6 +222,19 @@
   background: rgba(248, 250, 252, 0.76);
 }
 
+.deliverySteps {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
+.deliveryStep {
+  display: grid;
+  grid-template-columns: auto 92px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
 .deliveryMain {
   display: grid;
   min-width: 0;

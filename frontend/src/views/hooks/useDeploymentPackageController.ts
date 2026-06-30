@@ -9,11 +9,11 @@ import {
   type DeploymentServiceOption,
   type SourceEnv,
 } from "../../api/deploymentPackages";
-import { getMicroserviceDeliveryStatus } from "../../api/microservices";
 import { getSystemSettings } from "../../api/settings";
-import { businessOptionsForEnv, businessOptionValue, businessPlatformRowKey, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, EXPORT_WIZARD_STEPS, notReadyRegisteredMicroservices, selectedRegisteredMicroservices, serviceOptionsForEnv } from "../components/deploymentPackageUtils";
+import { businessOptionsForEnv, businessOptionValue, businessPlatformRowKey, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, EXPORT_WIZARD_STEPS, notReadyRegisteredMicroservices, serviceOptionsForEnv } from "../components/deploymentPackageUtils";
 import type { useDeploymentPackageActions } from "./useDeploymentPackageActions";
 import type { useDeploymentPackageState } from "./useDeploymentPackageState";
+import { useMicroserviceDeliveryActions } from "./useMicroserviceDeliveryActions";
 
 type DeploymentState = ReturnType<typeof useDeploymentPackageState>;
 type DeploymentActions = ReturnType<typeof useDeploymentPackageActions>;
@@ -26,9 +26,9 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
   const [exportWizardOpen, setExportWizardOpen] = useState(false);
   const [exportStep, setExportStep] = useState(0);
   const [disablingBusinessKey, setDisablingBusinessKey] = useState("");
-  const [refreshingMicroservices, setRefreshingMicroservices] = useState(false);
   const stateRef = useRef(deploymentState);
   const actionsRef = useRef(actions);
+  const microserviceActions = useMicroserviceDeliveryActions(stateRef, actionsRef, notify);
 
   useEffect(() => { stateRef.current = deploymentState; actionsRef.current = actions; }, [actions, deploymentState]);
 
@@ -111,24 +111,6 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     finally { setBuilding(false); }
   }, [form, notify, validateExportStep]);
 
-  const refreshMicroserviceDeliveries = useCallback(async () => {
-    const state = stateRef.current;
-    const selected = selectedRegisteredMicroservices(state.businessServices, state.businessOptionsForSourceEnv, state.options?.microservices ?? []);
-    if (!selected.length) { notify.info("当前业务平台暂无注册微服务"); return; }
-    setRefreshingMicroservices(true);
-    try {
-      const refreshed = await Promise.all(selected.map((item) => getMicroserviceDeliveryStatus(item.projectId)));
-      state.setOptions((current) => {
-        if (!current) return current;
-        const byId = new Map(refreshed.map((item) => [item.projectId, item.microservice]));
-        return { ...current, microservices: current.microservices.map((item) => byId.get(item.projectId) ?? item) };
-      });
-      notify.success("微服务构建状态已刷新");
-      void actionsRef.current.refreshPreview(state.makePreviewPayload());
-    } catch (error) { notify.error(error instanceof Error ? error.message : "微服务构建状态刷新失败"); }
-    finally { setRefreshingMicroservices(false); }
-  }, [notify]);
-
   const onRequiredPlatformClick = (event: CheckboxChangeEvent) => {
     if (!event.target.checked) notify.info("必选基础能力会自动保留在部署包中");
   };
@@ -142,7 +124,7 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
     stateRef.current.setBusinessServices(checkedValues.map(String));
   };
 
-  return { buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openExportWizard, openRegisterModal, refreshMicroserviceDeliveries, refreshingMicroservices, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
+  return { buildPackage, building, disableBusiness, disablingBusinessKey, exportStep, exportWizardOpen, goNextExportStep, goPreviousExportStep: () => setExportStep((current) => Math.max(current - 1, 0)), loadOptions, loadingOptions, onBusinessChange, onPlatformChange, onRequiredPlatformClick, openExportWizard, openRegisterModal, ...microserviceActions, registerModalOpen, registeringBusiness, setExportWizardOpen, setRegisterModalOpen, submitBusinessRegistration };
 }
 
 interface NotifyHandlers {
