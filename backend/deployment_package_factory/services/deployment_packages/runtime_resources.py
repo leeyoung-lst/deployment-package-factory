@@ -214,8 +214,8 @@ def _collection_resource(collection: str, used_by: list[str], *, source: str, ne
         "usedBy": list(dict.fromkeys(used_by)),
         "items": [
             config_item("collection", "Collection", collection, source=source),
-            config_item("vectorSize", "向量维度", "1536", source="catalog"),
-            config_item("distance", "距离算法", "Cosine", source="catalog"),
+            config_item("vectorSize", "向量维度", "1536", source="catalog", editable=False),
+            config_item("distance", "距离算法", "Cosine", source="catalog", editable=False),
         ],
     }
 

@@ -27,7 +27,7 @@ def apply_resource_overrides(resource: dict, overrides: dict[str, str]) -> dict:
     updated_items = []
     for item in resource.get("items", []):
         override_name = _resource_override_name(resource["key"], item)
-        value = overrides.get(override_name, item.get("value", ""))
+        value = item.get("value", "") if item.get("editable") is False else overrides.get(override_name, item.get("value", ""))
         updated_items.append({**item, "overrideName": override_name, "value": value, "resolved": is_resolved_value(value)})
     resource["items"] = updated_items
     if resource.get("type") == "databaseSchema":

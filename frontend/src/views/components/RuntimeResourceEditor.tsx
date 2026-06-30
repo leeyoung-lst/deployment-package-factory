@@ -1,7 +1,7 @@
 import { Input, Space, Tag } from "antd";
 import type { RuntimeResource } from "../../api/deploymentPackages";
 import styles from "../DeploymentPackageExportView.module.css";
-import { runtimeSourceLabel } from "./runtimeConfigLabels";
+import { runtimeResourceLabel, runtimeSourceLabel } from "./runtimeConfigLabels";
 
 interface Props {
   resource: RuntimeResource;
@@ -10,15 +10,18 @@ interface Props {
 }
 
 export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) {
-  const values = resource.items.map((item) => runtimeItemValue(resource, item, overrides));
-  const hasUnresolved = resource.needsReview || values.some((value) => !value.trim() || value.includes("__REPLACE_WITH_"));
-  const source = runtimeSourceLabel({ source: resource.source, resolved: !hasUnresolved, value: hasUnresolved ? "" : resource.name });
+  const editableItems = resource.items.filter((item) => item.editable !== false);
+  const values = editableItems.map((item) => runtimeItemValue(resource, item, overrides));
+  const hasPlaceholder = values.some((value) => !value.trim() || value.includes("__REPLACE_WITH_"));
+  const source = runtimeSourceLabel({ source: resource.source, resolved: !hasPlaceholder, value: hasPlaceholder ? "" : resource.name });
+  const resourceLabel = runtimeResourceLabel(resource);
   return (
     <div className={styles.runtimeResource}>
       <div className={styles.runtimeResourceHeader}>
         <div className={styles.runtimeResourceTitle}>
           <h3>{resource.name}</h3>
           <Space size={6} wrap>
+            <Tag color={resourceLabel.color}>{resourceLabel.text}</Tag>
             <Tag color={resource.shared ? "blue" : "default"}>{resource.shared ? "共用资源" : "独立资源"}</Tag>
             <Tag color={source.color}>{source.text}</Tag>
             {resource.needsReview ? <Tag color="warning">需确认</Tag> : null}
@@ -27,7 +30,7 @@ export function RuntimeResourceEditor({ resource, overrides, onChange }: Props) 
         <div className={styles.runtimeUsedBy}>{resource.usedBy.map((item) => <Tag key={item}>{item}</Tag>)}</div>
       </div>
       <div className={styles.runtimeFields}>
-        {resource.items.map((item) => {
+        {editableItems.map((item) => {
           const fieldName = item.overrideName || item.envName || `${resource.key}.${item.name}`;
           const value = runtimeItemValue(resource, item, overrides);
           const itemSource = runtimeSourceLabel({ ...item, value });

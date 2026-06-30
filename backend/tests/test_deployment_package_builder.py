@@ -442,6 +442,32 @@ def test_build_deployment_package_applies_runtime_config_overrides(tmp_path, mon
     assert password_items[0]["value"] == "******"
 
 
+def test_build_deployment_package_keeps_fixed_collection_defaults(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: [])
+
+    result = build_deployment_package(
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            platformServices=["ai-agent"],
+            businessServices=[],
+            database="postgres",
+            runtimeConfigOverrides={
+                "collection-qdrant-agent-memory.collection": "agent_memory_prod",
+                "collection-qdrant-agent-memory.vectorSize": "768",
+                "collection-qdrant-agent-memory.distance": "Dot",
+            },
+        ),
+        output_dir=tmp_path,
+    )
+
+    root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
+    qdrant_script = (root / "init" / "qdrant" / "create-collections.sh").read_text(encoding="utf-8")
+
+    assert 'create_collection "agent_memory_prod" "1536" "Cosine"' in qdrant_script
+    assert 'create_collection "agent_memory_prod" "768" "Dot"' not in qdrant_script
+
+
 def test_runtime_env_probes_read_pod_env_and_secret_refs(monkeypatch) -> None:
     monkeypatch.setattr(builder, "_source_env_namespaces", lambda source_env, business_namespaces=None: ["test-base-public"])
     monkeypatch.setattr(

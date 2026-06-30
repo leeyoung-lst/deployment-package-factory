@@ -10,6 +10,12 @@ interface Props {
 }
 
 export function RuntimeConfigGroupEditor({ group, overrides, onChange }: Props) {
+  const editableItems = group.items.filter((item) => item.editable !== false);
+  const hasUnresolved = editableItems.some((item) => {
+    const fieldName = item.overrideName || item.envName || item.name;
+    const value = overrides[fieldName] ?? item.value ?? "";
+    return !String(value).trim() || String(value).includes("__REPLACE_WITH_");
+  });
   return (
     <div className={styles.runtimeResource}>
       <div className={styles.runtimeResourceHeader}>
@@ -17,14 +23,12 @@ export function RuntimeConfigGroupEditor({ group, overrides, onChange }: Props) 
           <h3>{group.name}</h3>
           <Space size={6} wrap>
             <Tag>{group.key}</Tag>
-            <Tag color={group.items.some((item) => !item.resolved) ? "warning" : "green"}>
-              {group.items.some((item) => !item.resolved) ? "存在待确认项" : "已识别"}
-            </Tag>
+            <Tag color={hasUnresolved ? "warning" : "green"}>{hasUnresolved ? "存在待确认项" : "已识别"}</Tag>
           </Space>
         </div>
       </div>
       <div className={styles.runtimeFields}>
-        {group.items.map((item) => {
+        {editableItems.map((item) => {
           const fieldName = item.overrideName || item.envName || item.name;
           const value = overrides[fieldName] ?? item.value ?? "";
           const source = runtimeSourceLabel({ ...item, value });

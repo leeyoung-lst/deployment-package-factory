@@ -12,6 +12,7 @@ import {
 import { ApiError } from "../../api/client";
 import { getSystemSettings } from "../../api/settings";
 import { businessOptionsForEnv, businessOptionValue, businessPlatformRowKey, DEFAULT_IMAGE_MODE, DEFAULT_TARGET, EXPORT_WIZARD_STEPS, notReadyRegisteredMicroservices, serviceOptionsForEnv } from "../components/deploymentPackageUtils";
+import { runtimeConfigSnapshotOverrides } from "../components/runtimeConfigOverrides";
 import type { useDeploymentPackageActions } from "./useDeploymentPackageActions";
 import type { useDeploymentPackageState } from "./useDeploymentPackageState";
 import { useMicroserviceDeliveryActions } from "./useMicroserviceDeliveryActions";
@@ -115,7 +116,8 @@ export function useDeploymentPackageController(form: FormInstance, registerForm:
       setBuilding(true);
       setBlockedMicroserviceKeys([]);
       const imageMode = values.imageMode ?? DEFAULT_IMAGE_MODE;
-      const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode, runtimeConfigOverrides: state.runtimeConfigOverrides, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: imageMode === "image-archive" } });
+      const runtimeConfigOverrides = runtimeConfigSnapshotOverrides(state.runtimeConfig, state.runtimeConfigOverrides);
+      const payload = await createDeploymentPackage({ ...state.makePreviewPayload(), imageMode, runtimeConfigOverrides, targetProfile: { env: values.env, domain: values.domain, sourceRegistry: values.sourceRegistry || "", sourceRegistryInsecure: Boolean(values.sourceRegistryInsecure), registry: values.registry || "", namespacePrefix: values.namespacePrefix, storageClass: values.storageClass || "", exportImages: imageMode === "image-archive" } });
       actionsRef.current.setTask(payload); void actionsRef.current.refreshTasks(); void actionsRef.current.refreshAuditEvents();
       notify.success("部署任务已创建"); setExportWizardOpen(false); setExportStep(0);
     } catch (error) {

@@ -163,6 +163,10 @@ def test_deployment_package_preview_returns_resolved_dependencies(monkeypatch: p
     database_resources = [item for item in payload["runtimeConfig"]["resources"] if item["type"] == "databaseSchema"]
     assert database_resources[0]["items"][0]["label"] == "数据库名"
     assert any(group["key"] == "postgres" for group in payload["runtimeConfig"]["groups"])
+    postgres = next(group for group in payload["runtimeConfig"]["groups"] if group["key"] == "postgres")
+    database_password = next(item for item in postgres["items"] if item["name"] == "DATABASE_PASSWORD")
+    assert database_password["value"] == "source-db-password"
+    assert database_password["source"] == "source-secret"
 
 
 def test_deployment_package_preview_returns_runtime_image_entries(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1085,6 +1089,31 @@ def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business:
             for image, digest in runtime_images
         ],
     )
+    monkeypatch.setattr(
+        builder,
+        "read_kubernetes_pods",
+        lambda namespace, token=None: {
+            "items": [
+                {
+                    "metadata": {"name": "eam-0", "labels": {"app.kubernetes.io/name": "eam"}},
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "eam",
+                                "envFrom": [{"secretRef": {"name": "local-ai-secrets"}}],
+                                "env": [
+                                    {"name": "DATABASE_URL", "value": "postgresql://eam_user:source-db-password@postgres:5432/local_ai?currentSchema=eam"},
+                                    {"name": "MINIO_BUCKET", "value": "eam-docs"},
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(builder, "read_kubernetes_secret", lambda namespace, name: {"DATABASE_PASSWORD": "source-db-password"})
+    monkeypatch.setattr(builder, "read_kubernetes_configmap", lambda namespace, name: {})
 
 
 def _wait_for_task(client: TestClient, task_id: str, headers: dict[str, str] | None = None) -> dict:

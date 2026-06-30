@@ -14,6 +14,7 @@ def config_item(
     env_name: str = "",
     source: str,
     sensitive: bool | None = None,
+    editable: bool = True,
 ) -> dict:
     is_sensitive = is_sensitive_name(name if not env_name else env_name) if sensitive is None else sensitive
     return {
@@ -25,6 +26,7 @@ def config_item(
         "sensitive": is_sensitive,
         "source": source,
         "resolved": is_resolved_value(value),
+        "editable": editable,
     }
 
 

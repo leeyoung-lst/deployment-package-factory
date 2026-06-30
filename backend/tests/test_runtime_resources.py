@@ -205,6 +205,38 @@ def test_runtime_resource_item_overrides_are_scoped_by_resource_key() -> None:
     assert buckets[0]["usedBy"] == ["eam", "file-documents"]
 
 
+def test_collection_vector_settings_are_fixed_defaults() -> None:
+    request = PackageBuildRequest(
+        sourceEnv="test",
+        platformServices=["ai-agent"],
+        database="postgres",
+        runtimeConfigOverrides={
+            "collection-qdrant-agent-memory.collection": "agent_memory_prod",
+            "collection-qdrant-agent-memory.vectorSize": "768",
+            "collection-qdrant-agent-memory.distance": "Dot",
+        },
+    )
+    catalog = load_catalog()
+    preview = resolve_package_preview(request, catalog)
+    config = build_runtime_config(
+        request=request,
+        preview=preview,
+        middleware_config={"qdrant": catalog.middleware["qdrant"].model_dump(by_alias=True)},
+        runtime_env={},
+        probes=[RuntimeEnvProbe("ai-agent", "AI Agent", {"QDRANT_COLLECTION": "agent_memory"})],
+    )
+
+    collection = next(item for item in config["resources"] if item["type"] == "collection")
+    values = {item["name"]: item for item in collection["items"]}
+
+    assert collection["name"] == "agent_memory_prod"
+    assert values["collection"]["value"] == "agent_memory_prod"
+    assert values["vectorSize"]["value"] == "1536"
+    assert values["vectorSize"]["editable"] is False
+    assert values["distance"]["value"] == "Cosine"
+    assert values["distance"]["editable"] is False
+
+
 def test_database_resource_uses_jdbc_url_and_probe_credentials() -> None:
     request = PackageBuildRequest(sourceEnv="test", platformServices=["iam"], database="postgres")
     catalog = load_catalog()

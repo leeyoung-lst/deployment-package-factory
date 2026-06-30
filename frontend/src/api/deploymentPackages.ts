@@ -119,6 +119,7 @@ export interface RuntimeConfigItem {
   sensitive: boolean;
   source: string;
   resolved: boolean;
+  editable?: boolean;
 }
 
 export interface RuntimeConfigGroup {
