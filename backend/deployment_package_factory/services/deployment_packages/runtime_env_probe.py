@@ -110,7 +110,7 @@ def _set_runtime_value(values: dict[str, str], key: str, value: str) -> None:
 
 
 def _runtime_values_from_text(content: str) -> dict[str, str]:
-    if not content or "\n" not in content:
+    if not content:
         return {}
     values: dict[str, str] = {}
     for raw in content.splitlines():
@@ -156,35 +156,59 @@ def _flatten_yaml(prefix: str, value) -> list[tuple[str, str]]:
     return [(prefix, str(value))]
 
 
-def _mounted_sources(container: dict, volumes: list[dict]) -> list[tuple[str, str, set[str]]]:
+def _mounted_sources(container: dict, volumes: list[dict]) -> list[tuple[str, str, set[str] | None]]:
     volume_refs = {str(volume.get("name") or ""): volume for volume in volumes}
     sources: list[tuple[str, str, set[str]]] = []
     for mount in container.get("volumeMounts") or []:
         volume = volume_refs.get(str(mount.get("name") or ""))
         if not volume:
             continue
-        source_type, source_name, keys = _volume_source(volume)
+        source_type, source_name, keys, path_keys = _volume_source(volume)
         if source_name:
-            sources.append((source_type, source_name, keys))
+            sources.append((source_type, source_name, _mount_keys(mount, keys, path_keys)))
     return sources
 
 
-def _volume_source(volume: dict) -> tuple[str, str, set[str]]:
+def _volume_source(volume: dict) -> tuple[str, str, set[str] | None, dict[str, str]]:
     config_map = volume.get("configMap") or {}
     if config_map.get("name"):
-        return "configmap", str(config_map["name"]), _volume_item_keys(config_map)
+        return "configmap", str(config_map["name"]), _volume_item_keys(config_map), _volume_item_path_keys(config_map)
     secret = volume.get("secret") or {}
     if secret.get("secretName"):
-        return "secret", str(secret["secretName"]), _volume_item_keys(secret)
-    return "", "", set()
+        return "secret", str(secret["secretName"]), _volume_item_keys(secret), _volume_item_path_keys(secret)
+    return "", "", None, {}
 
 
-def _volume_item_keys(source: dict) -> set[str]:
-    return {str(item.get("key")) for item in source.get("items") or [] if item.get("key")}
+def _volume_item_keys(source: dict) -> set[str] | None:
+    items = source.get("items")
+    if not items:
+        return None
+    return {str(item.get("key")) for item in items if item.get("key")}
 
 
-def _filter_keys(values: dict[str, str], keys: set[str]) -> dict[str, str]:
-    if not keys:
+def _volume_item_path_keys(source: dict) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for item in source.get("items") or []:
+        key = str(item.get("key") or "")
+        if not key:
+            continue
+        result[key] = key
+        result[str(item.get("path") or key)] = key
+    return result
+
+
+def _mount_keys(mount: dict, volume_keys: set[str] | None, path_keys: dict[str, str]) -> set[str] | None:
+    sub_path = str(mount.get("subPath") or "").strip()
+    if not sub_path:
+        return volume_keys
+    if path_keys:
+        key = path_keys.get(sub_path)
+        return {key} if key else set()
+    return {sub_path}
+
+
+def _filter_keys(values: dict[str, str], keys: set[str] | None) -> dict[str, str]:
+    if keys is None:
         return values
     return {key: value for key, value in values.items() if key in keys}
 

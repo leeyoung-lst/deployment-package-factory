@@ -103,7 +103,7 @@ def _parse_database_probe(database_key: str, probe: RuntimeEnvProbe, env_values:
     if not dsn:
         return None
     parsed = urlparse(_normalize_dsn(dsn))
-    database_name = parsed.path.strip("/") or env_values.get("DATABASE_NAME") or "local_ai"
+    database_name = parsed.path.strip("/") or probe.env.get("DATABASE_NAME") or env_values.get("DATABASE_NAME") or "local_ai"
     schema = _first_env(probe.env, SCHEMA_ENV_NAMES) or _schema_from_query(parsed.query) or "public"
     username = parsed.username or probe.env.get("DATABASE_USER") or env_values.get("DATABASE_USER") or "local_ai"
     password = parsed.password or probe.env.get("DATABASE_PASSWORD") or env_values.get("DATABASE_PASSWORD") or ""

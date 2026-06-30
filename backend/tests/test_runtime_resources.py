@@ -153,3 +153,33 @@ def test_database_resource_uses_jdbc_url_and_probe_credentials() -> None:
     assert database["name"] == "postgres local_ai.iam"
     assert values["username"] == "iam_user"
     assert values["password"] == "iam_password"
+
+
+def test_database_resource_uses_probe_database_name_when_dsn_has_no_path() -> None:
+    request = PackageBuildRequest(sourceEnv="test", platformServices=["iam"], database="postgres")
+    catalog = load_catalog()
+    preview = resolve_package_preview(request, catalog)
+    config = build_runtime_config(
+        request=request,
+        preview=preview,
+        middleware_config={"postgres": catalog.database_options["postgres"].model_dump(by_alias=True)},
+        runtime_env={},
+        probes=[
+            RuntimeEnvProbe(
+                "iam",
+                "IAM",
+                {
+                    "DATABASE_URL": "jdbc:postgresql://postgres:5432/?currentSchema=iam",
+                    "DATABASE_NAME": "iam_db",
+                    "DATABASE_USER": "iam_user",
+                },
+            )
+        ],
+    )
+
+    database = next(item for item in config["resources"] if item["type"] == "databaseSchema")
+    values = {item["name"]: item["value"] for item in database["items"]}
+
+    assert database["name"] == "postgres iam_db.iam"
+    assert values["databaseName"] == "iam_db"
+    assert values["username"] == "iam_user"

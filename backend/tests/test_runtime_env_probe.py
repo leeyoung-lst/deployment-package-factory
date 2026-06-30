@@ -127,3 +127,80 @@ qdrant:
     assert probes[0].env["DATABASE_SCHEMA"] == "iam"
     assert probes[0].env["DOCUMENT_BUCKET"] == "iam-docs"
     assert probes[0].env["QDRANT_COLLECTION"] == "iam_memory"
+
+
+def test_runtime_env_probes_collect_single_line_properties_and_subpath_mounts() -> None:
+    def pod_reader(namespace: str) -> dict:
+        return {
+            "items": [
+                {
+                    "metadata": {"name": "eam-0", "labels": {"app": "eam"}},
+                    "spec": {
+                        "volumes": [
+                            {
+                                "name": "app-secret",
+                                "secret": {
+                                    "secretName": "eam-secret",
+                                    "items": [{"key": "database-password", "path": "password.txt"}],
+                                },
+                            }
+                        ],
+                        "containers": [
+                            {
+                                "name": "eam",
+                                "envFrom": [{"configMapRef": {"name": "eam-config"}}],
+                                "volumeMounts": [{"name": "app-secret", "mountPath": "/run/password.txt", "subPath": "password.txt"}],
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+
+    probes = runtime_env_probes(
+        "test",
+        None,
+        namespace_resolver=lambda source_env, business_namespaces=None: ["test-biz-eam"],
+        pod_reader=pod_reader,
+        secret_reader=lambda namespace, name: {"database-password": "mounted-password", "other-password": "wrong"},
+        configmap_reader=lambda namespace, name: {"application.properties": "spring.datasource.username=eam_user"},
+    )
+
+    assert probes[0].env["DATABASE_USER"] == "eam_user"
+    assert probes[0].env["DATABASE_PASSWORD"] == "mounted-password"
+
+
+def test_runtime_env_probes_ignores_unmatched_subpath_keys() -> None:
+    probes = runtime_env_probes(
+        "test",
+        None,
+        namespace_resolver=lambda source_env, business_namespaces=None: ["test-biz-eam"],
+        pod_reader=lambda namespace: {
+            "items": [
+                {
+                    "metadata": {"name": "eam-0", "labels": {"app": "eam"}},
+                    "spec": {
+                        "volumes": [
+                            {
+                                "name": "app-secret",
+                                "secret": {
+                                    "secretName": "eam-secret",
+                                    "items": [{"key": "database-password", "path": "password.txt"}],
+                                },
+                            }
+                        ],
+                        "containers": [
+                            {
+                                "name": "eam",
+                                "volumeMounts": [{"name": "app-secret", "mountPath": "/run/missing.txt", "subPath": "missing.txt"}],
+                            }
+                        ],
+                    },
+                }
+            ]
+        },
+        secret_reader=lambda namespace, name: {"database-password": "should-not-leak"},
+        configmap_reader=lambda namespace, name: {},
+    )
+
+    assert probes == []
