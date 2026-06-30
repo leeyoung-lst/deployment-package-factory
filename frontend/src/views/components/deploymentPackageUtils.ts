@@ -89,11 +89,15 @@ export function microserviceDeliverySummary(item: Pick<DeploymentServiceOption, 
 }
 
 export function notReadyRegisteredMicroservices(values: string[], options: DeploymentServiceOption[], microservices: RegisteredDeploymentMicroservice[]) {
+  return selectedRegisteredMicroservices(values, options, microservices)
+    .filter((service) => !microserviceDeliverySucceeded(service));
+}
+
+export function selectedRegisteredMicroservices(values: string[], options: DeploymentServiceOption[], microservices: RegisteredDeploymentMicroservice[]) {
   const selected = new Set(values);
   return options
     .filter((item) => selected.has(businessOptionValue(item)))
-    .flatMap((item) => microservicesForBusinessPlatform(item, microservices))
-    .filter((service) => !microserviceDeliverySucceeded(service));
+    .flatMap((item) => microservicesForBusinessPlatform(item, microservices));
 }
 
 export function businessOptionValue(item: Pick<DeploymentServiceOption, "key" | "profile">) {

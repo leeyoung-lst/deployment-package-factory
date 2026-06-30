@@ -3,6 +3,7 @@ import type { FormInstance } from "antd";
 import type { ImageExportEnvironmentCheck, PackagePreview } from "../../api/deploymentPackages";
 import { BusinessPlatformRegistrationModal } from "./BusinessPlatformRegistrationModal";
 import { DeploymentPackageWizardModal } from "./DeploymentPackageWizardModal";
+import { notReadyRegisteredMicroservices } from "./deploymentPackageUtils";
 import type { useDeploymentPackageController } from "../hooks/useDeploymentPackageController";
 import type { useDeploymentPackageState } from "../hooks/useDeploymentPackageState";
 import type { DeploymentPackageOptions } from "../../api/deploymentPackages";
@@ -23,12 +24,14 @@ interface Props {
 export function DeploymentPackageModals(props: Props) {
   const state = props.deploymentState;
   const controller = props.controller;
+  const notReadyMicroservices = notReadyRegisteredMicroservices(state.businessServices, state.businessOptionsForSourceEnv, props.options?.microservices ?? []);
   return (
     <>
       <DeploymentPackageWizardModal
         businessOptionsForSourceEnv={state.businessOptionsForSourceEnv}
         businessServices={state.businessServices}
         building={controller.building}
+        buildDisabled={notReadyMicroservices.length > 0 || controller.refreshingMicroservices}
         database={state.database}
         databaseOptionsForSourceEnv={state.databaseOptionsForSourceEnv}
         deployMode={state.deployMode}
@@ -60,10 +63,12 @@ export function DeploymentPackageModals(props: Props) {
         onPrevious={controller.goPreviousExportStep}
         onProductVersionChange={state.setProductVersion}
         onProjectChange={state.applyProjectDefaults}
+        onRefreshMicroservices={() => void controller.refreshMicroserviceDeliveries()}
         onRefreshPreview={props.onRefreshPreview}
         onRequiredPlatformClick={controller.onRequiredPlatformClick}
         onSourceEnvChange={state.setSourceEnv}
         onTargetDraftChange={state.setTargetDraft}
+        refreshingMicroservices={controller.refreshingMicroservices}
       />
       <BusinessPlatformRegistrationModal form={props.registerForm} loading={controller.registeringBusiness} open={controller.registerModalOpen} options={props.options} onCancel={() => controller.setRegisterModalOpen(false)} onSubmit={() => void controller.submitBusinessRegistration()} />
     </>

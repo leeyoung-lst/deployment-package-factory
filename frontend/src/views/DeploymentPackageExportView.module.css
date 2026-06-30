@@ -201,6 +201,40 @@
   background: rgba(248, 250, 252, 0.74);
 }
 
+.deliveryChecklist {
+  display: grid;
+  gap: 8px;
+}
+
+.deliveryList {
+  display: grid;
+  gap: 8px;
+}
+
+.deliveryItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.76);
+}
+
+.deliveryMain {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.deliveryMain strong,
+.deliveryMain span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .summaryRow {
   display: grid;
   grid-template-columns: 86px minmax(0, 1fr);

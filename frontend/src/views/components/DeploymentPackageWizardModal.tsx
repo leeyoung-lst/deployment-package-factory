@@ -7,6 +7,7 @@ import styles from "../DeploymentPackageExportView.module.css";
 
 interface Props extends WizardStepProps {
   building: boolean;
+  buildDisabled: boolean;
   form: FormInstance;
   open: boolean;
   step: number;
@@ -43,7 +44,7 @@ function WizardFooter(props: Props) {
         {props.step < EXPORT_WIZARD_STEPS.length - 1 ? (
           <Button type="primary" onClick={props.onNext}>下一步</Button>
         ) : (
-          <Button type="primary" icon={<i className="ri-package-line" />} loading={props.building} onClick={props.onBuild}>创建导包任务</Button>
+          <Button type="primary" icon={<i className="ri-package-line" />} loading={props.building} disabled={props.buildDisabled} onClick={props.onBuild}>创建导包任务</Button>
         )}
       </Space>
     </div>
