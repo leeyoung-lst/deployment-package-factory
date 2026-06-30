@@ -531,6 +531,7 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert "k8s-dry-run" in index["qualityGate"]["checks"]
     assert index["qualityGate"]["report"] == "docs/quality-report.runtime.md"
     assert index["qualityGate"]["template"] == "docs/quality-report.md"
+    assert index["acceptance"]["report"] == "docs/acceptance-report.md"
     assert index["sections"]["k8s"]
     assert index["sections"]["dockerCompose"]
     assert index["sections"]["init"]
@@ -546,11 +547,13 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert any(item["path"] == "quality-gate.ps1" for item in index["sections"]["root"])
     assert any(item["path"] == "deploy-values.json" for item in index["sections"]["root"])
     assert any(item["path"] == "docs/quality-report.md" for item in index["sections"]["docs"])
+    assert any(item["path"] == "docs/acceptance-report.md" for item in index["sections"]["docs"])
     assert any(item["path"] == "overlays/mes-lite/values.json" for item in index["sections"]["overlays"])
     assert any(item["path"] == "scripts/load-images.sh" and item["executable"] for item in index["sections"]["scripts"])
     assert "package-index.json" in sha_sums
     assert "quality-gate.sh" in sha_sums
     assert "docs/quality-report.md" in sha_sums
+    assert "docs/acceptance-report.md" in sha_sums
     assert signed_files == actual_files - {"security/SHA256SUMS"}
     assert set(indexed_files) == actual_files - {"package-index.json", "security/SHA256SUMS"}
     assert len(indexed_files) == len(set(indexed_files))

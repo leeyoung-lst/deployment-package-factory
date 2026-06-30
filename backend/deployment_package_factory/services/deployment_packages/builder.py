@@ -19,6 +19,7 @@ from typing import Callable, Sequence
 from uuid import uuid4
 
 from deployment_package_factory.services.deployment_packages.catalog import load_catalog
+from deployment_package_factory.services.deployment_packages.acceptance_report_renderer import render_acceptance_report_files
 from deployment_package_factory.services.deployment_packages.dependency_resolver import resolve_package_preview
 from deployment_package_factory.services.deployment_packages.deployment_renderer import render_deployment_files
 from deployment_package_factory.services.deployment_packages.init_script_renderer import render_init_files
@@ -187,6 +188,9 @@ def build_deployment_package(
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_quality_gate_files(manifest):
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
+    for rendered_file in render_acceptance_report_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_deployment_files(manifest):
@@ -1210,6 +1214,9 @@ def _package_index(package_root: Path, manifest: dict) -> dict:
             "checks": QUALITY_GATE_CHECKS,
             "report": "docs/quality-report.runtime.md",
             "template": "docs/quality-report.md",
+        },
+        "acceptance": {
+            "report": "docs/acceptance-report.md",
         },
         "sections": {
             "root": _section(
