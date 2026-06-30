@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormInstance } from "antd";
 import { getDeploymentPackageOptions, type DeploymentPackageOptions, type SourceEnv } from "../../api/deploymentPackages";
 import { getSystemSettings, type SystemSettings } from "../../api/settings";
-import { getMicroserviceScaffoldOptions, listMicroservices, registerMicroservice, type MicroserviceScaffoldOptions, type MicroserviceScaffoldResult, type RegisteredMicroservice } from "../../api/microservices";
+import { getMicroserviceScaffoldOptions, listMicroservices, registerMicroservice, retryMicroserviceDelivery, type MicroserviceScaffoldOptions, type MicroserviceScaffoldResult, type RegisteredMicroservice } from "../../api/microservices";
 import { businessPlatformValue, normalizeK8sName, normalizePathValue, normalizeRegistry, parseApiErrorDetails, parseBusinessPlatformValue } from "../components/microserviceUtils";
 
 export const DEFAULT_MICROSERVICE_VALUES = {
@@ -34,6 +34,7 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
   const [formValues, setFormValues] = useState<MicroserviceWizardValues>(DEFAULT_MICROSERVICE_VALUES);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [retryingDelivery, setRetryingDelivery] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
 
@@ -84,7 +85,23 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
     if (field) { setCurrentStep(API_FIELD_STEPS[field]); setWizardOpen(true); }
   };
 
+  const retryDelivery = async () => {
+    if (!result) return false;
+    setRetryingDelivery(true);
+    try {
+      const payload = await retryMicroserviceDelivery(result.projectId);
+      setResult({ ...result, delivery: payload.delivery });
+      setRegisteredServices(await listMicroservices());
+      return true;
+    } catch (error) {
+      notifyError(error instanceof Error ? error.message : "交付重试失败");
+      return false;
+    } finally {
+      setRetryingDelivery(false);
+    }
+  };
+
   useEffect(() => { void loadOptions(); }, []);
 
-  return { businessPlatforms, currentStep, deploymentOptions, formValues, loading, options, registeredServices, result, selectedPlatform, submitting, systemSettings, wizardOpen, loadOptions, normalizeCurrentInputs, setCurrentStep, setFormValues, setRegisteredServices, setWizardOpen, submit };
+  return { businessPlatforms, currentStep, deploymentOptions, formValues, loading, options, registeredServices, result, retryingDelivery, selectedPlatform, submitting, systemSettings, wizardOpen, loadOptions, normalizeCurrentInputs, retryDelivery, setCurrentStep, setFormValues, setRegisteredServices, setWizardOpen, submit };
 }

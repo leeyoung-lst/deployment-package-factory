@@ -118,6 +118,20 @@ async def list_microservices(
     )
 
 
+@router.post("/{project_id}/delivery/retry", response_model=dict)
+async def retry_microservice_delivery(project_id: str) -> dict:
+    repo = get_microservice_repository()
+    row = repo.get_by_project_id(project_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Microservice registration not found")
+    request = _request_from_registered(row)
+    defaults = _system_settings()
+    project_root = find_scaffold_project_root(project_id, output_dir=_output_dir())
+    delivery = prepare_microservice_delivery(request, _result_stub(row), defaults, project_root)
+    updated = repo.update_delivery(project_id, delivery)
+    return {"projectId": project_id, "delivery": delivery, "microservice": updated}
+
+
 @router.get("/{project_id}/download")
 async def download_microservice_scaffold(project_id: str) -> FileResponse:
     artifact = find_scaffold_artifact(project_id, output_dir=_output_dir())
@@ -128,3 +142,37 @@ async def download_microservice_scaffold(project_id: str) -> FileResponse:
         media_type="application/gzip",
         filename=artifact.name,
     )
+
+
+def _request_from_registered(row: dict) -> MicroserviceScaffoldRequest:
+    settings = _system_settings()
+    return MicroserviceScaffoldRequest(
+        serviceKey=row["serviceKey"],
+        serviceName=row["serviceName"],
+        description=row.get("description", ""),
+        projectKind=row.get("projectKind", "backend"),
+        techStack=row.get("techStack", "python-fastapi"),
+        port=row.get("port", 8000),
+        middleware=row.get("middleware", []),
+        sourceEnv=row["sourceEnv"],
+        businessPlatformKey=row["businessPlatformKey"],
+        businessPlatformProfile=row.get("businessPlatformProfile", ""),
+        businessPlatformName=row.get("businessPlatformName", ""),
+        businessPlatformNamespace=row.get("businessPlatformNamespace", ""),
+        gitGroup=row.get("gitGroup", ""),
+        imageRegistry=row.get("imageRegistry", ""),
+        imageNamespace=row.get("imageNamespace", ""),
+        k8sNamespace=row.get("k8sNamespace", ""),
+        gitBaseUrl=settings.git.base_url,
+        jenkinsBaseUrl=settings.jenkins.base_url,
+        jenkinsFolder=settings.jenkins.folder,
+    )
+
+
+def _result_stub(row: dict) -> object:
+    class ResultStub:
+        project_id = row["projectId"]
+        git_repository_url = row.get("gitRepositoryUrl", "")
+        jenkins_job = row.get("jenkinsJob", "")
+
+    return ResultStub()

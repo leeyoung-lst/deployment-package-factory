@@ -459,6 +459,11 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
 
         def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> None:
             calls.append(("jenkins-job", f"{folder}/{service_key}:{git_url}"))
+            return f"/job/{folder}/job/{service_key}"
+
+        def trigger_build(self, job_path: str) -> str:
+            calls.append(("jenkins-build", job_path))
+            return f"https://jenkins.local{job_path}/build"
 
     monkeypatch.setattr(microservices, "_system_settings", lambda: SystemSettings(
         git=GitSettings(baseUrl="https://git.local/scm", group="factory-services", token="git-token"),
@@ -492,6 +497,70 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
     assert ("git-project", "factory-services/asset-auto") in calls
     assert ("git-push", "https://git.local/scm/factory-services/asset-auto.git") in calls
     assert any(item[0] == "jenkins-job" and "asset-auto" in item[1] for item in calls)
+    assert ("jenkins-build", "/job/factory-services/job/asset-auto") in calls
+
+
+def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+    calls: list[tuple[str, str]] = []
+
+    class FakeGitLabClient:
+        def __init__(self, base_url: str, token: str) -> None:
+            pass
+
+        def ensure_project(self, group: str, service_key: str) -> str:
+            calls.append(("git-project", service_key))
+            return f"https://git.local/scm/{group}/{service_key}.git"
+
+    class FakeJenkinsClient:
+        def __init__(self, base_url: str, username: str, token: str) -> None:
+            pass
+
+        def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> str:
+            calls.append(("jenkins-job", service_key))
+            return f"/job/{folder}/job/{service_key}"
+
+        def trigger_build(self, job_path: str) -> str:
+            calls.append(("jenkins-build", job_path))
+            return f"https://jenkins.local{job_path}/build"
+
+    monkeypatch.setattr(
+        microservices,
+        "_system_settings",
+        lambda: SystemSettings(
+            git=GitSettings(baseUrl="https://git.local/scm", group="factory-services", token="git-token"),
+            harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
+            jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
+        ),
+    )
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.GitLabClient", FakeGitLabClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: None)
+
+    client = _client()
+    created = client.post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-retry",
+            "serviceName": "资产重试服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    project_id = created.json()["projectId"]
+    calls.clear()
+
+    retried = client.post(f"/api/microservices/{project_id}/delivery/retry")
+
+    assert retried.status_code == 200, retried.text
+    payload = retried.json()
+    assert payload["delivery"]["status"] == "ready"
+    assert payload["microservice"]["delivery"]["status"] == "ready"
+    assert ("git-project", "asset-retry") in calls
+    assert ("jenkins-build", "/job/factory-services/job/asset-retry") in calls
 
 
 def test_register_microservice_rejects_registry_path(tmp_path, monkeypatch) -> None:

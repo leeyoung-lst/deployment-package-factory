@@ -60,6 +60,41 @@ class MicroserviceRepository:
             ).fetchone()
         return json.loads(row["payload_json"]) if row else None
 
+    def get_by_project_id(self, project_id: str) -> dict | None:
+        with self._connect() as conn:
+            rows = conn.execute("select payload_json from microservices").fetchall()
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if payload.get("projectId") == project_id:
+                return payload
+        return None
+
+    def update_delivery(self, project_id: str, delivery: dict[str, object]) -> dict | None:
+        existing = self.get_by_project_id(project_id)
+        if not existing:
+            return None
+        existing["delivery"] = delivery
+        existing["updatedAt"] = _now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update microservices set payload_json = %s, updated_at = %s
+                where source_env = %s
+                  and business_platform_key = %s
+                  and business_platform_profile = %s
+                  and service_key = %s
+                """,
+                (
+                    json.dumps(existing, ensure_ascii=False),
+                    existing["updatedAt"],
+                    existing["sourceEnv"],
+                    existing["businessPlatformKey"],
+                    existing["businessPlatformProfile"],
+                    existing["serviceKey"],
+                ),
+            )
+        return existing
+
     def list(
         self,
         *,

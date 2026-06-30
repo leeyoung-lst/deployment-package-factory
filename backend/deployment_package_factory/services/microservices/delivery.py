@@ -45,14 +45,17 @@ def _prepare_jenkins_job(request, settings: SystemSettings) -> dict[str, str]:
     if not settings.jenkins.username or not settings.jenkins.password:
         return _step("jenkins-job", "pending", "config", "检查 Jenkins 凭据", "Jenkins 账号或 Token 未配置，无法自动创建 Job。", target, started, "在设置页填写 Jenkins 用户名和 Token。")
     try:
-        JenkinsClient(settings.jenkins.base_url, settings.jenkins.username, settings.jenkins.password).ensure_pipeline_job(
+        client = JenkinsClient(settings.jenkins.base_url, settings.jenkins.username, settings.jenkins.password)
+        job_path = client.ensure_pipeline_job(
             request.jenkins_folder,
             request.service_key,
             git_repository_url(request),
         )
-        return _step("jenkins-job", "ready", "provision", "创建 Jenkins Pipeline Job", "Jenkins Pipeline Job 已创建或已存在。", target, started)
+        build_target = client.trigger_build(job_path)
+        message = "Jenkins Pipeline Job 已创建或已存在，并已触发首次构建。"
+        return _step("jenkins-job", "ready", "provision", "创建 Jenkins Job 并触发首次构建", message, build_target or target, started)
     except DeliveryError as exc:
-        return _step("jenkins-job", "failed", "provision", "创建 Jenkins Pipeline Job", str(exc), target, started, "检查 Jenkins 地址、账号 Token、文件夹权限和 Git 插件。")
+        return _step("jenkins-job", "failed", "provision", "创建 Jenkins Job 或触发构建", str(exc), target, started, "检查 Jenkins 地址、账号 Token、文件夹权限和 Git 插件。")
 
 
 class DeliveryError(RuntimeError):
@@ -94,7 +97,7 @@ class JenkinsClient:
         self.base_url = base_url.rstrip("/")
         self.auth = _basic_auth(username, token)
 
-    def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> None:
+    def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> str:
         parent = "".join(f"/job/{quote(part)}" for part in folder.strip("/").split("/") if part)
         url = f"{self.base_url}{parent}/createItem?{urlencode({'name': service_key})}"
         xml = _pipeline_job_xml(git_url).encode("utf-8")
@@ -104,6 +107,12 @@ class JenkinsClient:
         except DeliveryError as exc:
             if "400" not in str(exc):
                 raise
+        return f"{parent}/job/{quote(service_key)}"
+
+    def trigger_build(self, job_path: str) -> str:
+        url = f"{self.base_url}{job_path}/build"
+        _bytes_request("POST", url, {"Authorization": self.auth}, None)
+        return url
 
 
 def _push_initial_commit(project_root: Path, remote_url: str, token: str) -> None:

@@ -117,6 +117,13 @@ export function registerMicroservice(payload: MicroserviceScaffoldRequest) {
   });
 }
 
+export function retryMicroserviceDelivery(projectId: string) {
+  return request<{ projectId: string; delivery: MicroserviceScaffoldResult["delivery"]; microservice: RegisteredMicroservice | null }>(
+    `/api/microservices/${encodeURIComponent(projectId)}/delivery/retry`,
+    { method: "POST" },
+  );
+}
+
 export function listMicroservices(params?: {
   sourceEnv?: SourceEnv;
   businessPlatformKey?: string;

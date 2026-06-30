@@ -333,6 +333,17 @@ class InMemoryMicroserviceRepository:
     def get(self, source_env: str, business_platform_key: str, business_platform_profile: str, service_key: str) -> dict | None:
         return self.services.get((source_env, business_platform_key, business_platform_profile or "", service_key))
 
+    def get_by_project_id(self, project_id: str) -> dict | None:
+        return next((row for row in self.services.values() if row["projectId"] == project_id), None)
+
+    def update_delivery(self, project_id: str, delivery: dict[str, object]) -> dict | None:
+        row = self.get_by_project_id(project_id)
+        if not row:
+            return None
+        row["delivery"] = delivery
+        row["updatedAt"] = _now_iso()
+        return row
+
     def list(
         self,
         *,
