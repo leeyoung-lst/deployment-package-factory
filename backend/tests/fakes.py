@@ -45,6 +45,13 @@ class InMemoryTaskRepository:
             return None
         return task.model_copy(update={"artifact_available": _artifact_available(task.result)})
 
+    def get_by_package_id(self, package_id: str) -> PackageTask | None:
+        """Find a completed task by its result package_id."""
+        for task in self.tasks.values():
+            if task.status == "completed" and task.result and task.result.package_id == package_id:
+                return task.model_copy(update={"artifact_available": _artifact_available(task.result)})
+        return None
+
     def list(self, limit: int = 50) -> list[PackageTask]:
         tasks = sorted(self.tasks.values(), key=lambda item: item.created_at, reverse=True)
         return [item.model_copy(update={"artifact_available": _artifact_available(item.result)}) for item in tasks[:limit]]

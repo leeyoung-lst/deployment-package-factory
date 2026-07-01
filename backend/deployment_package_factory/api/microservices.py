@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from deployment_package_factory.auth import require_api_token
-from deployment_package_factory.api.deployment_packages import (
+from deployment_package_factory.api._common import (
     _registered_business_platforms,
     get_business_platform_repository,
     get_microservice_repository,
@@ -89,6 +89,12 @@ def _enrich_request(payload: MicroserviceScaffoldRequest, platform: RegisteredBu
 
 
 def _resolve_business_platform(payload: MicroserviceScaffoldRequest) -> RegisteredBusinessPlatform:
+    """Resolve business platform from DB or K8s discovery.
+
+    NOTE: When the platform is found via K8s discovery (not in DB),
+    it is auto-upserted into the DB as a cache. This intentional
+    side-effect ensures subsequent lookups hit the DB directly.
+    """
     try:
         return get_business_platform_repository().resolve(
             payload.source_env,
@@ -138,7 +144,7 @@ async def retry_microservice_delivery(project_id: str) -> dict:
     request = _request_from_registered(row)
     defaults = _system_settings()
     project_root = find_scaffold_project_root(project_id, output_dir=_output_dir())
-    delivery = prepare_microservice_delivery(request, _result_stub(row), defaults, project_root)
+    delivery = prepare_microservice_delivery(request, _result_stub(row), defaults, project_root, row.get("delivery", {}))
     updated = repo.update_delivery(project_id, delivery)
     artifact_fields = finalize_registered_artifacts(row, delivery, _output_dir())
     updated = repo.update_fields(project_id, artifact_fields) or updated

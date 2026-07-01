@@ -36,6 +36,9 @@ class PackageTaskExecutor:
                     return
                 self.repo.mark_running(task_id, worker_id=self.config.worker_id)
                 result = await self._build_with_heartbeat(task_id, payload)
+                # NOTE: 取消检查在构建完成后进行。若取消请求在构建过程中到达，
+                # 构建结果会被丢弃（CPU/存储资源已消耗），这是当前设计的已知取舍。
+                # 对于重型构建任务，可考虑引入可中断的构建流水线以减少资源浪费。
                 if self.repo.is_cancel_requested(task_id):
                     self.repo.mark_canceled(task_id, "部署包任务已取消，已丢弃本次构建结果")
                 else:

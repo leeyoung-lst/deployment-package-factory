@@ -14,11 +14,15 @@ from deployment_package_factory.services.microservices.result_metadata import gi
 from deployment_package_factory.services.settings import SystemSettings
 
 
-def prepare_microservice_delivery(request, result, settings: SystemSettings, project_root: Path | None = None) -> dict[str, object]:
-    steps = [
-        _prepare_git_project(request, settings, project_root),
-        _prepare_jenkins_job(request, settings),
-    ]
+def prepare_microservice_delivery(
+    request,
+    result,
+    settings: SystemSettings,
+    project_root: Path | None = None,
+    existing_delivery: dict[str, object] | None = None,
+) -> dict[str, object]:
+    git_step = _prepare_git_project(request, settings, project_root, existing_delivery)
+    steps = [git_step, _prepare_jenkins_job(request, settings, git_step)]
     return {"status": _overall_status(steps), "steps": steps}
 
 
@@ -34,25 +38,31 @@ def refresh_delivery_status(delivery: dict[str, object], settings: SystemSetting
     return {"status": _delivery_status_with_build(str(delivery.get("status", "unknown")), build), "steps": steps, "build": build}
 
 
-def _prepare_git_project(request, settings: SystemSettings, project_root: Path | None) -> dict[str, str]:
+def _prepare_git_project(request, settings: SystemSettings, project_root: Path | None, existing_delivery: dict[str, object] | None) -> dict[str, object]:
     started = perf_counter()
     target = git_repository_url(request)
+    existing_step = _existing_ready_step(existing_delivery, "git-project")
+    if existing_step:
+        return _step("git-project", "ready", "provision", "复用已就绪 Git 项目", "Git 项目已完成初始化推送。", str(existing_step.get("target") or target), started)
     if not settings.git.base_url:
         return _step("git-project", "skipped", "config", "检查 Git 配置", "Git 地址未配置，已生成本地项目包。", target, started, "在设置页填写 Git 地址和 Token 后重新注册。")
     if not settings.git.token:
         return _step("git-project", "pending", "config", "检查 Git Token", "Git Token 未配置，无法自动创建远程项目。", target, started, "在设置页填写 Git 访问 Token。")
     try:
         remote_url = resolve_git_client(settings).ensure_project(request.git_group, request.service_key)
-        if project_root and project_root.exists():
-            _push_initial_commit(project_root, remote_url, settings.git.token, _git_push_username(settings))
+        if not project_root or not project_root.exists():
+            return _step("git-project", "failed", "provision", "推送初始化代码", "本地项目目录不存在，无法推送初始化代码。", remote_url, started, "重新注册微服务生成项目骨架，或确认远端仓库已有初始化代码。")
+        _push_initial_commit(project_root, remote_url, settings.git.token, _git_push_username(settings))
         return _step("git-project", "ready", "provision", "创建 Git 项目并推送初始化代码", "Git 项目已创建并推送初始化代码。", remote_url, started)
     except (DeliveryError, GitProviderError) as exc:
         return _step("git-project", "failed", "provision", "创建 Git 项目或推送代码", str(exc), target, started, "检查 Git 地址、Token 权限、默认分组是否存在。")
 
 
-def _prepare_jenkins_job(request, settings: SystemSettings) -> dict[str, str]:
+def _prepare_jenkins_job(request, settings: SystemSettings, git_step: dict[str, object]) -> dict[str, str]:
     started = perf_counter()
     target = jenkins_job(request)
+    if git_step.get("status") != "ready":
+        return _step("jenkins-job", "pending", "dependency", "等待 Git 项目就绪", "Git 项目未完成初始化推送，暂不创建 Jenkins Pipeline。", target, started, "先修复 Git 配置并重试交付。")
     if not settings.jenkins.base_url:
         return _step("jenkins-job", "skipped", "config", "检查 Jenkins 配置", "Jenkins 地址未配置，已生成 Jenkinsfile。", target, started, "在设置页填写 Jenkins 地址和凭据。")
     if not settings.jenkins.username or not settings.jenkins.password:
@@ -69,6 +79,11 @@ def _prepare_jenkins_job(request, settings: SystemSettings) -> dict[str, str]:
         return _step("jenkins-job", "ready", "provision", "创建 Jenkins Job 并触发首次构建", message, build_target or target, started)
     except DeliveryError as exc:
         return _step("jenkins-job", "failed", "provision", "创建 Jenkins Job 或触发构建", str(exc), target, started, "检查 Jenkins 地址、账号 Token、文件夹权限和 Git 插件。")
+
+
+def _existing_ready_step(delivery: dict[str, object] | None, name: str) -> dict[str, object] | None:
+    steps = delivery.get("steps") if isinstance(delivery, dict) else None
+    return next((step for step in steps or [] if isinstance(step, dict) and step.get("name") == name and step.get("status") == "ready"), None)
 
 
 class DeliveryError(RuntimeError):

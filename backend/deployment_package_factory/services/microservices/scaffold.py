@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import hashlib
 import re
 import shutil
@@ -50,33 +48,38 @@ K8S_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 IMAGE_SEGMENT_RE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")
 
 
-class MicroserviceScaffoldRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+def _camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(w.capitalize() for w in parts[1:])
 
-    service_key: str = Field(alias="serviceKey")
-    service_name: str = Field(alias="serviceName")
+
+class MicroserviceScaffoldRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
+
+    service_key: str
+    service_name: str
     description: str = ""
-    project_kind: str = Field(default="backend", alias="projectKind")
-    tech_stack: str = Field(default="python-fastapi", alias="techStack")
-    micro_frontend_framework: str = Field(default="", alias="microFrontendFramework")
-    package_name: str = Field(default="", alias="packageName")
+    project_kind: str = "backend"
+    tech_stack: str = "python-fastapi"
+    micro_frontend_framework: str = ""
+    package_name: str = ""
     port: int = 8000
     middleware: list[str] = Field(default_factory=list)
-    source_env: str = Field(alias="sourceEnv")
-    business_platform_key: str = Field(alias="businessPlatformKey")
-    business_platform_profile: str = Field(default="", alias="businessPlatformProfile")
-    business_platform_name: str = Field(default="", alias="businessPlatformName")
-    business_platform_namespace: str = Field(default="", alias="businessPlatformNamespace")
-    git_group: str = Field(default="", alias="gitGroup")
-    image_registry: str = Field(default="", alias="imageRegistry")
-    image_namespace: str = Field(default="", alias="imageNamespace")
-    k8s_namespace: str = Field(default="", alias="k8sNamespace")
-    git_base_url: str = Field(default="", alias="gitBaseUrl")
-    jenkins_base_url: str = Field(default="", alias="jenkinsBaseUrl")
-    jenkins_folder: str = Field(default="", alias="jenkinsFolder")
-    registry_credential_id: str = Field(default="dpf-registry-credentials", alias="registryCredentialId")
-    kubeconfig_credential_id: str = Field(default="dpf-kubeconfig", alias="kubeconfigCredentialId")
-    middleware_config: dict[str, dict[str, object]] = Field(default_factory=dict, alias="middlewareConfig")
+    source_env: str
+    business_platform_key: str
+    business_platform_profile: str = ""
+    business_platform_name: str = ""
+    business_platform_namespace: str = ""
+    git_group: str = ""
+    image_registry: str = ""
+    image_namespace: str = ""
+    k8s_namespace: str = ""
+    git_base_url: str = ""
+    jenkins_base_url: str = ""
+    jenkins_folder: str = ""
+    registry_credential_id: str = "dpf-registry-credentials"
+    kubeconfig_credential_id: str = "dpf-kubeconfig"
+    middleware_config: dict[str, dict[str, object]] = Field(default_factory=dict)
 
     @field_validator("service_key")
     @classmethod
@@ -171,43 +174,43 @@ class MicroserviceScaffoldRequest(BaseModel):
 
 
 class MicroserviceScaffoldResult(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
 
-    project_id: str = Field(alias="projectId")
-    service_key: str = Field(alias="serviceKey")
-    service_name: str = Field(alias="serviceName")
-    project_kind: str = Field(alias="projectKind")
-    tech_stack: str = Field(alias="techStack")
-    micro_frontend_framework: str = Field(default="", alias="microFrontendFramework")
-    source_env: str = Field(alias="sourceEnv")
-    business_platform_key: str = Field(alias="businessPlatformKey")
-    business_platform_profile: str = Field(alias="businessPlatformProfile")
-    business_platform_name: str = Field(alias="businessPlatformName")
-    business_platform_namespace: str = Field(alias="businessPlatformNamespace")
-    artifact_name: str = Field(alias="artifactName")
-    artifact_path: str = Field(alias="artifactPath")
-    artifact_available: bool = Field(default=True, alias="artifactAvailable")
-    artifact_size: int = Field(alias="artifactSize")
+    project_id: str
+    service_key: str
+    service_name: str
+    project_kind: str
+    tech_stack: str
+    micro_frontend_framework: str = ""
+    source_env: str
+    business_platform_key: str
+    business_platform_profile: str
+    business_platform_name: str
+    business_platform_namespace: str
+    artifact_name: str
+    artifact_path: str
+    artifact_available: bool = True
+    artifact_size: int
     sha256: str
-    download_url: str = Field(alias="downloadUrl")
-    download_command: str = Field(alias="downloadCommand")
-    clone_command: str = Field(alias="cloneCommand")
-    git_repository_url: str = Field(default="", alias="gitRepositoryUrl")
+    download_url: str
+    download_command: str
+    clone_command: str
+    git_repository_url: str = ""
     image: str = ""
-    build_command: str = Field(default="", alias="buildCommand")
-    deploy_command: str = Field(default="", alias="deployCommand")
-    jenkins_job: str = Field(default="", alias="jenkinsJob")
+    build_command: str = ""
+    deploy_command: str = ""
+    jenkins_job: str = ""
     delivery: dict[str, object] = Field(default_factory=lambda: {"status": "skipped", "steps": []})
-    generated_files: list[str] = Field(alias="generatedFiles")
+    generated_files: list[str]
     validation: dict[str, object] = Field(default_factory=lambda: {"passed": False, "checks": [], "fileCount": 0})
 
 
 class MicroserviceScaffoldOptions(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
 
-    project_kinds: list[dict[str, str]] = Field(alias="projectKinds")
-    tech_stacks: list[dict[str, str]] = Field(alias="techStacks")
-    micro_frontend_frameworks: list[dict[str, str]] = Field(alias="microFrontendFrameworks")
+    project_kinds: list[dict[str, str]]
+    tech_stacks: list[dict[str, str]]
+    micro_frontend_frameworks: list[dict[str, str]]
     middleware: list[dict[str, str]]
 
 
@@ -372,7 +375,8 @@ def _render_python_fastapi(request: MicroserviceScaffoldRequest) -> list[Rendere
 
 
 def _context(request: MicroserviceScaffoldRequest) -> dict[str, object]:
-    image = f"{request.image_registry.rstrip('/')}/{request.image_namespace.strip('/')}/{request.service_key}"
+    image_parts = [request.image_registry.rstrip("/"), request.image_namespace.strip("/"), request.service_key]
+    image = "/".join(part for part in image_parts if part)
     config_keys = middleware_config_keys(request.tech_stack, request.middleware)
     middleware_config = resolve_middleware_config(config_keys, request.middleware_config, request.source_env)
     return {

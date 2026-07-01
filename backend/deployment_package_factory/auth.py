@@ -36,5 +36,8 @@ def _extract_token(authorization: str | None, fallback: str | None, query_token:
 
 
 def _allows_query_token(request: Request) -> bool:
+    # SECURITY: Token 通过 URL 查询参数传递时会出现在服务器访问日志、浏览器历史和代理日志中。
+    # 仅对下载/校验等需要直接通过 URL 调用的端点开启，其他端点必须使用 Header 传递 Token。
+    # 生产环境建议在反向代理层对包含 token 参数的请求 URL 进行脱敏日志记录。
     path = request.url.path.rstrip("/")
     return path.endswith("/download") or path.endswith("/checksum") or path.endswith("/download-script.ps1") or path.endswith("/download-script.sh")

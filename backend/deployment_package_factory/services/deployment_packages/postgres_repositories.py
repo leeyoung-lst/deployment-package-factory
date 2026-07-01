@@ -60,6 +60,18 @@ class PostgresPackageTaskRepository:
             row = conn.execute("select * from package_tasks where task_id = %s", (task_id,)).fetchone()
         return _task_from_row(row) if row else None
 
+    def get_by_package_id(self, package_id: str) -> PackageTask | None:
+        """Find a completed task by its result package_id using a SQL-level lookup."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "select * from package_tasks"
+                " where status = 'completed' and result_json is not null"
+                " and result_json like %s"
+                " limit 1",
+                (f'%"packageId":"{package_id}"%',),
+            ).fetchone()
+        return _task_from_row(row) if row else None
+
     def list(self, limit: int = 50) -> list[PackageTask]:
         with self._connect() as conn:
             rows = conn.execute(

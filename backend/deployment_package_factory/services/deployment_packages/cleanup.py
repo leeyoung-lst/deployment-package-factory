@@ -63,6 +63,9 @@ def _cleanup_candidates(repo) -> list[PackageTask]:
 
 
 def _delete_task_outputs(repo, task: PackageTask, result: CleanupResult, *, dry_run: bool) -> None:
+    # NOTE: 清理与下载之间无互斥锁。若客户端正在下载时被清理，下载会中断。
+    # 当前设计中清理仅通过手动触发（POST /cleanup），实际竞态风险极低。
+    # 若需严格保护，可引入文件锁或基于 artifact 的引用计数。
     if task.result is None:
         return
     artifact = Path(task.result.artifact_path)

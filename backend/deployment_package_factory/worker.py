@@ -20,6 +20,9 @@ async def run_worker(*, once: bool = False) -> None:
     settings = load_settings()
     worker_id = os.getenv("DEPLOYMENT_PACKAGE_WORKER_ID") or f"{socket.gethostname()}-{uuid4().hex[:8]}"
     repo = create_task_repository(database_url=settings.database_url)
+    # NOTE: asyncio.Semaphore 仅在本进程内限制并发。若同时运行多个 Worker 实例，
+    # 需依赖数据库层面的 claim_next_pending 原子操作来防止同一任务被多 Worker 抢占。
+    # 当前设计中 repo.claim_next_pending 使用 SELECT FOR UPDATE 实现行级锁，已满足此要求。
     executor = PackageTaskExecutor(
         repo,
         PackageTaskExecutorConfig(

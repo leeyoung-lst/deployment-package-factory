@@ -255,6 +255,9 @@ def create_image_export_pod(
     data_mount_path: str,
     containerd_socket: str,
 ) -> dict:
+    # SECURITY: Helper Pod 需要 privileged + root 权限来访问节点的 containerd socket
+    # 以导出镜像。该 Pod 生命周期极短（导出完成后立即删除），且仅在 Worker 主动触发时创建。
+    # 风险缓解措施：Pod 运行在指定节点、使用 RestartPolicy: Never、导出后自动清理。
     token = _require_service_account_token()
     return _request_json(
         "POST",

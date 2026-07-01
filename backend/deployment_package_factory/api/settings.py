@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from deployment_package_factory.auth import require_api_token
@@ -14,6 +15,8 @@ from deployment_package_factory.services.settings import (
 )
 from deployment_package_factory.services.settings_importer import import_environment_settings_from_xlsx
 
+MAX_XLSX_IMPORT_BYTES = 50 * 1024 * 1024  # 50 MB
+
 router = APIRouter(
     prefix="/api/settings",
     tags=["settings"],
@@ -22,6 +25,7 @@ router = APIRouter(
 
 _SETTINGS = load_settings()
 _SETTINGS_REPO = None
+_SETTINGS_REPO_LOCK = threading.Lock()
 
 
 class EnvironmentSettingsImportResult(BaseModel):
@@ -34,9 +38,10 @@ class EnvironmentSettingsImportResult(BaseModel):
 
 def get_system_settings_repository():
     global _SETTINGS_REPO
-    if _SETTINGS_REPO is None:
-        _SETTINGS_REPO = create_system_settings_repository(database_url=_SETTINGS.database_url)
-    return _SETTINGS_REPO
+    with _SETTINGS_REPO_LOCK:
+        if _SETTINGS_REPO is None:
+            _SETTINGS_REPO = create_system_settings_repository(database_url=_SETTINGS.database_url)
+        return _SETTINGS_REPO
 
 
 @router.get("", response_model=SystemSettings)
@@ -51,6 +56,11 @@ async def update_system_settings(payload: SystemSettings) -> SystemSettings:
 
 @router.post("/import-environment", response_model=EnvironmentSettingsImportResult)
 async def import_environment_settings(payload: bytes = Body(...)) -> EnvironmentSettingsImportResult:
+    if len(payload) > MAX_XLSX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"XLSX file exceeds maximum allowed size of {MAX_XLSX_IMPORT_BYTES // (1024 * 1024)} MB.",
+        )
     repository = get_system_settings_repository()
     current = repository.get()
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as handle:

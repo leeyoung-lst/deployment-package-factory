@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from deployment_package_factory.api import deployment_packages, settings
+from deployment_package_factory.api import _common, settings
 from deployment_package_factory.main import create_app
 from deployment_package_factory.services.deployment_packages.models import ImageExportEnvironmentCheck
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest
@@ -15,8 +15,8 @@ def test_metrics_endpoint_exports_prometheus_text(tmp_path, monkeypatch) -> None
     audit_repo = InMemoryAuditEventRepository()
     task_repo.create(PackageBuildRequest())
     audit_repo.record(action="package.create", status="accepted")
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", task_repo)
-    monkeypatch.setattr(deployment_packages, "_AUDIT_REPO", audit_repo)
+    monkeypatch.setattr(_common, "_TASK_REPO", task_repo)
+    monkeypatch.setattr(_common, "_AUDIT_REPO", audit_repo)
 
     response = TestClient(create_app()).get("/metrics")
 
@@ -134,10 +134,10 @@ def _set_ready_repositories(monkeypatch):
     audit_repo = InMemoryAuditEventRepository()
     business_repo = InMemoryBusinessPlatformRepository()
     microservice_repo = InMemoryMicroserviceRepository()
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", task_repo)
-    monkeypatch.setattr(deployment_packages, "_AUDIT_REPO", audit_repo)
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", business_repo)
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    monkeypatch.setattr(_common, "_TASK_REPO", task_repo)
+    monkeypatch.setattr(_common, "_AUDIT_REPO", audit_repo)
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", business_repo)
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", microservice_repo)
     return task_repo, audit_repo, business_repo, microservice_repo
 
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import re
 from contextlib import contextmanager
@@ -13,11 +11,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 IMAGE_PATH_RE = r"^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$"
 
 
+def _camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(w.capitalize() for w in parts[1:])
+
+
 class GitSettings(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
 
     provider: str = "gitlab"
-    base_url: str = Field(default="", alias="baseUrl")
+    base_url: str = ""
     group: str = "business-services"
     username: str = ""
     email: str = ""
@@ -48,6 +51,8 @@ class GitSettings(BaseModel):
 
 
 class HarborSettings(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
+
     registry: str = "registry.local"
     project: str = "business"
     username: str = ""
@@ -81,15 +86,15 @@ class HarborSettings(BaseModel):
 
 
 class JenkinsSettings(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
 
-    base_url: str = Field(default="", alias="baseUrl")
+    base_url: str = ""
     folder: str = "business-services"
     username: str = ""
     password: str = ""
-    deploy_job: str = Field(default="", alias="deployJob")
-    registry_credential_id: str = Field(default="dpf-registry-credentials", alias="registryCredentialId")
-    kubeconfig_credential_id: str = Field(default="dpf-kubeconfig", alias="kubeconfigCredentialId")
+    deploy_job: str = ""
+    registry_credential_id: str = "dpf-registry-credentials"
+    kubeconfig_credential_id: str = "dpf-kubeconfig"
 
     @field_validator("base_url", "username", "password", "deploy_job", "registry_credential_id", "kubeconfig_credential_id")
     @classmethod
@@ -106,14 +111,14 @@ class JenkinsSettings(BaseModel):
 
 
 class KubernetesSettings(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
 
-    cluster_name: str = Field(default="local-ai", alias="clusterName")
-    ingress_vip: str = Field(default="", alias="ingressVip")
-    factory_namespace: str = Field(default="deployment-package-factory", alias="factoryNamespace")
-    default_namespace: str = Field(default="local-ai", alias="defaultNamespace")
-    kubeconfig_path: str = Field(default="/opt/jenkins/kube/config", alias="kubeconfigPath")
-    storage_class: str = Field(default="", alias="storageClass")
+    cluster_name: str = "local-ai"
+    ingress_vip: str = ""
+    factory_namespace: str = "deployment-package-factory"
+    default_namespace: str = "local-ai"
+    kubeconfig_path: str = "/opt/jenkins/kube/config"
+    storage_class: str = ""
 
     @field_validator("cluster_name", "ingress_vip", "factory_namespace", "default_namespace", "kubeconfig_path", "storage_class")
     @classmethod
@@ -122,7 +127,7 @@ class KubernetesSettings(BaseModel):
 
 
 class MiddlewareEndpointSettings(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
 
     enabled: bool = False
     host: str = ""
@@ -158,14 +163,14 @@ class MiddlewareSettings(BaseModel):
 
 
 class SystemSettings(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_camel)
 
     git: GitSettings = Field(default_factory=GitSettings)
     harbor: HarborSettings = Field(default_factory=HarborSettings)
     jenkins: JenkinsSettings = Field(default_factory=JenkinsSettings)
     kubernetes: KubernetesSettings = Field(default_factory=KubernetesSettings)
     middleware: MiddlewareSettings = Field(default_factory=MiddlewareSettings)
-    updated_at: str = Field(default="", alias="updatedAt")
+    updated_at: str = ""
 
 
 class SystemSettingsRepository:

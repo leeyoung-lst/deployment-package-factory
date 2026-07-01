@@ -21,6 +21,7 @@ class DeploymentPackageSettings:
     running_task_timeout_minutes: int
     retention_days: int
     max_total_gb: int
+    cors_allowed_origins: list[str]
 
 
 def load_settings() -> DeploymentPackageSettings:
@@ -38,6 +39,7 @@ def load_settings() -> DeploymentPackageSettings:
         running_task_timeout_minutes=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES"), default=120),
         retention_days=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_RETENTION_DAYS"), default=30),
         max_total_gb=_positive_int(os.getenv("DEPLOYMENT_PACKAGE_MAX_TOTAL_GB"), default=500),
+        cors_allowed_origins=_origins_list(os.getenv("DEPLOYMENT_PACKAGE_CORS_ALLOWED_ORIGINS")),
     )
 
 
@@ -54,3 +56,10 @@ def _positive_int(raw: str | None, *, default: int) -> int:
 def _execution_mode(raw: str | None) -> str:
     value = (raw or "background").strip().lower()
     return value if value in {"background", "worker"} else "background"
+
+
+def _origins_list(raw: str | None) -> list[str]:
+    if not raw:
+        return ["*"]
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    return origins or ["*"]

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from deployment_package_factory.auth import require_api_token
 from deployment_package_factory.settings import load_settings
-from deployment_package_factory.api.deployment_packages import get_audit_repository
+from deployment_package_factory.api._common import get_audit_repository
 from deployment_package_factory.services.environment_reset import (
     EnvironmentResetOptions,
     EnvironmentResetPreview,

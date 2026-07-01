@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
-from deployment_package_factory.api import deployment_packages, environment_reset
+from deployment_package_factory.api import _common, environment_reset
 from deployment_package_factory.services.environment_reset import (
     EnvironmentResetOptions,
     EnvironmentResetPreview,
@@ -17,8 +17,8 @@ from fakes import InMemoryAuditEventRepository, InMemoryTaskRepository
 
 @pytest.fixture(autouse=True)
 def _isolate_repositories(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(deployment_packages, "_TASK_REPO", InMemoryTaskRepository())
-    monkeypatch.setattr(deployment_packages, "_AUDIT_REPO", InMemoryAuditEventRepository())
+    monkeypatch.setattr(_common, "_TASK_REPO", InMemoryTaskRepository())
+    monkeypatch.setattr(_common, "_AUDIT_REPO", InMemoryAuditEventRepository())
 
 
 def _client() -> TestClient:
@@ -71,7 +71,7 @@ def test_execute_environment_reset_requires_confirmation(monkeypatch: pytest.Mon
 
 def test_execute_environment_reset_records_audit(monkeypatch: pytest.MonkeyPatch) -> None:
     audit_repo = InMemoryAuditEventRepository()
-    monkeypatch.setattr(deployment_packages, "_AUDIT_REPO", audit_repo)
+    monkeypatch.setattr(_common, "_AUDIT_REPO", audit_repo)
 
     def fake_execute(database_url, output_dir, request: EnvironmentResetRequest) -> EnvironmentResetPreview:
         return EnvironmentResetPreview(

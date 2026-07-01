@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import tarfile
+import shutil
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from deployment_package_factory.api import deployment_packages, microservices
+from deployment_package_factory.api import _common, deployment_packages, microservices
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
 from deployment_package_factory.services.settings import GitSettings, HarborSettings, JenkinsSettings, SystemSettings
 from fakes import InMemoryBusinessPlatformRepository, InMemoryMicroserviceRepository
@@ -21,11 +22,11 @@ def _client() -> TestClient:
 def test_register_microservice_requires_registered_business_platform(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(
-        deployment_packages,
+        _common,
         "_BUSINESS_PLATFORM_REPO",
         InMemoryBusinessPlatformRepository(),
     )
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
 
     response = _client().post(
         "/api/microservices",
@@ -56,8 +57,8 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
             status="active",
         )
     )
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", microservice_repo)
 
     response = _client().post(
         "/api/microservices",
@@ -409,10 +410,10 @@ def test_register_microservice_accepts_runtime_discovered_business_platform(tmp_
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
     repo = InMemoryBusinessPlatformRepository()
     microservice_repo = InMemoryMicroserviceRepository()
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", microservice_repo)
     monkeypatch.setattr(
-        deployment_packages,
+        _common,
         "list_registered_business_platforms",
         lambda include_disabled=False: [
             RegisteredBusinessPlatform(
@@ -451,8 +452,8 @@ def test_register_microservice_accepts_numeric_prefix_service_key(tmp_path, monk
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
     repo = InMemoryBusinessPlatformRepository()
     microservice_repo = InMemoryMicroserviceRepository()
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", microservice_repo)
     repo.upsert_registered(
         RegisteredBusinessPlatform(
             key="eam",
@@ -491,8 +492,8 @@ def test_register_microservice_normalizes_scaffold_inputs(tmp_path, monkeypatch)
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
     repo = InMemoryBusinessPlatformRepository()
     microservice_repo = InMemoryMicroserviceRepository()
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", microservice_repo)
     repo.upsert_registered(
         RegisteredBusinessPlatform(
             key="eam",
@@ -691,6 +692,77 @@ def test_register_microservice_prepares_github_project_when_provider_configured(
     assert ("git-push", "https://github.com/sajidsah565-sys/asset-github.git:x-access-token") in calls
 
 
+def test_retry_microservice_delivery_keeps_artifact_when_project_root_missing(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+    calls: list[str] = []
+
+    class FakeGitLabClient:
+        def __init__(self, base_url: str, token: str) -> None:
+            pass
+
+        def ensure_project(self, group: str, service_key: str) -> str:
+            calls.append(f"git-project:{service_key}")
+            return f"https://git.local/scm/{group}/{service_key}.git"
+
+    class FakeJenkinsClient:
+        def __init__(self, base_url: str, username: str, token: str) -> None:
+            pass
+
+        def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> str:
+            calls.append(f"jenkins-job:{service_key}")
+            return f"/job/{folder}/job/{service_key}"
+
+        def trigger_build(self, job_path: str) -> str:
+            calls.append(f"jenkins-build:{job_path}")
+            return f"https://jenkins.local{job_path}/build"
+
+    monkeypatch.setattr(
+        microservices,
+        "_system_settings",
+        lambda: SystemSettings(
+            git=GitSettings(baseUrl="https://git.local/scm", group="factory-services", token="git-token"),
+            harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
+            jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
+        ),
+    )
+    monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitLabClient", FakeGitLabClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
+
+    client = _client()
+    created = client.post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-missing-root",
+            "serviceName": "资产缺目录服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+        },
+    )
+    assert created.status_code == 200, created.text
+    project_id = created.json()["projectId"]
+    artifact_path = Path(created.json()["artifactPath"])
+    project_root = microservices.find_scaffold_project_root(project_id, output_dir=artifact_path.parents[1])
+    assert project_root is not None
+    shutil.rmtree(project_root, onexc=lambda function, path, _excinfo: (Path(path).chmod(0o700), function(path)))
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_bytes(b"temporary scaffold")
+    calls.clear()
+
+    retried = client.post(f"/api/microservices/{project_id}/delivery/retry")
+
+    assert retried.status_code == 200, retried.text
+    payload = retried.json()
+    assert payload["delivery"]["status"] == "failed"
+    assert {step["name"]: step["status"] for step in payload["delivery"]["steps"]} == {
+        "git-project": "failed",
+        "jenkins-job": "pending",
+    }
+    assert payload["microservice"]["artifactAvailable"] is True
+    assert artifact_path.exists()
+    assert calls == ["git-project:asset-missing-root"]
+
+
 def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeypatch) -> None:
     _register_platform(tmp_path, monkeypatch)
     calls: list[tuple[str, str]] = []
@@ -768,6 +840,85 @@ def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeyp
     assert ("jenkins-build", "/job/factory-services/job/asset-retry") in calls
 
 
+def test_retry_microservice_delivery_reuses_ready_git_step_for_jenkins_retry(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+    calls: list[tuple[str, str]] = []
+
+    class FakeGitLabClient:
+        def __init__(self, base_url: str, token: str) -> None:
+            pass
+
+        def ensure_project(self, group: str, service_key: str) -> str:
+            calls.append(("git-project", service_key))
+            return f"https://git.local/scm/{group}/{service_key}.git"
+
+    class FakeJenkinsClient:
+        def __init__(self, base_url: str, username: str, token: str) -> None:
+            pass
+
+        def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> str:
+            calls.append(("jenkins-job", service_key))
+            return f"/job/{folder}/job/{service_key}"
+
+        def trigger_build(self, job_path: str) -> str:
+            calls.append(("jenkins-build", job_path))
+            return f"https://jenkins.local{job_path}/build"
+
+    jenkins_credentials_ready = False
+    monkeypatch.setattr(
+        microservices,
+        "_system_settings",
+        lambda: SystemSettings(
+            git=GitSettings(baseUrl="https://git.local/scm", group="factory-services", token="git-token"),
+            harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
+            jenkins=JenkinsSettings(
+                baseUrl="https://jenkins.local",
+                folder="factory-services",
+                username="admin" if jenkins_credentials_ready else "",
+                password="jenkins-token" if jenkins_credentials_ready else "",
+            ),
+        ),
+    )
+    monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitLabClient", FakeGitLabClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: calls.append(("git-push", str(args[1]))))
+
+    client = _client()
+    created = client.post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-jenkins-retry",
+            "serviceName": "资产 Jenkins 重试服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    project_id = created.json()["projectId"]
+    assert created.json()["delivery"]["status"] == "pending"
+    assert created.json()["artifactAvailable"] is False
+    assert not Path(created.json()["artifactPath"]).exists()
+    assert ("git-project", "asset-jenkins-retry") in calls
+    jenkins_credentials_ready = True
+    calls.clear()
+
+    retried = client.post(f"/api/microservices/{project_id}/delivery/retry")
+
+    assert retried.status_code == 200, retried.text
+    payload = retried.json()
+    assert payload["delivery"]["status"] == "ready"
+    assert {step["name"]: step["status"] for step in payload["delivery"]["steps"]} == {
+        "git-project": "ready",
+        "jenkins-job": "ready",
+    }
+    assert payload["microservice"]["artifactAvailable"] is False
+    assert ("git-project", "asset-jenkins-retry") not in calls
+    assert ("git-push", "https://git.local/scm/factory-services/asset-jenkins-retry.git") not in calls
+    assert ("jenkins-build", "/job/factory-services/job/asset-jenkins-retry") in calls
+
+
 def test_get_microservice_delivery_status_refreshes_jenkins_build(tmp_path, monkeypatch) -> None:
     _register_platform(tmp_path, monkeypatch)
 
@@ -829,8 +980,8 @@ def test_get_microservice_delivery_status_refreshes_jenkins_build(tmp_path, monk
 
 def test_register_microservice_rejects_registry_path(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
 
     response = _client().post(
         "/api/microservices",
@@ -849,8 +1000,8 @@ def test_register_microservice_rejects_registry_path(tmp_path, monkeypatch) -> N
 
 def test_register_microservice_rejects_invalid_port(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
 
     response = _client().post(
         "/api/microservices",
@@ -869,8 +1020,8 @@ def test_register_microservice_rejects_invalid_port(tmp_path, monkeypatch) -> No
 
 def test_register_microservice_rejects_micro_frontend_framework_for_backend(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
 
     response = _client().post(
         "/api/microservices",
@@ -903,5 +1054,5 @@ def _register_platform(tmp_path, monkeypatch) -> None:
             status="active",
         )
     )
-    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", repo)
-    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", microservice_repo)
+    monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", repo)
+    monkeypatch.setattr(_common, "_MICROSERVICE_REPO", microservice_repo)
