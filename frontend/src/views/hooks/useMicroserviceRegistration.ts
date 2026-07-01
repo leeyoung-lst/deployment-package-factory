@@ -67,7 +67,8 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
   };
 
   const normalizeCurrentInputs = () => {
-    form.setFieldsValue({ serviceKey: normalizeK8sName(form.getFieldValue("serviceKey")), gitGroup: normalizePathValue(form.getFieldValue("gitGroup")), imageRegistry: normalizeRegistry(form.getFieldValue("imageRegistry")), imageNamespace: normalizePathValue(form.getFieldValue("imageNamespace")), k8sNamespace: selectedPlatform?.namespace || "" });
+    const imageRegistry = normalizeRegistry(systemSettings?.harbor.registry || form.getFieldValue("imageRegistry"));
+    form.setFieldsValue({ serviceKey: normalizeK8sName(form.getFieldValue("serviceKey")), gitGroup: normalizePathValue(form.getFieldValue("gitGroup")), imageRegistry, imageNamespace: normalizePathValue(form.getFieldValue("imageNamespace")), k8sNamespace: selectedPlatform?.namespace || "" });
     setFormValues(form.getFieldsValue(true));
   };
 

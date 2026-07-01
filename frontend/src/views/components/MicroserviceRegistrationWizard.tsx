@@ -13,8 +13,8 @@ import { SummaryStep } from "./microserviceWizard/SummaryStep";
 import { TechStackStep } from "./microserviceWizard/TechStackStep";
 import styles from "../MicroserviceRegistrationView.module.css";
 
-const STEP_FIELDS: Array<Array<keyof MicroserviceWizardValues>> = [["sourceEnv", "businessPlatform"], ["serviceKey", "serviceName", "description"], ["projectKind", "techStack", "microFrontendFramework"], ["port", "gitGroup", "imageRegistry", "imageNamespace"], ["middleware", "k8sNamespace"], []];
-const REQUIRED_FIELDS: Array<Array<keyof MicroserviceWizardValues>> = [["sourceEnv", "businessPlatform"], ["serviceKey", "serviceName"], ["projectKind", "techStack"], ["port", "gitGroup", "imageRegistry", "imageNamespace"], [], []];
+const STEP_FIELDS: Array<Array<keyof MicroserviceWizardValues>> = [["sourceEnv", "businessPlatform"], ["serviceKey", "serviceName", "description"], ["projectKind", "techStack", "microFrontendFramework"], ["port", "gitGroup", "imageNamespace"], ["middleware", "k8sNamespace"], []];
+const REQUIRED_FIELDS: Array<Array<keyof MicroserviceWizardValues>> = [["sourceEnv", "businessPlatform"], ["serviceKey", "serviceName"], ["projectKind", "techStack"], ["port", "gitGroup", "imageNamespace"], [], []];
 export const WIZARD_STEP_COUNT = STEP_FIELDS.length;
 
 interface Props {
