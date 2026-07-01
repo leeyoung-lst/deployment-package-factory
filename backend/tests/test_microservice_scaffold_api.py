@@ -265,9 +265,16 @@ def test_register_microservice_generates_java_and_frontend_projects(tmp_path, mo
     assert vue_response.status_code == 200, vue_response.text
     with tarfile.open(Path(java_response.json()["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
+        pom = tar.extractfile("asset-java/pom.xml").read().decode("utf-8")
+        dockerfile = tar.extractfile("asset-java/Dockerfile").read().decode("utf-8")
         assert "asset-java/pom.xml" in names
         assert "asset-java/src/main/java/com/example/domain/DemoItem.java" in names
         assert "asset-java/src/main/resources/application.yml" in names
+        assert "<java.version>17</java.version>" in pom
+        assert "<maven.compiler.release>${java.version}</maven.compiler.release>" in pom
+        assert "<artifactId>maven-compiler-plugin</artifactId>" in pom
+        assert "<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>" in pom
+        assert "eclipse-temurin:17-jre" in dockerfile
     with tarfile.open(Path(vue_response.json()["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
         assert "asset-ui/package.json" in names

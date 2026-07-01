@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -76,7 +77,7 @@ def main() -> int:
         if args.keep_output:
             kept = REPO_ROOT / "data" / "microservice-scaffold-e2e"
             if kept.exists():
-                shutil.rmtree(kept)
+                _remove_tree(kept)
             shutil.copytree(output_dir, kept)
             print(f"Kept output directory: {kept}")
         return code
@@ -245,12 +246,22 @@ def _run_build_checks(project_root: Path, case: Case, checks: list[str], failure
 
 
 def _run_command(command: list[str], cwd: Path, label: str, checks: list[str], failures: list[str]) -> None:
-    completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+    completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if completed.returncode == 0:
         checks.append(label)
     else:
-        details = (completed.stderr or completed.stdout).strip().splitlines()
-        failures.append(f"{label} failed: {details[-1] if details else completed.returncode}")
+        output = "\n".join([completed.stdout or "", completed.stderr or ""])
+        details = [line for line in output.strip().splitlines() if line.strip()]
+        summary = " | ".join(details[-5:]) if details else str(completed.returncode)
+        failures.append(f"{label} failed: {summary}")
+
+
+def _remove_tree(path: Path) -> None:
+    def clear_readonly(function, item, _excinfo):
+        os.chmod(item, 0o700)
+        function(item)
+
+    shutil.rmtree(path, onexc=clear_readonly)
 
 
 def _expect(condition: bool, message: str, checks: list[str], failures: list[str]) -> None:

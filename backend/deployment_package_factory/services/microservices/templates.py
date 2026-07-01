@@ -7,6 +7,8 @@ from deployment_package_factory.services.microservices.middleware_plugins import
     middleware_catalog,
     middleware_yaml,
 )
+from deployment_package_factory.services.microservices.frontend_templates import frontend_required_files, render_frontend_files
+from deployment_package_factory.services.microservices.java_templates import java_required_files, render_java_files
 from deployment_package_factory.services.microservices.node_templates import node_required_files, render_nodejs_files
 from deployment_package_factory.services.microservices.templates_common import TemplateFile
 
@@ -46,9 +48,9 @@ def render_generic_template(request) -> list[TemplateFile]:
     if stack == "nodejs-express":
         files.extend(_nodejs_files(context))
     elif stack == "java-spring-cloud-alibaba":
-        files.extend(_java_files(context))
+        files.extend(render_java_files(context))
     elif stack in {"vue3-vite", "react-vite"}:
-        files.extend(_frontend_files(context))
+        files.extend(render_frontend_files(context))
     else:
         raise ValueError(f"Unsupported techStack: {stack}")
     return files
@@ -59,11 +61,9 @@ def generic_required_files(tech_stack: str) -> list[str]:
     if tech_stack == "nodejs-express":
         required.extend(node_required_files())
     elif tech_stack == "java-spring-cloud-alibaba":
-        required.extend(["pom.xml", "src/main/java/com/example/domain/DemoItem.java", "src/main/java/com/example/interfaces/HealthController.java"])
-    elif tech_stack == "react-vite":
-        required.extend(["package.json", "index.html", "vite.config.ts", "tsconfig.json", "src/main.tsx"])
-    else:
-        required.extend(["package.json", "index.html", "vite.config.ts", "tsconfig.json", "src/main.ts", "src/router/index.ts", "src/App.vue"])
+        required.extend(java_required_files())
+    elif tech_stack in {"vue3-vite", "react-vite"}:
+        required.extend(frontend_required_files(tech_stack))
     return required
 
 
@@ -109,52 +109,6 @@ def _nodejs_files(context: dict[str, object]) -> list[TemplateFile]:
     return render_nodejs_files(context)
 
 
-def _java_files(context: dict[str, object]) -> list[TemplateFile]:
-    return [
-        TemplateFile(PurePosixPath("pom.xml"), _java_pom(context)),
-        TemplateFile(PurePosixPath("src/main/resources/application.yml"), _java_application_yml(context)),
-        TemplateFile(PurePosixPath("src/main/java/com/example/domain/DemoItem.java"), "package com.example.domain;\n\npublic record DemoItem(String name, String normalizedName) {}\n"),
-        TemplateFile(PurePosixPath("src/main/java/com/example/application/DemoService.java"), "package com.example.application;\n\nimport com.example.domain.DemoItem;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class DemoService {\n  public DemoItem create(String name) { return new DemoItem(name, name.toLowerCase().replaceAll(\"[^a-z0-9-]+\", \"-\")); }\n}\n"),
-        TemplateFile(PurePosixPath("src/main/java/com/example/interfaces/HealthController.java"), _java_controller(context)),
-        TemplateFile(PurePosixPath("src/main/java/com/example/Application.java"), _java_main()),
-    ]
-
-
-def _frontend_files(context: dict[str, object]) -> list[TemplateFile]:
-    stack = str(context["tech_stack"])
-    app_import = "import './style.css';"
-    if stack == "react-vite":
-        main = "import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport { Button } from 'antd';\nimport 'antd/dist/reset.css';\nimport './style.css';\ncreateRoot(document.getElementById('root')!).render(<Button type=\"primary\">Hello {service}</Button>);\n".replace("{service}", str(context["service_name"]))
-        index = '<div id="root"></div><script type="module" src="/src/main.tsx"></script>\n'
-        main_path = "src/main.tsx"
-    else:
-        main = "import { createApp } from 'vue';\nimport ElementPlus from 'element-plus';\nimport 'element-plus/dist/index.css';\nimport App from './App.vue';\nimport router from './router';\nimport './style.css';\ncreateApp(App).use(router).use(ElementPlus).mount('#app');\n"
-        index = '<div id="app"></div><script type="module" src="/src/main.ts"></script>\n'
-        main_path = "src/main.ts"
-    files = [
-        TemplateFile(PurePosixPath("package.json"), _frontend_package(context)),
-        TemplateFile(PurePosixPath("tsconfig.json"), _frontend_tsconfig()),
-        TemplateFile(PurePosixPath("vite.config.ts"), _frontend_vite_config(context)),
-        TemplateFile(PurePosixPath("index.html"), index),
-        TemplateFile(PurePosixPath(main_path), main),
-        TemplateFile(PurePosixPath("src/style.css"), "body { margin: 0; font-family: Inter, 'Microsoft YaHei', sans-serif; }\n"),
-    ]
-    if stack != "react-vite":
-        files.append(TemplateFile(PurePosixPath("src/router/index.ts"), "import { createRouter, createWebHistory } from 'vue-router';\nexport default createRouter({ history: createWebHistory(), routes: [{ path: '/', component: { template: '<main>微服务前端骨架</main>' } }] });\n"))
-        files.append(TemplateFile(PurePosixPath("src/App.vue"), f"<template><main><h1>{context['service_name']}</h1><p>{context['description']}</p></main></template>\n"))
-    return files
-
-
-def _frontend_tsconfig() -> str:
-    return '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"Bundler","strict":true,"jsx":"react-jsx","skipLibCheck":true},"include":["src","vite.config.ts"]}\n'
-
-
-def _frontend_vite_config(context: dict[str, object]) -> str:
-    plugin = "react from '@vitejs/plugin-react'" if context["tech_stack"] == "react-vite" else "vue from '@vitejs/plugin-vue'"
-    use_plugin = "react()" if context["tech_stack"] == "react-vite" else "vue()"
-    return f"import {{ defineConfig }} from 'vite';\nimport {plugin};\n\nexport default defineConfig({{ plugins: [{use_plugin}], server: {{ host: '0.0.0.0', port: {context['port']} }} }});\n"
-
-
 def _env_template(context: dict[str, object]) -> str:
     lines = [f"SERVICE_NAME={context['service_key']}", f"BUSINESS_PLATFORM_KEY={context['business_platform_key']}", f"BUSINESS_PLATFORM_NAMESPACE={context['business_platform_namespace']}", f"APP_PORT={context['port']}"]
     lines.extend(env_placeholder_lines(context["middleware"]))
@@ -183,7 +137,7 @@ def _readme(context: dict[str, object]) -> str:
 def _dockerfile(context: dict[str, object]) -> str:
     stack = context["tech_stack"]
     if stack == "java-spring-cloud-alibaba":
-        return "FROM eclipse-temurin:21-jre\nWORKDIR /app\nCOPY target/*.jar app.jar\nUSER 10001\nENTRYPOINT [\"java\",\"-jar\",\"/app/app.jar\"]\n"
+        return "FROM eclipse-temurin:17-jre\nWORKDIR /app\nCOPY target/*.jar app.jar\nUSER 10001\nENTRYPOINT [\"java\",\"-jar\",\"/app/app.jar\"]\n"
     if stack in {"vue3-vite", "react-vite"}:
         return "FROM nginx:1.27-alpine\nCOPY dist /usr/share/nginx/html\nUSER 101\n"
     return f"FROM node:22-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build\nUSER node\nEXPOSE {context['port']}\nCMD [\"npm\",\"start\"]\n"
@@ -254,27 +208,3 @@ def _helm_deployment(context: dict[str, object]) -> str:
 
 def _helm_service(context: dict[str, object]) -> str:
     return f"apiVersion: v1\nkind: Service\nmetadata:\n  name: {context['service_key']}\nspec:\n  selector:\n    app: {context['service_key']}\n  ports:\n    - port: {{{{ .Values.service.port }}}}\n      targetPort: {{{{ .Values.service.targetPort }}}}\n"
-
-
-def _java_pom(context: dict[str, object]) -> str:
-    return f"""<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>{context['service_key']}</artifactId><version>0.1.0</version><properties><java.version>21</java.version><spring-boot.version>3.3.0</spring-boot.version></properties><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId><version>${{spring-boot.version}}</version></dependency><dependency><groupId>com.alibaba.cloud</groupId><artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId><version>2023.0.1.0</version></dependency><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId><version>${{spring-boot.version}}</version></dependency></dependencies><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><version>${{spring-boot.version}}</version></plugin></plugins></build></project>\n"""
-
-
-def _java_application_yml(context: dict[str, object]) -> str:
-    return f"server:\n  port: {context['port']}\nspring:\n  application:\n    name: {context['service_key']}\n  cloud:\n    nacos:\n      discovery:\n        server-addr: ${{NACOS_ENDPOINT:localhost:8848}}\n"
-
-
-def _java_main() -> str:
-    return "package com.example;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application { public static void main(String[] args) { SpringApplication.run(Application.class, args); } }\n"
-
-
-def _java_controller(context: dict[str, object]) -> str:
-    return "package com.example.interfaces;\n\nimport com.example.application.DemoService;\nimport org.springframework.web.bind.annotation.*;\n\n@RestController\npublic class HealthController {\n  private final DemoService demoService;\n  public HealthController(DemoService demoService) { this.demoService = demoService; }\n  @GetMapping(\"/health\") public Object health() { return java.util.Map.of(\"status\", \"ok\"); }\n  @PostMapping(\"/api/v1/items/{name}\") public Object create(@PathVariable String name) { return demoService.create(name); }\n}\n"
-
-
-def _frontend_package(context: dict[str, object]) -> str:
-    stack = context["tech_stack"]
-    deps = '"@vitejs/plugin-react":"^4.3.0","react":"^18.3.1","react-dom":"^18.3.1","antd":"^5.20.0","typescript":"^5.5.0","vite":"^5.4.0"' if stack == "react-vite" else '"@vitejs/plugin-vue":"^5.1.0","vue":"^3.4.0","vue-router":"^4.4.0","pinia":"^2.2.0","element-plus":"^2.8.0","typescript":"^5.5.0","vite":"^5.4.0"'
-    framework = context.get("micro_frontend_framework")
-    extra = ',"qiankun":"^2.10.16"' if framework == "qiankun" else ',"wujie-react":"^1.0.5"' if framework == "wujie" and stack == "react-vite" else ',"wujie-vue3":"^1.0.22"' if framework == "wujie" else ""
-    return f'{{"name":"{context["service_key"]}","type":"module","scripts":{{"build":"vite build","dev":"vite --host 0.0.0.0"}},"dependencies":{{{deps}{extra}}},"devDependencies":{{}}}}\n'
