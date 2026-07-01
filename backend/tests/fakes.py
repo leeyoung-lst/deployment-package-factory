@@ -358,6 +358,14 @@ class InMemoryMicroserviceRepository:
         row["updatedAt"] = _now_iso()
         return row
 
+    def update_fields(self, project_id: str, fields: dict[str, object]) -> dict | None:
+        row = self.get_by_project_id(project_id)
+        if not row:
+            return None
+        row.update(fields)
+        row["updatedAt"] = _now_iso()
+        return row
+
     def list(
         self,
         *,

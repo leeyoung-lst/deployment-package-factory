@@ -186,6 +186,7 @@ class MicroserviceScaffoldResult(BaseModel):
     business_platform_namespace: str = Field(alias="businessPlatformNamespace")
     artifact_name: str = Field(alias="artifactName")
     artifact_path: str = Field(alias="artifactPath")
+    artifact_available: bool = Field(default=True, alias="artifactAvailable")
     artifact_size: int = Field(alias="artifactSize")
     sha256: str
     download_url: str = Field(alias="downloadUrl")
@@ -270,6 +271,7 @@ def create_microservice_scaffold(
         businessPlatformNamespace=request.business_platform_namespace or request.k8s_namespace or request.business_platform_key,
         artifactName=artifact_name,
         artifactPath=str(artifact_path),
+        artifactAvailable=True,
         artifactSize=artifact_path.stat().st_size,
         sha256=digest,
         downloadUrl=f"/api/microservices/{project_id}/download",

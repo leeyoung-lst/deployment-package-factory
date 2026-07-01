@@ -40,6 +40,7 @@ export interface MicroserviceScaffoldResult {
   businessPlatformNamespace: string;
   artifactName: string;
   artifactPath: string;
+  artifactAvailable: boolean;
   artifactSize: number;
   sha256: string;
   downloadUrl: string;
@@ -94,7 +95,9 @@ export interface RegisteredMicroservice {
   k8sNamespace: string;
   artifactName: string;
   artifactPath: string;
+  artifactAvailable: boolean;
   sha256: string;
+  cloneCommand: string;
   generatedFiles: string[];
   status: string;
   createdAt: string;

@@ -560,6 +560,9 @@ def test_register_microservice_uses_system_setting_defaults(tmp_path, monkeypatc
     assert payload["gitRepositoryUrl"] == "https://git.local/scm/factory-services/asset-defaults.git"
     assert payload["image"] == "harbor.local:8443/factory/asset-defaults"
     assert payload["jenkinsJob"] == "https://jenkins.local/job/factory-services/job/asset-defaults"
+    assert payload["artifactAvailable"] is True
+    assert Path(payload["artifactPath"]).exists()
+    assert payload["cloneCommand"].startswith("curl -fL /api/microservices/")
     assert payload["delivery"]["status"] == "pending"
     assert {step["name"]: step["status"] for step in payload["delivery"]["steps"]} == {
         "git-project": "pending",
@@ -619,6 +622,10 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["delivery"]["status"] == "ready"
+    assert payload["artifactAvailable"] is False
+    assert payload["cloneCommand"] == "git clone https://git.local/scm/factory-services/asset-auto.git"
+    assert not Path(payload["artifactPath"]).exists()
+    assert microservices.find_scaffold_project_root(payload["projectId"], output_dir=Path(payload["artifactPath"]).parents[1]) is None
     assert {step["name"]: step["status"] for step in payload["delivery"]["steps"]} == {
         "git-project": "ready",
         "jenkins-job": "ready",
@@ -678,6 +685,8 @@ def test_register_microservice_prepares_github_project_when_provider_configured(
     payload = response.json()
     assert payload["delivery"]["status"] == "ready"
     assert payload["gitRepositoryUrl"] == "https://github.com/sajidsah565-sys/asset-github.git"
+    assert payload["artifactAvailable"] is False
+    assert payload["cloneCommand"] == "git clone https://github.com/sajidsah565-sys/asset-github.git"
     assert ("github-project", "sajidsah565-sys/asset-github") in calls
     assert ("git-push", "https://github.com/sajidsah565-sys/asset-github.git:x-access-token") in calls
 
@@ -685,6 +694,7 @@ def test_register_microservice_prepares_github_project_when_provider_configured(
 def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeypatch) -> None:
     _register_platform(tmp_path, monkeypatch)
     calls: list[tuple[str, str]] = []
+    settings_with_token = False
 
     class FakeGitLabClient:
         def __init__(self, base_url: str, token: str) -> None:
@@ -710,9 +720,14 @@ def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeyp
         microservices,
         "_system_settings",
         lambda: SystemSettings(
-            git=GitSettings(baseUrl="https://git.local/scm", group="factory-services", token="git-token"),
+            git=GitSettings(baseUrl="https://git.local/scm", group="factory-services", token="git-token" if settings_with_token else ""),
             harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
-            jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
+            jenkins=JenkinsSettings(
+                baseUrl="https://jenkins.local",
+                folder="factory-services",
+                username="admin" if settings_with_token else "",
+                password="jenkins-token" if settings_with_token else "",
+            ),
         ),
     )
     monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitLabClient", FakeGitLabClient)
@@ -732,7 +747,12 @@ def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeyp
     )
 
     assert created.status_code == 200, created.text
-    project_id = created.json()["projectId"]
+    created_payload = created.json()
+    project_id = created_payload["projectId"]
+    assert created_payload["delivery"]["status"] == "pending"
+    assert created_payload["artifactAvailable"] is True
+    assert Path(created_payload["artifactPath"]).exists()
+    settings_with_token = True
     calls.clear()
 
     retried = client.post(f"/api/microservices/{project_id}/delivery/retry")
@@ -741,6 +761,9 @@ def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeyp
     payload = retried.json()
     assert payload["delivery"]["status"] == "ready"
     assert payload["microservice"]["delivery"]["status"] == "ready"
+    assert payload["microservice"]["artifactAvailable"] is False
+    assert payload["microservice"]["cloneCommand"] == "git clone https://git.local/scm/factory-services/asset-retry.git"
+    assert not Path(payload["microservice"]["artifactPath"]).exists()
     assert ("git-project", "asset-retry") in calls
     assert ("jenkins-build", "/job/factory-services/job/asset-retry") in calls
 

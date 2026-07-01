@@ -13,6 +13,7 @@ from deployment_package_factory.api.deployment_packages import (
 )
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
+from deployment_package_factory.services.microservices.artifacts import finalize_registered_artifacts, finalize_scaffold_artifacts
 from deployment_package_factory.services.microservices.delivery import prepare_microservice_delivery, refresh_delivery_status
 from deployment_package_factory.services.microservices.middleware_runtime import build_middleware_config, middleware_config_keys
 from deployment_package_factory.services.microservices.scaffold import (
@@ -61,6 +62,7 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
     result = create_microservice_scaffold(enriched, output_dir=_output_dir())
     project_root = find_scaffold_project_root(result.project_id, output_dir=_output_dir())
     result.delivery = prepare_microservice_delivery(enriched, result, defaults, project_root)
+    result = finalize_scaffold_artifacts(result, _output_dir())
     get_microservice_repository().upsert(enriched, result)
     return result
 
@@ -138,6 +140,8 @@ async def retry_microservice_delivery(project_id: str) -> dict:
     project_root = find_scaffold_project_root(project_id, output_dir=_output_dir())
     delivery = prepare_microservice_delivery(request, _result_stub(row), defaults, project_root)
     updated = repo.update_delivery(project_id, delivery)
+    artifact_fields = finalize_registered_artifacts(row, delivery, _output_dir())
+    updated = repo.update_fields(project_id, artifact_fields) or updated
     return {"projectId": project_id, "delivery": delivery, "microservice": updated}
 
 

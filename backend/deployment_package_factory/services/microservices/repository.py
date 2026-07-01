@@ -75,24 +75,16 @@ class MicroserviceRepository:
             return None
         existing["delivery"] = delivery
         existing["updatedAt"] = _now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                update microservices set payload_json = %s, updated_at = %s
-                where source_env = %s
-                  and business_platform_key = %s
-                  and business_platform_profile = %s
-                  and service_key = %s
-                """,
-                (
-                    json.dumps(existing, ensure_ascii=False),
-                    existing["updatedAt"],
-                    existing["sourceEnv"],
-                    existing["businessPlatformKey"],
-                    existing["businessPlatformProfile"],
-                    existing["serviceKey"],
-                ),
-            )
+        self._save_payload(existing)
+        return existing
+
+    def update_fields(self, project_id: str, fields: dict[str, object]) -> dict | None:
+        existing = self.get_by_project_id(project_id)
+        if not existing:
+            return None
+        existing.update(fields)
+        existing["updatedAt"] = _now_iso()
+        self._save_payload(existing)
         return existing
 
     def list(
@@ -138,6 +130,26 @@ class MicroserviceRepository:
                 """
             )
             conn.execute("create index if not exists idx_microservices_platform on microservices(source_env, business_platform_key)")
+
+    def _save_payload(self, payload: dict) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update microservices set payload_json = %s, updated_at = %s
+                where source_env = %s
+                  and business_platform_key = %s
+                  and business_platform_profile = %s
+                  and service_key = %s
+                """,
+                (
+                    json.dumps(payload, ensure_ascii=False),
+                    payload["updatedAt"],
+                    payload["sourceEnv"],
+                    payload["businessPlatformKey"],
+                    payload["businessPlatformProfile"],
+                    payload["serviceKey"],
+                ),
+            )
 
     @contextmanager
     def _connect(self) -> Iterator[psycopg.Connection]:
@@ -185,7 +197,9 @@ def _microservice_payload(
         "k8sNamespace": request.k8s_namespace or result.business_platform_namespace,
         "artifactName": result.artifact_name,
         "artifactPath": result.artifact_path,
+        "artifactAvailable": result.artifact_available,
         "sha256": result.sha256,
+        "cloneCommand": result.clone_command,
         "generatedFiles": result.generated_files,
         "status": "registered",
         "createdAt": created_at,
