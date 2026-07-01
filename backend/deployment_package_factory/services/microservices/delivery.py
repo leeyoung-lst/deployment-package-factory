@@ -44,7 +44,7 @@ def _prepare_git_project(request, settings: SystemSettings, project_root: Path |
     try:
         remote_url = resolve_git_client(settings).ensure_project(request.git_group, request.service_key)
         if project_root and project_root.exists():
-            _push_initial_commit(project_root, remote_url, settings.git.token)
+            _push_initial_commit(project_root, remote_url, settings.git.token, _git_push_username(settings))
         return _step("git-project", "ready", "provision", "创建 Git 项目并推送初始化代码", "Git 项目已创建并推送初始化代码。", remote_url, started)
     except (DeliveryError, GitProviderError) as exc:
         return _step("git-project", "failed", "provision", "创建 Git 项目或推送代码", str(exc), target, started, "检查 Git 地址、Token 权限、默认分组是否存在。")
@@ -119,12 +119,20 @@ class JenkinsClient:
         }
 
 
-def _push_initial_commit(project_root: Path, remote_url: str, token: str) -> None:
+def _push_initial_commit(project_root: Path, remote_url: str, token: str, username: str = "oauth2") -> None:
     if not shutil.which("git"):
         raise DeliveryError("Git 命令不可用，无法初始化推送。")
     _git(project_root, ["remote", "remove", "origin"], check=False)
     _git(project_root, ["remote", "add", "origin", remote_url])
-    _git(project_root, ["-c", f"http.extraHeader=Authorization: {_basic_auth('oauth2', token)}", "push", "-u", "origin", "main"])
+    _git(project_root, ["-c", f"http.extraHeader=Authorization: {_basic_auth(username, token)}", "push", "-u", "origin", "main"])
+
+
+def _git_push_username(settings: SystemSettings) -> str:
+    provider = (settings.git.provider or "").strip().lower()
+    base_url = settings.git.base_url.lower()
+    if provider == "github" or "github.com" in base_url or "github." in base_url:
+        return settings.git.username or "x-access-token"
+    return settings.git.username or "oauth2"
 
 
 def _git(project_root: Path, args: list[str], *, check: bool = True) -> None:

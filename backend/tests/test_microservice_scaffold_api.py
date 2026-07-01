@@ -85,7 +85,15 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert payload["jenkinsJob"] == "business-services/asset-service"
     assert payload["validation"]["passed"] is True
     assert payload["validation"]["fileCount"] == len(payload["generatedFiles"])
-    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "python-syntax", "pipeline-files", "tech-stack-contract", "middleware-placeholders", "artifact-archive"}
+    assert {item["name"] for item in payload["validation"]["checks"]} == {
+        "required-files",
+        "python-syntax",
+        "pipeline-files",
+        "helm-templates",
+        "tech-stack-contract",
+        "middleware-placeholders",
+        "artifact-archive",
+    }
     artifact = Path(payload["artifactPath"])
     assert artifact.exists()
 
@@ -211,7 +219,14 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["validation"]["passed"] is True
-    assert {item["name"] for item in payload["validation"]["checks"]} == {"required-files", "pipeline-files", "tech-stack-contract", "middleware-placeholders", "artifact-archive"}
+    assert {item["name"] for item in payload["validation"]["checks"]} == {
+        "required-files",
+        "pipeline-files",
+        "helm-templates",
+        "tech-stack-contract",
+        "middleware-placeholders",
+        "artifact-archive",
+    }
     with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
         assert "asset-node/src/domain/demo.ts" in names
@@ -227,6 +242,9 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
         tsconfig = tar.extractfile("asset-node/tsconfig.json").read().decode("utf-8")
         env_template = tar.extractfile("asset-node/.env.template").read().decode("utf-8")
         middleware_yaml = tar.extractfile("asset-node/config/middleware.example.yaml").read().decode("utf-8")
+        helm_deployment = tar.extractfile("asset-node/deploy/helm/asset-node/templates/deployment.yaml").read().decode("utf-8")
+        helm_configmap = tar.extractfile("asset-node/deploy/helm/asset-node/templates/configmap.yaml").read().decode("utf-8")
+        helm_secret = tar.extractfile("asset-node/deploy/helm/asset-node/templates/secret.yaml").read().decode("utf-8")
     assert '"test":"node --test dist/tests/*.test.js"' in package_json
     assert '"start":"node dist/src/interfaces/http/server.js"' in package_json
     assert '"include":["src","tests"]' in tsconfig
@@ -234,6 +252,11 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
     assert "REDIS_ENDPOINT=redis://redis.test-middleware-public.svc.cluster.local:6379/0" in env_template
     assert "kafka:" in middleware_yaml
     assert "mq:" in middleware_yaml
+    assert "envFrom:" in helm_deployment
+    assert "name: asset-node-config" in helm_configmap
+    assert "name: asset-node-secret" in helm_secret
+    assert 'include "asset-node.name"' not in helm_configmap
+    assert 'include "asset-node.name"' not in helm_secret
 
 
 def test_register_microservice_generates_java_and_frontend_projects(tmp_path, monkeypatch) -> None:
@@ -580,7 +603,7 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
     ))
     monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitLabClient", FakeGitLabClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
-    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: calls.append(("git-push", str(args[1]))))
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: calls.append(("git-push", f"{args[1]}:{args[3]}")))
 
     response = _client().post(
         "/api/microservices",
@@ -603,7 +626,7 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
     assert all(step["phase"] == "provision" for step in payload["delivery"]["steps"])
     assert all(step["retryable"] is False for step in payload["delivery"]["steps"])
     assert ("git-project", "factory-services/asset-auto") in calls
-    assert ("git-push", "https://git.local/scm/factory-services/asset-auto.git") in calls
+    assert ("git-push", "https://git.local/scm/factory-services/asset-auto.git:oauth2") in calls
     assert any(item[0] == "jenkins-job" and "asset-auto" in item[1] for item in calls)
     assert ("jenkins-build", "/job/factory-services/job/asset-auto") in calls
 
@@ -638,7 +661,7 @@ def test_register_microservice_prepares_github_project_when_provider_configured(
     ))
     monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitHubClient", FakeGitHubClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
-    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: calls.append(("git-push", str(args[1]))))
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: calls.append(("git-push", f"{args[1]}:{args[3]}")))
 
     response = _client().post(
         "/api/microservices",
@@ -656,7 +679,7 @@ def test_register_microservice_prepares_github_project_when_provider_configured(
     assert payload["delivery"]["status"] == "ready"
     assert payload["gitRepositoryUrl"] == "https://github.com/sajidsah565-sys/asset-github.git"
     assert ("github-project", "sajidsah565-sys/asset-github") in calls
-    assert ("git-push", "https://github.com/sajidsah565-sys/asset-github.git") in calls
+    assert ("git-push", "https://github.com/sajidsah565-sys/asset-github.git:x-access-token") in calls
 
 
 def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeypatch) -> None:

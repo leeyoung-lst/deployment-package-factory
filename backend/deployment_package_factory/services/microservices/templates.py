@@ -299,7 +299,7 @@ def _helm_values(context: dict[str, object]) -> str:
 
 
 def _helm_deployment(context: dict[str, object]) -> str:
-    return f"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {context['service_key']}\nspec:\n  selector:\n    matchLabels:\n      app: {context['service_key']}\n  template:\n    metadata:\n      labels:\n        app: {context['service_key']}\n    spec:\n      containers:\n        - name: {context['service_key']}\n          image: \"{{{{ .Values.image.repository }}}}:{{{{ .Values.image.tag }}}}\"\n          ports:\n            - containerPort: {{{{ .Values.service.targetPort }}}}\n"
+    return f"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {context['service_key']}\nspec:\n  selector:\n    matchLabels:\n      app: {context['service_key']}\n  template:\n    metadata:\n      labels:\n        app: {context['service_key']}\n    spec:\n      containers:\n        - name: {context['service_key']}\n          image: \"{{{{ .Values.image.repository }}}}:{{{{ .Values.image.tag }}}}\"\n          ports:\n            - containerPort: {{{{ .Values.service.targetPort }}}}\n          envFrom:\n            - configMapRef:\n                name: {context['service_key']}-config\n            - secretRef:\n                name: {context['service_key']}-secret\n"
 
 
 def _helm_service(context: dict[str, object]) -> str:
@@ -311,7 +311,7 @@ def _helm_configmap(context: dict[str, object]) -> str:
         "apiVersion: v1",
         "kind: ConfigMap",
         "metadata:",
-        f"  name: {{{{ include \"{context['service_key']}.name\" . }}}}-config",
+        f"  name: {context['service_key']}-config",
         "data:",
         "  SERVICE_NAME: {{{{ .Values.env.SERVICE_NAME | quote }}}}",
         "  BUSINESS_PLATFORM_KEY: {{{{ .Values.env.BUSINESS_PLATFORM_KEY | quote }}}}",
@@ -329,7 +329,7 @@ def _helm_secret(context: dict[str, object]) -> str:
         "apiVersion: v1",
         "kind: Secret",
         "metadata:",
-        f"  name: {{{{ include \"{context['service_key']}.name\" . }}}}-secret",
+        f"  name: {context['service_key']}-secret",
         "type: Opaque",
         "stringData:",
     ]

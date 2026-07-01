@@ -11,7 +11,7 @@ def validate_scaffold_artifact(project_root: Path, artifact_path: Path, rendered
     checks.append(_required_files(project_root, required_files))
     if tech_stack == "python-fastapi":
         checks.append(_python_syntax(project_root, rendered_files))
-    checks.extend([_pipeline_files(project_root), _tech_stack_contract(project_root, tech_stack)])
+    checks.extend([_pipeline_files(project_root), _helm_templates(project_root), _tech_stack_contract(project_root, tech_stack)])
     if micro_frontend_framework:
         checks.append(_micro_frontend_contract(project_root, micro_frontend_framework))
     checks.extend([_middleware_placeholders(project_root, middleware), _artifact_archive(artifact_path)])
@@ -52,6 +52,34 @@ def _pipeline_files(project_root: Path) -> dict[str, object]:
         content = path.read_text(encoding="utf-8")
         missing.extend(f"{relative}:{choices[0]}" for choices in expected if not any(snippet in content for snippet in choices))
     return {"name": "pipeline-files", "passed": not missing, "message": "构建和部署文件检查通过" if not missing else f"缺失内容: {', '.join(missing)}"}
+
+
+def _helm_templates(project_root: Path) -> dict[str, object]:
+    charts = [path for path in (project_root / "deploy" / "helm").glob("*") if path.is_dir()]
+    if not charts:
+        return {"name": "helm-templates", "passed": False, "message": "缺失 Helm chart 目录"}
+    chart = charts[0]
+    files = {
+        "values": chart / "values.yaml",
+        "deployment": chart / "templates" / "deployment.yaml",
+        "configmap": chart / "templates" / "configmap.yaml",
+        "secret": chart / "templates" / "secret.yaml",
+    }
+    missing = [name for name, path in files.items() if not path.exists()]
+    if missing:
+        return {"name": "helm-templates", "passed": False, "message": f"缺失 Helm 文件: {', '.join(missing)}"}
+    deployment = files["deployment"].read_text(encoding="utf-8")
+    configmap = files["configmap"].read_text(encoding="utf-8")
+    secret = files["secret"].read_text(encoding="utf-8")
+    helpers = chart / "templates" / "_helpers.tpl"
+    issues: list[str] = []
+    if "envFrom:" not in deployment or "configMapRef:" not in deployment or "secretRef:" not in deployment:
+        issues.append("deployment 未挂载 ConfigMap/Secret")
+    if "ConfigMap" not in configmap or "Secret" not in secret:
+        issues.append("configmap/secret 模板类型错误")
+    if 'include "' in "\n".join([deployment, configmap, secret]) and not helpers.exists():
+        issues.append("使用 include 但缺失 _helpers.tpl")
+    return {"name": "helm-templates", "passed": not issues, "message": "Helm 模板检查通过" if not issues else f"Helm 模板问题: {', '.join(issues)}"}
 
 
 def _middleware_placeholders(project_root: Path, middleware: list[str]) -> dict[str, object]:
