@@ -37,6 +37,32 @@ docker compose up --build
 
 访问 `http://127.0.0.1:5186`。
 
+## 微服务脚手架验证
+
+注册微服务功能生成的项目骨架可以用内置验证器做端到端检查。默认模式不访问外网，会生成 Python、Node.js、Java、Vue、React 以及 qiankun/wujie 组合项目，并校验 scaffold validation、关键文件、namespace、微前端依赖适配器和项目压缩包。
+
+```powershell
+python scripts/validate_microservice_scaffolds.py
+```
+
+保留生成结果便于人工检查：
+
+```powershell
+python scripts/validate_microservice_scaffolds.py --keep-output
+```
+
+只验证某一种技术栈组合：
+
+```powershell
+python scripts/validate_microservice_scaffolds.py --case react-vite-wujie
+```
+
+如果现场机器具备 npm/maven 等工具并可访问依赖源，可以执行真实本地构建：
+
+```powershell
+python scripts/validate_microservice_scaffolds.py --run-build
+```
+
 ## 运行配置
 
 后端支持通过环境变量调整任务执行和产物路径：
