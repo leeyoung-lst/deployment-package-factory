@@ -248,6 +248,17 @@ middleware:
     composeEnvironment:
       IOTDB_USER: ${IOTDB_USER}
       IOTDB_PASSWORD: ${IOTDB_PASSWORD}
+    composeCommand:
+      - bash
+      - -lc
+      - sed -i 's/^dn_rpc_address=.*/dn_rpc_address=0.0.0.0/' /iotdb/conf/iotdb-system.properties && exec entrypoint.sh all
+    k8sCommand:
+      - /usr/bin/dumb-init
+      - --
+      - bash
+      - -lc
+    k8sArgs:
+      - sed -i 's/^dn_rpc_address=.*/dn_rpc_address=0.0.0.0/' /iotdb/conf/iotdb-system.properties && exec entrypoint.sh all
     composeHealthcheck:
       test:
         - CMD-SHELL

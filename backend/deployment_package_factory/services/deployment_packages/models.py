@@ -32,6 +32,8 @@ class DatabaseOption(BaseModel):
     compose_environment: dict[str, str] = Field(default_factory=dict, alias="composeEnvironment")
     compose_command: list[str] = Field(default_factory=list, alias="composeCommand")
     compose_healthcheck: dict = Field(default_factory=dict, alias="composeHealthcheck")
+    k8s_command: list[str] = Field(default_factory=list, alias="k8sCommand")
+    k8s_args: list[str] = Field(default_factory=list, alias="k8sArgs")
 
 
 class MiddlewareOption(BaseModel):
@@ -47,6 +49,8 @@ class MiddlewareOption(BaseModel):
     compose_environment: dict[str, str] = Field(default_factory=dict, alias="composeEnvironment")
     compose_command: list[str] = Field(default_factory=list, alias="composeCommand")
     compose_healthcheck: dict = Field(default_factory=dict, alias="composeHealthcheck")
+    k8s_command: list[str] = Field(default_factory=list, alias="k8sCommand")
+    k8s_args: list[str] = Field(default_factory=list, alias="k8sArgs")
 
 
 class DeploymentCatalog(BaseModel):
@@ -67,7 +71,6 @@ class BusinessSelection(BaseModel):
 
 class ProjectProfile(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     key: str
     name: str
     description: str = ""
@@ -88,7 +91,6 @@ class ProjectProfile(BaseModel):
 
 class TargetProfile(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     env: str = "prod"
     domain: str = "prod.example.com"
     source_registry: str = Field(default="", alias="sourceRegistry")
@@ -101,7 +103,6 @@ class TargetProfile(BaseModel):
 
 class PackagePreviewRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     project_key: str = Field(default="", alias="projectKey")
     product_version: str = Field(default="", alias="productVersion")
     source_env: str = Field(default="test", alias="sourceEnv")

@@ -167,6 +167,7 @@ def _k8s_app_deployment(service: dict) -> str:
 def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
     port = _middleware_port(key, manifest)
     environment = _k8s_middleware_environment(key, manifest)
+    command = _k8s_middleware_command(key, manifest)
     return (
         "apiVersion: apps/v1\n"
         "kind: Deployment\n"
@@ -187,6 +188,7 @@ def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
         f"        - name: {key}\n"
         f"          image: {_middleware_image(key, manifest)}\n"
         "          imagePullPolicy: IfNotPresent\n"
+        f"{command}"
         f"{environment}"
         "          ports:\n"
         f"            - containerPort: {port}\n"
@@ -198,6 +200,22 @@ def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
         "          persistentVolumeClaim:\n"
         f"            claimName: {key}-data\n"
     )
+
+
+def _k8s_middleware_command(key: str, manifest: dict) -> str:
+    definition = _middleware_definition(key, manifest)
+    command = definition.get("k8sCommand") or []
+    args = definition.get("k8sArgs") or []
+    if not command and not args:
+        return ""
+    lines: list[str] = []
+    if command:
+        lines.append("          command:")
+        lines.extend(f"            - {_k8s_env_value(item)}" for item in command)
+    if args:
+        lines.append("          args:")
+        lines.extend(f"            - {_k8s_env_value(item)}" for item in args)
+    return "\n".join(lines) + "\n"
 
 
 def _k8s_middleware_environment(key: str, manifest: dict) -> str:
@@ -534,8 +552,6 @@ def _compose_middleware_service(key: str, manifest: dict) -> str:
         f"  {key}:\n"
         f"    image: {_middleware_image(key, manifest)}\n"
         "    restart: unless-stopped\n"
-        "    env_file:\n"
-        "      - .env\n"
         f"{environment}"
         f"{command}"
         f"{depends_on}"
@@ -631,6 +647,8 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
         "    environment:\n"
         f"      SERVICE_NAME: {service['name']}\n"
         f"      DATABASE_TYPE: {manifest['database']}\n"
+        f"{_compose_app_database_url(manifest)}"
+        f"{_compose_app_middleware_environment(manifest)}"
         "    networks:\n"
         + "".join(f"      - {network}\n" for network in networks)
         + "    depends_on:\n"
@@ -963,6 +981,29 @@ def _env_file(manifest: dict, base_values: dict[str, str], field: str, *, keep_e
     return "".join(f"{name}={value}\n" for name, value in values.items())
 
 
+def _compose_app_database_url(manifest: dict) -> str:
+    if manifest.get("database") != "postgres":
+        return ""
+    return "      DATABASE_URL: postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}\n"
+
+
+def _compose_app_middleware_environment(manifest: dict) -> str:
+    middleware = set(_runtime_middleware_keys(manifest))
+    values: dict[str, str] = {}
+    if "redis" in middleware:
+        values["REDIS_URL"] = "redis://:${REDIS_PASSWORD}@redis:6379/0"
+    if "minio" in middleware:
+        values["MINIO_ENDPOINT"] = "minio:9000"
+        values["MINIO_ACCESS_KEY"] = "${MINIO_ROOT_USER}"
+        values["MINIO_SECRET_KEY"] = "${MINIO_ROOT_PASSWORD}"
+    if "qdrant" in middleware:
+        values["QDRANT_URL"] = "http://qdrant:6333"
+    if "iotdb" in middleware:
+        values["IOTDB_HOST"] = "iotdb"
+        values["IOTDB_PORT"] = "6667"
+    return "".join(f"      {name}: {value}\n" for name, value in values.items())
+
+
 def _middleware_definition(key: str, manifest: dict) -> dict:
     return (manifest.get("middlewareConfig") or {}).get(key) or {}
 
@@ -990,7 +1031,7 @@ def _service_specs(manifest: dict) -> list[dict]:
             microservice = microservices.get(source_ref)
             name = _service_name_from_image(image)
             namespace = _base_namespace(manifest) if group == "platform" else _business_namespace(manifest, name)
-            port = 80 if "frontend" in name or name.startswith("sub-app") else DEFAULT_CONTAINER_PORT
+            port = _default_service_port(name)
             business_key = _business_key_for_service(manifest, name) if group == "business" else ""
             if microservice:
                 name = _safe_resource_name(str(microservice.get("serviceKey") or name))
@@ -1021,6 +1062,16 @@ def _registered_microservices_by_image(manifest: dict) -> dict[str, dict]:
             continue
         result[_with_default_tag(image, manifest)] = service
     return result
+
+
+def _default_service_port(name: str) -> int:
+    if "frontend" in name or name.startswith("sub-app"):
+        return 80
+    if name == "local-ai-collection-service":
+        return 8020
+    if name == "local-ai-backend" or name.endswith("-service"):
+        return 8000
+    return DEFAULT_CONTAINER_PORT
 
 
 def _image_entry_for_source(manifest: dict, source_ref: str) -> dict:

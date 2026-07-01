@@ -177,6 +177,7 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     root = tmp_path / "work" / result.package_id / f"local-ai-prod-package-{result.package_id}"
     k8s_install = (root / "k8s" / "install.sh").read_text(encoding="utf-8")
     k8s_dry_run = (root / "k8s" / "dry-run.sh").read_text(encoding="utf-8")
+    k8s_edge_deployments = (root / "k8s" / "layers" / "30-edge" / "deployments.yaml").read_text(encoding="utf-8")
     compose_install = (root / "docker-compose" / "install.sh").read_text(encoding="utf-8")
     compose_dry_run = (root / "docker-compose" / "dry-run.sh").read_text(encoding="utf-8")
     compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
@@ -215,6 +216,12 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "CAMUNDA_DATA_SECONDARY_STORAGE_ELASTICSEARCH_URL: http://camunda-elasticsearch:9200" in compose
     assert "      camunda-elasticsearch:\n        condition: service_healthy" in compose
     assert "xpack.security.enabled: \"false\"" in compose
+    assert '      - "18181:8020"' in compose
+    assert "IOTDB_HOST: iotdb" in compose
+    assert "IOTDB_PORT: 6667" in compose
+    assert "dn_rpc_address=0.0.0.0" in compose
+    assert "dn_rpc_address=0.0.0.0" in k8s_edge_deployments
+    assert "command:\n            - \"/usr/bin/dumb-init\"\n            - \"--\"\n            - \"bash\"\n            - \"-lc\"" in k8s_edge_deployments
     assert "middleware 192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in images_txt
     assert "_runtimeEnv" not in result.manifest
     assert "package-index.json" in root_install

@@ -58,6 +58,8 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert 'test: ["CMD-SHELL", "pg_isready -U \\"$$POSTGRES_USER\\" -d \\"$$POSTGRES_DB\\""]' in by_path["docker-compose/docker-compose.yml"]
     assert 'test: ["CMD-SHELL", "redis-cli -a \\"$$REDIS_PASSWORD\\" ping"]' in by_path["docker-compose/docker-compose.yml"]
     assert "condition: service_healthy" in by_path["docker-compose/docker-compose.yml"]
+    assert '      - "18181:8000"' in by_path["docker-compose/docker-compose.yml"]
+    assert "containerPort: 8000" in by_path["k8s/deployments.yaml"]
     assert "name: init-scripts" in by_path["k8s/jobs/init-db.yaml"]
     assert "command: [\"/bin/sh\", \"/init/run-init.sh\"]" in by_path["k8s/jobs/init-db.yaml"]
     assert '"${PACKAGE_ROOT}/scripts/secret-check.sh" k8s' in by_path["k8s/install.sh"]
@@ -84,6 +86,23 @@ def test_docker_compose_install_skips_image_load_for_manifest_only_package() -> 
     by_path = {item.path.as_posix(): item.content for item in files}
 
     assert '"${PACKAGE_ROOT}/scripts/load-images.sh"' not in by_path["docker-compose/install.sh"]
+
+
+def test_docker_compose_does_not_inject_runtime_env_file_into_middleware() -> None:
+    files = render_deployment_files(_manifest())
+    compose = {item.path.as_posix(): item.content for item in files}["docker-compose/docker-compose.yml"]
+
+    assert "env_file:" not in _service_block(compose, "postgres")
+    assert "env_file:" not in _service_block(compose, "redis")
+    assert "env_file:" not in _service_block(compose, "minio")
+    assert "env_file:" not in _service_block(compose, "qdrant")
+    app_block = _service_block(compose, "local-ai-eam-service")
+    assert "env_file:" in app_block
+    assert "DATABASE_URL: postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}" in app_block
+    assert "REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0" in app_block
+    assert "MINIO_ENDPOINT: minio:9000" in app_block
+    assert "MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}" in app_block
+    assert "QDRANT_URL: http://qdrant:6333" in app_block
 
 
 def test_camunda_compose_waits_for_elasticsearch_dependency() -> None:
@@ -154,6 +173,18 @@ def test_camunda_compose_waits_for_elasticsearch_dependency() -> None:
     assert "name: CAMUNDA_ADMIN_PASSWORD" in workflow_deployments
     assert "secretKeyRef:" in workflow_deployments
     assert "key: CAMUNDA_ADMIN_PASSWORD" in workflow_deployments
+
+
+def _service_block(compose: str, service_name: str) -> str:
+    lines = compose.splitlines()
+    start = next(index for index, line in enumerate(lines) if line == f"  {service_name}:")
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.startswith("  ") and not line.startswith("    ") and line.endswith(":"):
+            end = index
+            break
+    return "\n".join(lines[start:end])
 
 
 def _manifest() -> dict:

@@ -22,6 +22,9 @@ def test_catalog_loads_default_capabilities() -> None:
     assert catalog.middleware["redis"].env_template["REDIS_PASSWORD"] == "__REPLACE_WITH_REDIS_PASSWORD__"
     assert catalog.middleware["redis"].env_sources["REDIS_PASSWORD"]["secretKeys"] == ["REDIS_PASSWORD"]
     assert catalog.middleware["camunda"].depends_on == ["camunda-elasticsearch"]
+    assert "dn_rpc_address=0.0.0.0" in catalog.middleware["iotdb"].compose_command[-1]
+    assert catalog.middleware["iotdb"].k8s_command == ["/usr/bin/dumb-init", "--", "bash", "-lc"]
+    assert "dn_rpc_address=0.0.0.0" in catalog.middleware["iotdb"].k8s_args[-1]
     assert catalog.database_options["postgres"].compose_environment["POSTGRES_PASSWORD"] == "${DATABASE_PASSWORD}"
     assert catalog.database_options["postgres"].env_sources["DATABASE_PASSWORD"]["secretKeys"] == ["DATABASE_PASSWORD", "POSTGRES_PASSWORD"]
 
