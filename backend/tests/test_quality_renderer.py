@@ -24,5 +24,6 @@ def test_render_quality_gate_files_exports_entries() -> None:
     assert "k8s/dry-run.sh" in by_path["quality-gate.sh"].content
     assert "docker-compose/dry-run.sh" in by_path["quality-gate.sh"].content
     assert "quality-report.runtime.md" in by_path["quality-gate.ps1"].content
+    assert "ReadAllText((Join-Path $ScriptDir 'manifest.json'), [System.Text.Encoding]::UTF8)" in by_path["quality-gate.ps1"].content
     assert "Required Checks" in by_path["docs/quality-report.md"].content
     assert "quality-report.runtime.md" in by_path["docs/quality-report.md"].content

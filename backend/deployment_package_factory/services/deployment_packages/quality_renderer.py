@@ -104,7 +104,7 @@ def _quality_gate_ps1() -> str:
         "$ErrorActionPreference = 'Stop'\n"
         "$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path\n"
         "$ReportFile = Join-Path $ScriptDir 'docs/quality-report.runtime.md'\n"
-        "$Manifest = Get-Content -LiteralPath (Join-Path $ScriptDir 'manifest.json') -Raw | ConvertFrom-Json\n"
+        "$Manifest = [System.IO.File]::ReadAllText((Join-Path $ScriptDir 'manifest.json'), [System.Text.Encoding]::UTF8) | ConvertFrom-Json\n"
         "\n"
         "Set-Content -LiteralPath $ReportFile -Value @(\n"
         "  '# Deployment Package Quality Report',\n"
