@@ -181,6 +181,7 @@ def _microservice_payload(
         "deployCommand": result.deploy_command,
         "jenkinsJob": result.jenkins_job,
         "delivery": result.delivery,
+        "middlewareConfig": request.middleware_config,
         "k8sNamespace": request.k8s_namespace or result.business_platform_namespace,
         "artifactName": result.artifact_name,
         "artifactPath": result.artifact_path,

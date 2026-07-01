@@ -11,7 +11,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from deployment_package_factory.services.microservices.middleware_plugins import env_default_lines, middleware_yaml
+from deployment_package_factory.services.microservices.middleware_plugins import middleware_yaml
+from deployment_package_factory.services.microservices.middleware_runtime import (
+    middleware_config_keys,
+    python_runtime_env,
+    resolve_middleware_config,
+)
 from deployment_package_factory.services.microservices.result_metadata import (
     build_command,
     deploy_command,
@@ -69,6 +74,9 @@ class MicroserviceScaffoldRequest(BaseModel):
     git_base_url: str = Field(default="", alias="gitBaseUrl")
     jenkins_base_url: str = Field(default="", alias="jenkinsBaseUrl")
     jenkins_folder: str = Field(default="", alias="jenkinsFolder")
+    registry_credential_id: str = Field(default="dpf-registry-credentials", alias="registryCredentialId")
+    kubeconfig_credential_id: str = Field(default="dpf-kubeconfig", alias="kubeconfigCredentialId")
+    middleware_config: dict[str, dict[str, object]] = Field(default_factory=dict, alias="middlewareConfig")
 
     @field_validator("service_key")
     @classmethod
@@ -363,6 +371,8 @@ def _render_python_fastapi(request: MicroserviceScaffoldRequest) -> list[Rendere
 
 def _context(request: MicroserviceScaffoldRequest) -> dict[str, object]:
     image = f"{request.image_registry.rstrip('/')}/{request.image_namespace.strip('/')}/{request.service_key}"
+    config_keys = middleware_config_keys(request.tech_stack, request.middleware)
+    middleware_config = resolve_middleware_config(config_keys, request.middleware_config, request.source_env)
     return {
         "service_key": request.service_key,
         "service_name": request.service_name,
@@ -371,7 +381,11 @@ def _context(request: MicroserviceScaffoldRequest) -> dict[str, object]:
         "micro_frontend_framework": request.micro_frontend_framework,
         "port": request.port,
         "middleware": request.middleware,
+        "middleware_config_keys": config_keys,
+        "middleware_config": middleware_config,
+        "runtime_env": python_runtime_env(config_keys, middleware_config),
         "image": image,
+        "image_registry": request.image_registry.rstrip("/"),
         "source_env": request.source_env,
         "business_platform_key": request.business_platform_key,
         "business_platform_profile": request.business_platform_profile,
@@ -379,6 +393,8 @@ def _context(request: MicroserviceScaffoldRequest) -> dict[str, object]:
         "business_platform_namespace": request.business_platform_namespace or request.k8s_namespace or request.business_platform_key,
         "k8s_namespace": request.k8s_namespace or request.business_platform_namespace or request.business_platform_key,
         "git_group": request.git_group,
+        "registry_credential_id": request.registry_credential_id,
+        "kubeconfig_credential_id": request.kubeconfig_credential_id,
     }
 
 
@@ -455,11 +471,8 @@ def _env_template(context: dict[str, object]) -> str:
         f"APP_PORT={context['port']}",
         "LOG_LEVEL=INFO",
     ]
-    if "redis" in context["middleware"]:
-        lines.extend(["REDIS_URL=redis://redis:6379/0"])
-    if "postgresql" in context["middleware"]:
-        lines.extend(["POSTGRES_DSN=postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgresql:5432/app"])
-    lines.extend(item for item in env_default_lines(context["middleware"]) if not item.startswith(("REDIS_", "POSTGRESQL_")))
+    for name, entry in context["runtime_env"].items():
+        lines.append(f"{name}={entry['value']}")
     return "\n".join(lines) + "\n"
 
 
@@ -589,6 +602,7 @@ def _jenkinsfile(context: dict[str, object]) -> str:
   agent any
   environment {{
     IMAGE = "{context['image']}:${{env.BUILD_NUMBER}}"
+    IMAGE_REGISTRY = "{context['image_registry']}"
     K8S_NAMESPACE = "{context['k8s_namespace']}"
     RELEASE_NAME = "{context['service_key']}"
     CHART = "deploy/helm/{context['service_key']}"
@@ -611,12 +625,17 @@ def _jenkinsfile(context: dict[str, object]) -> str:
     }}
     stage('Push Image') {{
       steps {{
-        sh 'docker push $IMAGE'
+        withCredentials([usernamePassword(credentialsId: '{context['registry_credential_id']}', usernameVariable: 'REGISTRY_USERNAME', passwordVariable: 'REGISTRY_PASSWORD')]) {{
+          sh 'echo "$REGISTRY_PASSWORD" | docker login "$IMAGE_REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin'
+          sh 'docker push "$IMAGE"'
+        }}
       }}
     }}
     stage('Deploy') {{
       steps {{
-        sh './deploy.sh $IMAGE'
+        withCredentials([file(credentialsId: '{context['kubeconfig_credential_id']}', variable: 'KUBECONFIG_FILE')]) {{
+          sh 'KUBECONFIG="$KUBECONFIG_FILE" ./deploy.sh "$IMAGE"'
+        }}
       }}
     }}
   }}
@@ -680,13 +699,15 @@ def _migrate_sh(context: dict[str, object]) -> str:
 set -euo pipefail
 echo "No database migration is configured for this service."
 """
+    postgres = context["middleware_config"].get("postgresql", {})
     return """#!/usr/bin/env bash
 set -euo pipefail
-NAMESPACE="${K8S_NAMESPACE:-""" + str(context["k8s_namespace"]) + """}"
-POSTGRES_POD="${POSTGRES_POD:-postgresql-0}"
-POSTGRES_DB="${POSTGRES_DB:-app}"
-POSTGRES_USER="${POSTGRES_USER:-app}"
-kubectl -n "${NAMESPACE}" exec -i "${POSTGRES_POD}" -- psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" < db/init/001_items.sql
+POSTGRES_NAMESPACE="${POSTGRES_NAMESPACE:-""" + str(postgres.get("namespace") or f"{context['source_env']}-middleware-public") + """}"
+POSTGRES_SELECTOR="${POSTGRES_SELECTOR:-app=postgres}"
+POSTGRES_DB="${POSTGRES_DB:-""" + str(postgres.get("database") or "app") + """}"
+POSTGRES_USER="${POSTGRES_USER:-""" + str(postgres.get("username") or "app") + """}"
+POSTGRES_POD="${POSTGRES_POD:-$(kubectl -n "${POSTGRES_NAMESPACE}" get pod -l "${POSTGRES_SELECTOR}" -o jsonpath='{.items[0].metadata.name}')}"
+kubectl -n "${POSTGRES_NAMESPACE}" exec -i "${POSTGRES_POD}" -- psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" < db/init/001_items.sql
 """
 
 
@@ -695,14 +716,19 @@ def _migrate_ps1(context: dict[str, object]) -> str:
         return """$ErrorActionPreference = "Stop"
 Write-Host "No database migration is configured for this service."
 """
+    postgres = context["middleware_config"].get("postgresql", {})
     return f"""param(
-  [string]$Namespace = "{context['k8s_namespace']}",
-  [string]$PostgresPod = "postgresql-0",
-  [string]$PostgresDb = "app",
-  [string]$PostgresUser = "app"
+  [string]$PostgresNamespace = "{postgres.get('namespace') or f'{context['source_env']}-middleware-public'}",
+  [string]$PostgresSelector = "app=postgres",
+  [string]$PostgresPod = "",
+  [string]$PostgresDb = "{postgres.get('database') or 'app'}",
+  [string]$PostgresUser = "{postgres.get('username') or 'app'}"
 )
 $ErrorActionPreference = "Stop"
-Get-Content db/init/001_items.sql | kubectl -n $Namespace exec -i $PostgresPod -- psql -U $PostgresUser -d $PostgresDb
+if (-not $PostgresPod) {{
+  $PostgresPod = kubectl -n $PostgresNamespace get pod -l $PostgresSelector -o jsonpath="{{.items[0].metadata.name}}"
+}}
+Get-Content db/init/001_items.sql | kubectl -n $PostgresNamespace exec -i $PostgresPod -- psql -U $PostgresUser -d $PostgresDb
 """
 
 
@@ -1074,8 +1100,9 @@ def _k8s_configmap(context: dict[str, object]) -> str:
         f"  APP_PORT: \"{context['port']}\"",
         "  LOG_LEVEL: INFO",
     ]
-    if "redis" in context["middleware"]:
-        lines.append("  REDIS_URL: redis://redis:6379/0")
+    for name, entry in context["runtime_env"].items():
+        if not entry["secret"]:
+            lines.append(f"  {name}: {entry['value']}")
     return "\n".join(lines) + "\n"
 
 
@@ -1089,8 +1116,9 @@ def _k8s_secret(context: dict[str, object]) -> str:
         "type: Opaque",
         "stringData:",
     ]
-    if "postgresql" in context["middleware"]:
-        lines.append("  POSTGRES_DSN: postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgresql:5432/app")
+    secret_lines = [f"  {name}: {entry['value']}" for name, entry in context["runtime_env"].items() if entry["secret"]]
+    if secret_lines:
+        lines.extend(secret_lines)
     else:
         lines.append("  PLACEHOLDER: replace-me")
     return "\n".join(lines) + "\n"
@@ -1134,13 +1162,14 @@ def _helm_values(context: dict[str, object]) -> str:
         f"  APP_PORT: \"{context['port']}\"",
         "  LOG_LEVEL: INFO",
     ]
-    if "redis" in context["middleware"]:
-        lines.append("  REDIS_URL: redis://redis:6379/0")
+    for name, entry in context["runtime_env"].items():
+        if not entry["secret"]:
+            lines.append(f"  {name}: {entry['value']}")
+    secret_lines = [f"  {name}: {entry['value']}" for name, entry in context["runtime_env"].items() if entry["secret"]]
+    lines.extend(["", "secretEnv:"])
+    lines.extend(secret_lines or ["  PLACEHOLDER: replace-me"])
     lines.extend(
         [
-            "",
-            "secretEnv:",
-            "  POSTGRES_DSN: postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgresql:5432/app" if "postgresql" in context["middleware"] else "  PLACEHOLDER: replace-me",
             "",
             "resources:",
             "  requests:",

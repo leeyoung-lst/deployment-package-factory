@@ -2,6 +2,7 @@ import { BASE, authHeaders, request } from "./client";
 
 export interface SystemSettings {
   git: {
+    provider: "gitlab" | "github";
     baseUrl: string;
     group: string;
     username: string;

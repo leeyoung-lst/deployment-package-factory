@@ -32,6 +32,7 @@ MIDDLEWARE_PLUGINS: dict[str, MiddlewarePlugin] = {
     "mongodb": MiddlewarePlugin("mongodb", "MongoDB", "MONGODB_ENDPOINT", "mongodb://mongodb:27017/app", "document database"),
     "kafka": MiddlewarePlugin("kafka", "Kafka", "KAFKA_ENDPOINT", "kafka:9092", "event streaming"),
     "mq": MiddlewarePlugin("mq", "消息队列 MQ", "MQ_ENDPOINT", "mq:5672", "message queue"),
+    "nacos": MiddlewarePlugin("nacos", "Nacos", "NACOS_ENDPOINT", "nacos:8848", "service discovery and configuration"),
 }
 
 

@@ -16,11 +16,20 @@ IMAGE_PATH_RE = r"^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)
 class GitSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    provider: str = "gitlab"
     base_url: str = Field(default="", alias="baseUrl")
     group: str = "business-services"
     username: str = ""
     email: str = ""
     token: str = ""
+
+    @field_validator("provider")
+    @classmethod
+    def normalize_provider(cls, value: str) -> str:
+        normalized = value.strip().lower() or "gitlab"
+        if normalized not in {"gitlab", "github"}:
+            raise ValueError("git.provider must be gitlab or github")
+        return normalized
 
     @field_validator("base_url", "username", "email", "token")
     @classmethod
@@ -139,7 +148,7 @@ class MiddlewareEndpointSettings(BaseModel):
 
 class MiddlewareSettings(BaseModel):
     redis: MiddlewareEndpointSettings = Field(default_factory=lambda: MiddlewareEndpointSettings(enabled=True, host="redis", port=6379))
-    postgresql: MiddlewareEndpointSettings = Field(default_factory=lambda: MiddlewareEndpointSettings(enabled=True, host="postgresql", port=5432, database="app"))
+    postgresql: MiddlewareEndpointSettings = Field(default_factory=lambda: MiddlewareEndpointSettings(enabled=True, host="postgres", port=5432, database="app"))
     dm: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
     iotdb: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)
     mongodb: MiddlewareEndpointSettings = Field(default_factory=MiddlewareEndpointSettings)

@@ -136,7 +136,15 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert "USER 10001" in dockerfile
     assert "BUSINESS_PLATFORM_KEY=eam" in env_template
     assert "BUSINESS_PLATFORM_NAMESPACE=test-biz-eam-4x60" in env_template
-    assert "./deploy.sh $IMAGE" in jenkinsfile
+    assert "withCredentials" in jenkinsfile
+    assert "dpf-registry-credentials" in jenkinsfile
+    assert "dpf-kubeconfig" in jenkinsfile
+    assert 'docker login "$IMAGE_REGISTRY"' in jenkinsfile
+    assert 'KUBECONFIG="$KUBECONFIG_FILE" ./deploy.sh "$IMAGE"' in jenkinsfile
+    assert "REDIS_URL=redis://redis.test-middleware-public.svc.cluster.local:6379/0" in env_template
+    assert "POSTGRES_DSN=postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgres.test-middleware-public.svc.cluster.local:5432/app" in env_template
+    assert "REDIS_URL: redis://redis.test-middleware-public.svc.cluster.local:6379/0" in helm_values
+    assert "POSTGRES_DSN: postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgres.test-middleware-public.svc.cluster.local:5432/app" in helm_values
     assert "helm upgrade --install" in deploy_sh
     assert "helm upgrade --install asset-service deploy/helm/asset-service" in readme
     assert "business-platform: eam" in deployment
@@ -222,7 +230,8 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
     assert '"test":"node --test dist/tests/*.test.js"' in package_json
     assert '"start":"node dist/src/interfaces/http/server.js"' in package_json
     assert '"include":["src","tests"]' in tsconfig
-    assert "MONGODB_ENDPOINT=__REPLACE_WITH_MONGODB_ENDPOINT__" in env_template
+    assert "MONGODB_ENDPOINT=mongodb://mongodb.test-middleware-public.svc.cluster.local:27017/app" in env_template
+    assert "REDIS_ENDPOINT=redis://redis.test-middleware-public.svc.cluster.local:6379/0" in env_template
     assert "kafka:" in middleware_yaml
     assert "mq:" in middleware_yaml
 
@@ -267,6 +276,7 @@ def test_register_microservice_generates_java_and_frontend_projects(tmp_path, mo
         names = set(tar.getnames())
         pom = tar.extractfile("asset-java/pom.xml").read().decode("utf-8")
         dockerfile = tar.extractfile("asset-java/Dockerfile").read().decode("utf-8")
+        env_template = tar.extractfile("asset-java/.env.template").read().decode("utf-8")
         assert "asset-java/pom.xml" in names
         assert "asset-java/src/main/java/com/example/domain/DemoItem.java" in names
         assert "asset-java/src/main/resources/application.yml" in names
@@ -275,6 +285,7 @@ def test_register_microservice_generates_java_and_frontend_projects(tmp_path, mo
         assert "<artifactId>maven-compiler-plugin</artifactId>" in pom
         assert "<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>" in pom
         assert "eclipse-temurin:17-jre" in dockerfile
+        assert "NACOS_ENDPOINT=nacos.test-middleware-public.svc.cluster.local:8848" in env_template
     with tarfile.open(Path(vue_response.json()["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
         assert "asset-ui/package.json" in names
@@ -567,7 +578,7 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
         harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
         jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
     ))
-    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.GitLabClient", FakeGitLabClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitLabClient", FakeGitLabClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: calls.append(("git-push", str(args[1]))))
 
@@ -595,6 +606,57 @@ def test_register_microservice_prepares_git_and_jenkins_when_credentials_exist(t
     assert ("git-push", "https://git.local/scm/factory-services/asset-auto.git") in calls
     assert any(item[0] == "jenkins-job" and "asset-auto" in item[1] for item in calls)
     assert ("jenkins-build", "/job/factory-services/job/asset-auto") in calls
+
+
+def test_register_microservice_prepares_github_project_when_provider_configured(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+    calls: list[tuple[str, str]] = []
+
+    class FakeGitHubClient:
+        def __init__(self, base_url: str, token: str) -> None:
+            calls.append(("github-init", f"{base_url}:{token}"))
+
+        def ensure_project(self, owner: str, service_key: str) -> str:
+            calls.append(("github-project", f"{owner}/{service_key}"))
+            return f"https://github.com/{owner}/{service_key}.git"
+
+    class FakeJenkinsClient:
+        def __init__(self, base_url: str, username: str, token: str) -> None:
+            pass
+
+        def ensure_pipeline_job(self, folder: str, service_key: str, git_url: str) -> str:
+            calls.append(("jenkins-job", f"{folder}/{service_key}:{git_url}"))
+            return f"/job/{folder}/job/{service_key}"
+
+        def trigger_build(self, job_path: str) -> str:
+            return f"https://jenkins.local{job_path}/build"
+
+    monkeypatch.setattr(microservices, "_system_settings", lambda: SystemSettings(
+        git=GitSettings(provider="github", baseUrl="https://github.com", group="sajidsah565-sys", token="github-token"),
+        harbor=HarborSettings(registry="harbor.local:8443", project="factory"),
+        jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
+    ))
+    monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitHubClient", FakeGitHubClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: calls.append(("git-push", str(args[1]))))
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-github",
+            "serviceName": "资产 GitHub 服务",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["delivery"]["status"] == "ready"
+    assert payload["gitRepositoryUrl"] == "https://github.com/sajidsah565-sys/asset-github.git"
+    assert ("github-project", "sajidsah565-sys/asset-github") in calls
+    assert ("git-push", "https://github.com/sajidsah565-sys/asset-github.git") in calls
 
 
 def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeypatch) -> None:
@@ -630,7 +692,7 @@ def test_retry_microservice_delivery_updates_registered_record(tmp_path, monkeyp
             jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
         ),
     )
-    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.GitLabClient", FakeGitLabClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitLabClient", FakeGitLabClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: None)
 
@@ -692,7 +754,7 @@ def test_get_microservice_delivery_status_refreshes_jenkins_build(tmp_path, monk
             jenkins=JenkinsSettings(baseUrl="https://jenkins.local", folder="factory-services", username="admin", password="jenkins-token"),
         ),
     )
-    monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.GitLabClient", FakeGitLabClient)
+    monkeypatch.setattr("deployment_package_factory.services.microservices.git_providers.GitLabClient", FakeGitLabClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery.JenkinsClient", FakeJenkinsClient)
     monkeypatch.setattr("deployment_package_factory.services.microservices.delivery._push_initial_commit", lambda *args, **kwargs: None)
 

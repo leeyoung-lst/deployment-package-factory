@@ -14,6 +14,7 @@ from deployment_package_factory.api.deployment_packages import (
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import RegisteredBusinessPlatform
 from deployment_package_factory.services.microservices.delivery import prepare_microservice_delivery, refresh_delivery_status
+from deployment_package_factory.services.microservices.middleware_runtime import build_middleware_config, middleware_config_keys
 from deployment_package_factory.services.microservices.scaffold import (
     MicroserviceScaffoldOptions,
     MicroserviceScaffoldRequest,
@@ -56,7 +57,17 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     defaults = _system_settings()
-    enriched = payload.model_copy(
+    enriched = _enrich_request(payload, platform, defaults)
+    result = create_microservice_scaffold(enriched, output_dir=_output_dir())
+    project_root = find_scaffold_project_root(result.project_id, output_dir=_output_dir())
+    result.delivery = prepare_microservice_delivery(enriched, result, defaults, project_root)
+    get_microservice_repository().upsert(enriched, result)
+    return result
+
+
+def _enrich_request(payload: MicroserviceScaffoldRequest, platform: RegisteredBusinessPlatform, defaults: SystemSettings) -> MicroserviceScaffoldRequest:
+    config_keys = middleware_config_keys(payload.tech_stack, payload.middleware)
+    return payload.model_copy(
         update={
             "business_platform_name": platform.name,
             "business_platform_profile": platform.profile,
@@ -68,13 +79,11 @@ async def register_microservice(payload: MicroserviceScaffoldRequest) -> Microse
             "git_base_url": defaults.git.base_url,
             "jenkins_base_url": defaults.jenkins.base_url,
             "jenkins_folder": defaults.jenkins.folder,
+            "registry_credential_id": defaults.jenkins.registry_credential_id,
+            "kubeconfig_credential_id": defaults.jenkins.kubeconfig_credential_id,
+            "middleware_config": build_middleware_config(config_keys, payload.source_env, defaults.middleware),
         }
     )
-    result = create_microservice_scaffold(enriched, output_dir=_output_dir())
-    project_root = find_scaffold_project_root(result.project_id, output_dir=_output_dir())
-    result.delivery = prepare_microservice_delivery(enriched, result, defaults, project_root)
-    get_microservice_repository().upsert(enriched, result)
-    return result
 
 
 def _resolve_business_platform(payload: MicroserviceScaffoldRequest) -> RegisteredBusinessPlatform:
@@ -178,6 +187,13 @@ def _request_from_registered(row: dict) -> MicroserviceScaffoldRequest:
         gitBaseUrl=settings.git.base_url,
         jenkinsBaseUrl=settings.jenkins.base_url,
         jenkinsFolder=settings.jenkins.folder,
+        registryCredentialId=settings.jenkins.registry_credential_id,
+        kubeconfigCredentialId=settings.jenkins.kubeconfig_credential_id,
+        middlewareConfig=row.get("middlewareConfig") or build_middleware_config(
+            middleware_config_keys(row.get("techStack", "python-fastapi"), row.get("middleware", [])),
+            row["sourceEnv"],
+            settings.middleware,
+        ),
     )
 
 

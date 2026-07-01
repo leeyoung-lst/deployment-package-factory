@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from deployment_package_factory.services.microservices.git_providers import GitProviderError, resolve_git_client
 from deployment_package_factory.services.microservices.result_metadata import git_repository_url, jenkins_job
 from deployment_package_factory.services.settings import SystemSettings
 
@@ -41,11 +42,11 @@ def _prepare_git_project(request, settings: SystemSettings, project_root: Path |
     if not settings.git.token:
         return _step("git-project", "pending", "config", "检查 Git Token", "Git Token 未配置，无法自动创建远程项目。", target, started, "在设置页填写 Git 访问 Token。")
     try:
-        remote_url = GitLabClient(settings.git.base_url, settings.git.token).ensure_project(request.git_group, request.service_key)
+        remote_url = resolve_git_client(settings).ensure_project(request.git_group, request.service_key)
         if project_root and project_root.exists():
             _push_initial_commit(project_root, remote_url, settings.git.token)
         return _step("git-project", "ready", "provision", "创建 Git 项目并推送初始化代码", "Git 项目已创建并推送初始化代码。", remote_url, started)
-    except DeliveryError as exc:
+    except (DeliveryError, GitProviderError) as exc:
         return _step("git-project", "failed", "provision", "创建 Git 项目或推送代码", str(exc), target, started, "检查 Git 地址、Token 权限、默认分组是否存在。")
 
 
@@ -72,36 +73,6 @@ def _prepare_jenkins_job(request, settings: SystemSettings) -> dict[str, str]:
 
 class DeliveryError(RuntimeError):
     pass
-
-
-class GitLabClient:
-    def __init__(self, base_url: str, token: str) -> None:
-        self.api_base = f"{base_url.rstrip('/')}/api/v4"
-        self.token = token
-
-    def ensure_project(self, group: str, service_key: str) -> str:
-        namespace_id = self._group_id(group)
-        payload = {"name": service_key, "path": service_key, "visibility": "private"}
-        if namespace_id is not None:
-            payload["namespace_id"] = namespace_id
-        try:
-            data = self._request("POST", "/projects", payload)
-        except DeliveryError as exc:
-            if "409" not in str(exc):
-                raise
-            data = self._request("GET", f"/projects/{quote(f'{group}/{service_key}', safe='')}")
-        return str(data.get("http_url_to_repo") or data.get("web_url") or f"{group}/{service_key}")
-
-    def _group_id(self, group: str) -> int | None:
-        if not group:
-            return None
-        data = self._request("GET", f"/groups/{quote(group, safe='')}")
-        return int(data["id"])
-
-    def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
-        body = json.dumps(payload).encode("utf-8") if payload is not None else None
-        headers = {"PRIVATE-TOKEN": self.token, "Content-Type": "application/json"}
-        return _json_request(method, f"{self.api_base}{path}", headers, body)
 
 
 class JenkinsClient:
