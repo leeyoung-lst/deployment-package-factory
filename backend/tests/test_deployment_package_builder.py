@@ -107,6 +107,8 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/scripts/check-prerequisites.sh" in names
     assert f"{root}/scripts/secret-check.sh" in names
     assert f"{root}/scripts/health-check.sh" in names
+    assert f"{root}/scripts/diagnostics.sh" in names
+    assert f"{root}/scripts/diagnostics.ps1" in names
     assert f"{root}/scripts/pull-images.sh" in names
     assert f"{root}/scripts/save-images.sh" in names
     assert f"{root}/scripts/load-images.sh" in names
@@ -190,6 +192,7 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     secret_check = (root / "scripts" / "secret-check.sh").read_text(encoding="utf-8")
     prereq_check = (root / "scripts" / "check-prerequisites.sh").read_text(encoding="utf-8")
     health_check = (root / "scripts" / "health-check.sh").read_text(encoding="utf-8")
+    diagnostics = (root / "scripts" / "diagnostics.sh").read_text(encoding="utf-8")
     init_runner = (root / "init" / "run-init.sh").read_text(encoding="utf-8")
 
     assert "scripts/secret-check.sh" in k8s_install
@@ -228,10 +231,13 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "--skip-verify" in root_install
     assert "--skip-dry-run" in root_install
     assert "--skip-health-check" in root_install
+    assert "--skip-diagnostics" in root_install
     assert "--yes" in root_install
     assert "k8s/dry-run.sh" in root_install
     assert "docker-compose/dry-run.sh" in root_install
     assert "scripts/health-check.sh" in root_install
+    assert "scripts/diagnostics.sh" in root_install
+    assert "Deployment succeeded for mode:" in root_install
     assert "verify.sh" in root_install
     assert "verify.sh" in quality_gate
     assert "k8s/dry-run.sh" in quality_gate
@@ -239,9 +245,15 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "Deployment Package Quality Report" in quality_report
     assert "ValidateSet('k8s', 'docker-compose')" in root_install_ps1
     assert "[switch]$SkipVerify" in root_install_ps1
+    assert "[switch]$SkipDiagnostics" in root_install_ps1
     assert "Invoke-DockerComposeInstall" in root_install_ps1
+    assert "Invoke-Diagnostics $Mode" in root_install_ps1
     assert "bash (Join-Path $ScriptDir 'docker-compose" not in root_install_ps1
     assert "__REPLACE_WITH_" in secret_check
+    assert "Deployment diagnostics failed" in diagnostics
+    assert "COMPOSE_MIDDLEWARE_TCP_CHECKS" in diagnostics
+    assert "COMPOSE_HTTP_CHECKS" in diagnostics
+    assert "Docker Compose diagnostics passed." in diagnostics
     assert "Secret placeholders remain" in secret_check
     assert "require_command kubectl" in prereq_check
     assert "docker compose version" in prereq_check
@@ -615,6 +627,8 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert index["installer"]["supportedModes"] == ["k8s", "docker-compose"]
     assert "--skip-verify" in index["installer"]["options"]
     assert "--skip-dry-run" in index["installer"]["options"]
+    assert "--skip-diagnostics" in index["installer"]["options"]
+    assert index["installer"]["successChecks"] == ["health-check", "diagnostics"]
     assert index["verifier"]["version"] == "1.0.0"
     assert index["verifier"]["entrypoints"] == ["verify.sh", "verify.ps1"]
     assert "sha256sums" in index["verifier"]["checks"]
@@ -642,10 +656,13 @@ def test_build_deployment_package_writes_package_index(tmp_path) -> None:
     assert any(item["path"] == "docs/acceptance-report.md" for item in index["sections"]["docs"])
     assert any(item["path"] == "overlays/mes-lite/values.json" for item in index["sections"]["overlays"])
     assert any(item["path"] == "scripts/load-images.sh" and item["executable"] for item in index["sections"]["scripts"])
+    assert any(item["path"] == "scripts/diagnostics.sh" and item["executable"] for item in index["sections"]["scripts"])
+    assert any(item["path"] == "scripts/diagnostics.ps1" for item in index["sections"]["scripts"])
     assert "package-index.json" in sha_sums
     assert "quality-gate.sh" in sha_sums
     assert "docs/quality-report.md" in sha_sums
     assert "docs/acceptance-report.md" in sha_sums
+    assert "scripts/diagnostics.sh" in sha_sums
     assert signed_files == actual_files - {"security/SHA256SUMS"}
     assert set(indexed_files) == actual_files - {"package-index.json", "security/SHA256SUMS"}
     assert len(indexed_files) == len(set(indexed_files))

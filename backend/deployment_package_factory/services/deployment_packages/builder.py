@@ -1216,6 +1216,7 @@ def _package_index(package_root: Path, manifest: dict) -> dict:
             "entrypoints": ["install.sh", "install.ps1"],
             "supportedModes": ["k8s", "docker-compose"],
             "options": INSTALLER_OPTIONS,
+            "successChecks": ["health-check", "diagnostics"],
         },
         "verifier": {
             "version": VERIFIER_VERSION,

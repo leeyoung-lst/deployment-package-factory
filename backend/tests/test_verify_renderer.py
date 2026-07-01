@@ -16,6 +16,7 @@ def test_render_package_verify_files_exports_shell_and_powershell_entries() -> N
     assert "SHA_CHECK_FILE" in by_path["verify.sh"].content
     assert "package-index.json" in by_path["verify.sh"].content
     assert "quality-gate.sh" in by_path["verify.sh"].content
+    assert "scripts/diagnostics.sh" in by_path["verify.sh"].content
     assert "docs/quality-report.md" in by_path["verify.sh"].content
     assert "image-digest-lock.json" in by_path["verify.sh"].content
     assert "image archive is not locked" in by_path["verify.sh"].content
@@ -28,6 +29,7 @@ def test_render_package_verify_files_exports_shell_and_powershell_entries() -> N
     assert "Read-Utf8Text (Join-Path $ScriptDir 'manifest.json')" in by_path["verify.ps1"].content
     assert "ConvertFrom-Json" in by_path["verify.ps1"].content
     assert "quality-gate.ps1" in by_path["verify.ps1"].content
+    assert "scripts/diagnostics.ps1" in by_path["verify.ps1"].content
     assert "docker-compose/.env" in by_path["verify.ps1"].content
     assert "docs/quality-report.runtime.md" in by_path["verify.ps1"].content
     assert "SHA256SUMS file set mismatch" in by_path["verify.ps1"].content

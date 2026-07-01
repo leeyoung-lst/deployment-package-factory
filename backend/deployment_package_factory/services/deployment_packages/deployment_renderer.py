@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from deployment_package_factory.services.deployment_packages.diagnostics_renderer import render_diagnostics_files
+
 
 DEFAULT_CONTAINER_PORT = 8080
 K8S_LAYERS: tuple[tuple[str, str], ...] = (
@@ -50,6 +52,10 @@ def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
         RenderedDeploymentFile(PurePosixPath("scripts/secret-check.sh"), _secret_check_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("scripts/health-check.sh"), _health_check_script(manifest), executable=True),
     ]
+    files.extend(
+        RenderedDeploymentFile(path, content, executable=executable)
+        for path, content, executable in render_diagnostics_files(manifest, _service_specs(manifest), _runtime_middleware_keys(manifest))
+    )
     files.extend(_k8s_layer_files(layer_resources))
     return files
 

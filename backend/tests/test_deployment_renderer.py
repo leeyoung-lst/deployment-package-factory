@@ -17,11 +17,15 @@ def test_render_deployment_files_declares_expected_paths_and_executable_flags() 
     assert "docker-compose/.env" in by_path
     assert "docker-compose/dry-run.sh" in by_path
     assert "scripts/secret-check.sh" in by_path
+    assert "scripts/diagnostics.sh" in by_path
+    assert "scripts/diagnostics.ps1" in by_path
     assert not by_path["k8s/namespaces.yaml"].executable
     assert not by_path["docker-compose/docker-compose.yml"].executable
     assert by_path["k8s/install.sh"].executable
     assert by_path["docker-compose/dry-run.sh"].executable
     assert by_path["scripts/secret-check.sh"].executable
+    assert by_path["scripts/diagnostics.sh"].executable
+    assert not by_path["scripts/diagnostics.ps1"].executable
 
 
 def test_render_deployment_files_includes_namespaces_registry_and_secret_modes() -> None:
@@ -71,6 +75,11 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "ps --format json" in by_path["scripts/health-check.sh"]
     assert "Unhealthy docker-compose services" in by_path["scripts/health-check.sh"]
     assert "Docker Compose service health check passed" in by_path["scripts/health-check.sh"]
+    assert "Deployment diagnostics failed" in by_path["scripts/diagnostics.sh"]
+    assert "COMPOSE_HTTP_CHECKS" in by_path["scripts/diagnostics.sh"]
+    assert "Docker Compose diagnostics passed." in by_path["scripts/diagnostics.sh"]
+    assert "K8s diagnostics passed." in by_path["scripts/diagnostics.sh"]
+    assert "Invoke-DockerComposeDiagnostics" in by_path["scripts/diagnostics.ps1"]
 
 
 def test_docker_compose_install_loads_image_archives_when_exported() -> None:

@@ -16,19 +16,25 @@ def test_render_root_install_files_exports_shell_and_powershell_entries() -> Non
     assert "--skip-verify" in by_path["install.sh"].content
     assert "--skip-dry-run" in by_path["install.sh"].content
     assert "--skip-health-check" in by_path["install.sh"].content
+    assert "--skip-diagnostics" in by_path["install.sh"].content
     assert "--yes" in by_path["install.sh"].content
     assert "k8s/install.sh" in by_path["install.sh"].content
     assert "docker-compose/install.sh" in by_path["install.sh"].content
     assert "scripts/health-check.sh" in by_path["install.sh"].content
+    assert "scripts/diagnostics.sh" in by_path["install.sh"].content
+    assert "Deployment succeeded for mode:" in by_path["install.sh"].content
     assert "verify.sh" in by_path["install.sh"].content
     assert "ValidateSet('k8s', 'docker-compose')" in by_path["install.ps1"].content
     assert "[switch]$SkipVerify" in by_path["install.ps1"].content
     assert "[switch]$SkipDryRun" in by_path["install.ps1"].content
     assert "[switch]$SkipHealthCheck" in by_path["install.ps1"].content
+    assert "[switch]$SkipDiagnostics" in by_path["install.ps1"].content
     assert "[switch]$Yes" in by_path["install.ps1"].content
     assert "verify.ps1" in by_path["install.ps1"].content
     assert "Invoke-DockerComposeDryRun" in by_path["install.ps1"].content
     assert "Invoke-DockerComposeInstall" in by_path["install.ps1"].content
+    assert "Invoke-Diagnostics $Mode" in by_path["install.ps1"].content
+    assert "Deployment succeeded for mode: $Mode." in by_path["install.ps1"].content
     assert "docker compose --env-file" in by_path["install.ps1"].content
     assert "docker info" in by_path["install.ps1"].content
     assert "Get-ComposeEnvFile -RequireConcreteEnv" in by_path["install.ps1"].content
