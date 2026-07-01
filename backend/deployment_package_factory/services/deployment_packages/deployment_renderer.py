@@ -43,7 +43,7 @@ def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
         RenderedDeploymentFile(PurePosixPath("docker-compose/docker-compose.yml"), _compose_yaml(manifest)),
         RenderedDeploymentFile(PurePosixPath("docker-compose/.env"), _env_defaults(manifest)),
         RenderedDeploymentFile(PurePosixPath("docker-compose/.env.template"), _env_template(manifest)),
-        RenderedDeploymentFile(PurePosixPath("docker-compose/install.sh"), _compose_install_script(), executable=True),
+        RenderedDeploymentFile(PurePosixPath("docker-compose/install.sh"), _compose_install_script(manifest), executable=True),
         RenderedDeploymentFile(PurePosixPath("docker-compose/uninstall.sh"), _compose_uninstall_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("docker-compose/dry-run.sh"), _compose_dry_run_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("scripts/check-prerequisites.sh"), _check_prerequisites_script(), executable=True),
@@ -579,7 +579,8 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
     )
 
 
-def _compose_install_script() -> str:
+def _compose_install_script(manifest: dict) -> str:
+    load_images = '"${PACKAGE_ROOT}/scripts/load-images.sh"\n' if manifest.get("imageMode") == "image-archive" else ""
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -587,6 +588,7 @@ def _compose_install_script() -> str:
         'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"\n'
         '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" docker-compose\n'
         '"${PACKAGE_ROOT}/scripts/secret-check.sh" docker-compose\n'
+        f"{load_images}"
         'docker compose --env-file "${SCRIPT_DIR}/.env" -f "${SCRIPT_DIR}/docker-compose.yml" up -d\n'
         '"${PACKAGE_ROOT}/init/run-init.sh" all\n'
     )

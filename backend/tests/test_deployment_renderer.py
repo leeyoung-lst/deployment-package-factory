@@ -71,6 +71,21 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "Docker Compose service health check passed" in by_path["scripts/health-check.sh"]
 
 
+def test_docker_compose_install_loads_image_archives_when_exported() -> None:
+    manifest = {**_manifest(), "imageMode": "image-archive"}
+    files = render_deployment_files(manifest)
+    by_path = {item.path.as_posix(): item.content for item in files}
+
+    assert '"${PACKAGE_ROOT}/scripts/load-images.sh"' in by_path["docker-compose/install.sh"]
+
+
+def test_docker_compose_install_skips_image_load_for_manifest_only_package() -> None:
+    files = render_deployment_files(_manifest())
+    by_path = {item.path.as_posix(): item.content for item in files}
+
+    assert '"${PACKAGE_ROOT}/scripts/load-images.sh"' not in by_path["docker-compose/install.sh"]
+
+
 def _manifest() -> dict:
     return {
         "packageId": "pkg-test",
