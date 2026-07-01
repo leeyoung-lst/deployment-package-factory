@@ -6,12 +6,15 @@ from pathlib import Path
 from deployment_package_factory.services.microservices.middleware_plugins import required_env_names
 
 
-def validate_scaffold_artifact(project_root: Path, artifact_path: Path, rendered_files: list, tech_stack: str, middleware: list[str], required_files: list[str]) -> dict[str, object]:
+def validate_scaffold_artifact(project_root: Path, artifact_path: Path, rendered_files: list, tech_stack: str, middleware: list[str], required_files: list[str], micro_frontend_framework: str = "") -> dict[str, object]:
     checks: list[dict[str, object]] = []
     checks.append(_required_files(project_root, required_files))
     if tech_stack == "python-fastapi":
         checks.append(_python_syntax(project_root, rendered_files))
-    checks.extend([_pipeline_files(project_root), _tech_stack_contract(project_root, tech_stack), _middleware_placeholders(project_root, middleware), _artifact_archive(artifact_path)])
+    checks.extend([_pipeline_files(project_root), _tech_stack_contract(project_root, tech_stack)])
+    if micro_frontend_framework:
+        checks.append(_micro_frontend_contract(project_root, micro_frontend_framework))
+    checks.extend([_middleware_placeholders(project_root, middleware), _artifact_archive(artifact_path)])
     return {"passed": all(bool(item["passed"]) for item in checks), "checks": checks, "fileCount": len(rendered_files)}
 
 
@@ -76,8 +79,6 @@ def _tech_stack_contract(project_root: Path, tech_stack: str) -> dict[str, objec
         },
         "vue3-vite": {"package.json": ["element-plus", "pinia"], "src/router/index.ts": ["createRouter"]},
         "react-vite": {"package.json": ["antd", "react"], "src/main.tsx": ["createRoot"]},
-        "qiankun": {"package.json": ["qiankun"], "src/main.ts": ["createApp"]},
-        "wujie": {"package.json": ["wujie-vue3"], "src/main.ts": ["createApp"]},
     }
     expected = contracts.get(tech_stack)
     if not expected:
@@ -91,6 +92,17 @@ def _tech_stack_contract(project_root: Path, tech_stack: str) -> dict[str, objec
         content = path.read_text(encoding="utf-8")
         missing.extend(f"{relative}:{snippet}" for snippet in snippets if snippet not in content)
     return {"name": "tech-stack-contract", "passed": not missing, "message": "技术栈契约检查通过" if not missing else f"缺失内容: {', '.join(missing)}"}
+
+
+def _micro_frontend_contract(project_root: Path, framework: str) -> dict[str, object]:
+    if not framework:
+        return {"name": "micro-frontend-contract", "passed": True, "message": "未启用微前端"}
+    packages = {"qiankun": "qiankun", "wujie": "wujie-vue3"}
+    expected = packages.get(framework, framework)
+    package_json = project_root / "package.json"
+    content = package_json.read_text(encoding="utf-8") if package_json.exists() else ""
+    passed = expected in content
+    return {"name": "micro-frontend-contract", "passed": passed, "message": "微前端依赖检查通过" if passed else f"缺失依赖: {expected}"}
 
 
 def _artifact_archive(artifact_path: Path) -> dict[str, object]:

@@ -9,6 +9,7 @@ export function MicroserviceResultContent({ result, retrying, refreshing, onCopy
   return (
     <div className={styles.resultGrid}>
       <MicroserviceResultRow label="业务平台"><Space size={6} wrap><Tag color="purple">{result.businessPlatformName}</Tag><span className={styles.mono}>{result.businessPlatformNamespace}</span></Space></MicroserviceResultRow>
+      <MicroserviceResultRow label="项目类型"><Space size={6} wrap><Tag color="blue">{result.projectKind}</Tag><Tag>{result.techStack}</Tag>{result.microFrontendFramework ? <Tag color="cyan">{result.microFrontendFramework}</Tag> : null}</Space></MicroserviceResultRow>
       <MicroserviceResultRow label="镜像"><span className={styles.mono}>{result.image}</span></MicroserviceResultRow>
       <MicroserviceResultRow label="Git项目"><span className={styles.mono}>{result.gitRepositoryUrl}</span></MicroserviceResultRow>
       <MicroserviceResultRow label="Jenkins"><span className={styles.mono}>{result.jenkinsJob}</span></MicroserviceResultRow>

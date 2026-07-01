@@ -1490,6 +1490,7 @@ def _microservice_result() -> MicroserviceScaffoldResult:
         projectId="svc-test",
         serviceKey="asset-service",
         serviceName="Asset Service",
+        projectKind="backend",
         techStack="python-fastapi",
         sourceEnv="test",
         businessPlatformKey="eam",

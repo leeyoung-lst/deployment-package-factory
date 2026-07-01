@@ -4,6 +4,7 @@ import type { SourceEnv } from "./deploymentPackages";
 export interface MicroserviceScaffoldOptions {
   projectKinds: Array<{ key: string; name: string }>;
   techStacks: Array<{ key: string; name: string; projectKind?: string }>;
+  microFrontendFrameworks: Array<{ key: string; name: string }>;
   middleware: Array<{ key: string; name: string }>;
 }
 
@@ -13,6 +14,7 @@ export interface MicroserviceScaffoldRequest {
   description: string;
   projectKind: string;
   techStack: string;
+  microFrontendFramework: string;
   port: number;
   middleware: string[];
   sourceEnv: SourceEnv;
@@ -28,7 +30,9 @@ export interface MicroserviceScaffoldResult {
   projectId: string;
   serviceKey: string;
   serviceName: string;
+  projectKind: string;
   techStack: string;
+  microFrontendFramework: string;
   sourceEnv: SourceEnv;
   businessPlatformKey: string;
   businessPlatformProfile: string;
@@ -66,6 +70,7 @@ export interface RegisteredMicroservice {
   description: string;
   projectKind: string;
   techStack: string;
+  microFrontendFramework: string;
   port: number;
   middleware: string[];
   sourceEnv: SourceEnv;

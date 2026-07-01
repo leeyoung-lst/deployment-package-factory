@@ -11,6 +11,7 @@ export const DEFAULT_MICROSERVICE_VALUES = {
   description: "",
   projectKind: "backend",
   techStack: "python-fastapi",
+  microFrontendFramework: "",
   port: 8000,
   middleware: ["redis", "postgresql"],
   sourceEnv: "test" as SourceEnv,
@@ -23,7 +24,7 @@ export const DEFAULT_MICROSERVICE_VALUES = {
 
 export type MicroserviceWizardValues = typeof DEFAULT_MICROSERVICE_VALUES;
 
-const API_FIELD_STEPS: Record<string, number> = { sourceEnv: 0, businessPlatformKey: 0, serviceKey: 1, serviceName: 1, projectKind: 1, techStack: 1, port: 2, middleware: 2, gitGroup: 2, imageRegistry: 2, imageNamespace: 2, k8sNamespace: 2 };
+const API_FIELD_STEPS: Record<string, number> = { sourceEnv: 0, businessPlatformKey: 0, serviceKey: 1, serviceName: 1, projectKind: 2, techStack: 2, microFrontendFramework: 2, port: 3, gitGroup: 3, imageRegistry: 3, imageNamespace: 3, middleware: 4, k8sNamespace: 4 };
 
 export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizardValues>, notifyError: (message: string) => void) {
   const [options, setOptions] = useState<MicroserviceScaffoldOptions | null>(null);
@@ -43,12 +44,20 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
   const businessPlatforms = useMemo(() => (deploymentOptions?.businessServices ?? []).filter((item) => item.registered && item.status !== "disabled" && item.sourceEnv === sourceEnv), [deploymentOptions?.businessServices, sourceEnv]);
   const selectedPlatform = useMemo(() => businessPlatforms.find((item) => businessPlatformValue(item) === formValues.businessPlatform), [businessPlatforms, formValues.businessPlatform]);
 
+  useEffect(() => {
+    const namespace = selectedPlatform?.namespace || "";
+    if (form.getFieldValue("k8sNamespace") !== namespace) {
+      form.setFieldValue("k8sNamespace", namespace);
+      setFormValues((current) => ({ ...current, k8sNamespace: namespace }));
+    }
+  }, [form, selectedPlatform]);
+
   const loadOptions = async () => {
     setLoading(true);
     try {
       const [scaffoldOptions, packageOptions, services, settings] = await Promise.all([getMicroserviceScaffoldOptions(), getDeploymentPackageOptions(), listMicroservices(), getSystemSettings()]);
       const firstPlatform = packageOptions.businessServices.find((item) => item.registered && item.status !== "disabled");
-      const values = { ...DEFAULT_MICROSERVICE_VALUES, sourceEnv: firstPlatform?.sourceEnv || packageOptions.sourceEnvs[0] || "test", businessPlatform: firstPlatform ? businessPlatformValue(firstPlatform) : "", gitGroup: settings.git.group, imageRegistry: settings.harbor.registry, imageNamespace: settings.harbor.project, k8sNamespace: settings.kubernetes.defaultNamespace };
+      const values = { ...DEFAULT_MICROSERVICE_VALUES, sourceEnv: firstPlatform?.sourceEnv || packageOptions.sourceEnvs[0] || "test", businessPlatform: firstPlatform ? businessPlatformValue(firstPlatform) : "", gitGroup: settings.git.group, imageRegistry: settings.harbor.registry, imageNamespace: settings.harbor.project, k8sNamespace: firstPlatform?.namespace || "" };
       setOptions(scaffoldOptions); setDeploymentOptions(packageOptions); setRegisteredServices(services); setSystemSettings(settings); setFormValues(values); form.setFieldsValue(values);
     } catch (error) {
       notifyError(error instanceof Error ? error.message : "微服务注册选项加载失败");
@@ -58,7 +67,7 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
   };
 
   const normalizeCurrentInputs = () => {
-    form.setFieldsValue({ serviceKey: normalizeK8sName(form.getFieldValue("serviceKey")), gitGroup: normalizePathValue(form.getFieldValue("gitGroup")), imageRegistry: normalizeRegistry(form.getFieldValue("imageRegistry")), imageNamespace: normalizePathValue(form.getFieldValue("imageNamespace")), k8sNamespace: normalizeK8sName(form.getFieldValue("k8sNamespace")) });
+    form.setFieldsValue({ serviceKey: normalizeK8sName(form.getFieldValue("serviceKey")), gitGroup: normalizePathValue(form.getFieldValue("gitGroup")), imageRegistry: normalizeRegistry(form.getFieldValue("imageRegistry")), imageNamespace: normalizePathValue(form.getFieldValue("imageNamespace")), k8sNamespace: selectedPlatform?.namespace || "" });
     setFormValues(form.getFieldsValue(true));
   };
 
@@ -66,7 +75,7 @@ export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizar
     try {
       normalizeCurrentInputs();
       await form.validateFields();
-      const values = form.getFieldsValue(true);
+      const values = { ...form.getFieldsValue(true), k8sNamespace: selectedPlatform?.namespace || "" };
       const platform = parseBusinessPlatformValue(values.businessPlatform);
       setSubmitting(true);
       const payload = await registerMicroservice({ ...values, businessPlatformKey: platform.key, businessPlatformProfile: platform.profile });

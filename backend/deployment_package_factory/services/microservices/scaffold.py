@@ -21,6 +21,7 @@ from deployment_package_factory.services.microservices.result_metadata import (
 )
 from deployment_package_factory.services.microservices.templates import (
     MIDDLEWARE,
+    MICRO_FRONTEND_FRAMEWORKS,
     PROJECT_KINDS,
     TECH_STACKS,
     TECH_STACK_PROJECT_KIND,
@@ -37,6 +38,9 @@ SUPPORTED_TECH_STACKS = {
 SUPPORTED_MIDDLEWARE = {
     key: name for key, name in MIDDLEWARE.items()
 }
+SUPPORTED_MICRO_FRONTEND_FRAMEWORKS = {
+    key: name for key, name in MICRO_FRONTEND_FRAMEWORKS.items()
+}
 K8S_NAME_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 IMAGE_SEGMENT_RE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")
 
@@ -49,6 +53,7 @@ class MicroserviceScaffoldRequest(BaseModel):
     description: str = ""
     project_kind: str = Field(default="backend", alias="projectKind")
     tech_stack: str = Field(default="python-fastapi", alias="techStack")
+    micro_frontend_framework: str = Field(default="", alias="microFrontendFramework")
     package_name: str = Field(default="", alias="packageName")
     port: int = 8000
     middleware: list[str] = Field(default_factory=list)
@@ -133,10 +138,20 @@ class MicroserviceScaffoldRequest(BaseModel):
             raise ValueError(f"Unsupported projectKind: {value}")
         return value
 
+    @field_validator("micro_frontend_framework")
+    @classmethod
+    def validate_micro_frontend_framework(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized and normalized not in SUPPORTED_MICRO_FRONTEND_FRAMEWORKS:
+            raise ValueError(f"Unsupported microFrontendFramework: {normalized}")
+        return normalized
+
     def model_post_init(self, __context: object) -> None:
         expected = TECH_STACK_PROJECT_KIND.get(self.tech_stack)
         if expected and self.project_kind != expected:
             raise ValueError(f"projectKind must be {expected} for techStack {self.tech_stack}")
+        if self.micro_frontend_framework and self.project_kind != "frontend":
+            raise ValueError("microFrontendFramework can only be used by frontend projectKind")
 
     @field_validator("middleware")
     @classmethod
@@ -153,7 +168,9 @@ class MicroserviceScaffoldResult(BaseModel):
     project_id: str = Field(alias="projectId")
     service_key: str = Field(alias="serviceKey")
     service_name: str = Field(alias="serviceName")
+    project_kind: str = Field(alias="projectKind")
     tech_stack: str = Field(alias="techStack")
+    micro_frontend_framework: str = Field(default="", alias="microFrontendFramework")
     source_env: str = Field(alias="sourceEnv")
     business_platform_key: str = Field(alias="businessPlatformKey")
     business_platform_profile: str = Field(alias="businessPlatformProfile")
@@ -181,6 +198,7 @@ class MicroserviceScaffoldOptions(BaseModel):
 
     project_kinds: list[dict[str, str]] = Field(alias="projectKinds")
     tech_stacks: list[dict[str, str]] = Field(alias="techStacks")
+    micro_frontend_frameworks: list[dict[str, str]] = Field(alias="microFrontendFrameworks")
     middleware: list[dict[str, str]]
 
 
@@ -195,6 +213,7 @@ def scaffold_options() -> MicroserviceScaffoldOptions:
     return MicroserviceScaffoldOptions(
         projectKinds=[{"key": key, "name": name} for key, name in PROJECT_KINDS.items()],
         techStacks=[{"key": key, "name": name, "projectKind": TECH_STACK_PROJECT_KIND[key]} for key, name in SUPPORTED_TECH_STACKS.items()],
+        microFrontendFrameworks=[{"key": key, "name": name} for key, name in SUPPORTED_MICRO_FRONTEND_FRAMEWORKS.items()],
         middleware=[{"key": key, "name": name} for key, name in SUPPORTED_MIDDLEWARE.items()],
     )
 
@@ -226,14 +245,16 @@ def create_microservice_scaffold(
     with tarfile.open(artifact_path, "w:gz") as tar:
         tar.add(project_root, arcname=request.service_key)
     digest = _file_sha256(artifact_path)
-    validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack, request.middleware)
+    validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack, request.middleware, request.micro_frontend_framework)
     image = image_ref(request)
 
     return MicroserviceScaffoldResult(
         projectId=project_id,
         serviceKey=request.service_key,
         serviceName=request.service_name,
+        projectKind=request.project_kind,
         techStack=request.tech_stack,
+        microFrontendFramework=request.micro_frontend_framework,
         sourceEnv=request.source_env,
         businessPlatformKey=request.business_platform_key,
         businessPlatformProfile=request.business_platform_profile,
@@ -346,6 +367,8 @@ def _context(request: MicroserviceScaffoldRequest) -> dict[str, object]:
         "service_key": request.service_key,
         "service_name": request.service_name,
         "description": request.description or request.service_name,
+        "tech_stack": request.tech_stack,
+        "micro_frontend_framework": request.micro_frontend_framework,
         "port": request.port,
         "middleware": request.middleware,
         "image": image,
@@ -366,7 +389,7 @@ def _write_file(path: Path, content: str, executable: bool = False) -> None:
         path.chmod(path.stat().st_mode | 0o111)
 
 
-def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile], tech_stack: str = "python-fastapi", middleware: list[str] | None = None) -> dict[str, object]:
+def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile], tech_stack: str = "python-fastapi", middleware: list[str] | None = None, micro_frontend_framework: str = "") -> dict[str, object]:
     required_files = generic_required_files(tech_stack) if tech_stack != "python-fastapi" else [
         "README.md",
         ".env.template",
@@ -391,7 +414,7 @@ def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: 
         "deploy/k8s/ingress.template.yaml",
         "deploy/helm",
     ]
-    return validate_scaffold_artifact(project_root, artifact_path, rendered_files, tech_stack, middleware or [], required_files)
+    return validate_scaffold_artifact(project_root, artifact_path, rendered_files, tech_stack, middleware or [], required_files, micro_frontend_framework)
 
 
 def _initialize_git(project_root: Path) -> None:

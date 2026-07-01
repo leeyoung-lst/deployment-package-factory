@@ -1001,6 +1001,7 @@ def _microservice_result(delivery: dict[str, object] | None = None) -> Microserv
         projectId="svc-test",
         serviceKey="asset-service",
         serviceName="Asset Service",
+        projectKind="backend",
         techStack="python-fastapi",
         sourceEnv="test",
         businessPlatformKey="eam",

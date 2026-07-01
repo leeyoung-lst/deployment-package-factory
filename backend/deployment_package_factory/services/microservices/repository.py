@@ -164,6 +164,7 @@ def _microservice_payload(
         "description": request.description,
         "projectKind": request.project_kind,
         "techStack": request.tech_stack,
+        "microFrontendFramework": request.micro_frontend_framework,
         "port": request.port,
         "middleware": request.middleware,
         "sourceEnv": request.source_env,

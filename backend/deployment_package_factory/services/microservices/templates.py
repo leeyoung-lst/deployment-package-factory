@@ -13,7 +13,6 @@ from deployment_package_factory.services.microservices.templates_common import T
 PROJECT_KINDS = {
     "backend": "后端微服务",
     "frontend": "前端应用",
-    "microfrontend": "微前端应用",
 }
 
 TECH_STACKS = {
@@ -22,6 +21,9 @@ TECH_STACKS = {
     "java-spring-cloud-alibaba": "Java Spring Cloud Alibaba + Nacos + JPA",
     "vue3-vite": "Vue3 Vite + Pinia + Router + Element Plus",
     "react-vite": "React Vite + Router + Ant Design",
+}
+
+MICRO_FRONTEND_FRAMEWORKS = {
     "qiankun": "Qiankun 微前端",
     "wujie": "Wujie 微前端",
 }
@@ -32,8 +34,6 @@ TECH_STACK_PROJECT_KIND = {
     "java-spring-cloud-alibaba": "backend",
     "vue3-vite": "frontend",
     "react-vite": "frontend",
-    "qiankun": "microfrontend",
-    "wujie": "microfrontend",
 }
 
 MIDDLEWARE = middleware_catalog()
@@ -47,7 +47,7 @@ def render_generic_template(request) -> list[TemplateFile]:
         files.extend(_nodejs_files(context))
     elif stack == "java-spring-cloud-alibaba":
         files.extend(_java_files(context))
-    elif stack in {"vue3-vite", "react-vite", "qiankun", "wujie"}:
+    elif stack in {"vue3-vite", "react-vite"}:
         files.extend(_frontend_files(context))
     else:
         raise ValueError(f"Unsupported techStack: {stack}")
@@ -60,6 +60,8 @@ def generic_required_files(tech_stack: str) -> list[str]:
         required.extend(node_required_files())
     elif tech_stack == "java-spring-cloud-alibaba":
         required.extend(["pom.xml", "src/main/java/com/example/domain/DemoItem.java", "src/main/java/com/example/interfaces/HealthController.java"])
+    elif tech_stack == "react-vite":
+        required.extend(["package.json", "src/main.tsx"])
     else:
         required.extend(["package.json", "src/main.ts", "src/router/index.ts"])
     return required
@@ -72,6 +74,7 @@ def _context(request) -> dict[str, object]:
         "service_name": request.service_name,
         "description": request.description or request.service_name,
         "tech_stack": request.tech_stack,
+        "micro_frontend_framework": request.micro_frontend_framework,
         "port": request.port,
         "middleware": request.middleware,
         "image": image,
@@ -169,7 +172,7 @@ def _dockerfile(context: dict[str, object]) -> str:
     stack = context["tech_stack"]
     if stack == "java-spring-cloud-alibaba":
         return "FROM eclipse-temurin:21-jre\nWORKDIR /app\nCOPY target/*.jar app.jar\nUSER 10001\nENTRYPOINT [\"java\",\"-jar\",\"/app/app.jar\"]\n"
-    if stack in {"vue3-vite", "react-vite", "qiankun", "wujie"}:
+    if stack in {"vue3-vite", "react-vite"}:
         return "FROM nginx:1.27-alpine\nCOPY dist /usr/share/nginx/html\nUSER 101\n"
     return f"FROM node:22-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build\nUSER node\nEXPOSE {context['port']}\nCMD [\"npm\",\"start\"]\n"
 
@@ -260,5 +263,6 @@ def _java_controller(context: dict[str, object]) -> str:
 def _frontend_package(context: dict[str, object]) -> str:
     stack = context["tech_stack"]
     deps = '"@vitejs/plugin-react":"^4.3.0","react":"^18.3.1","react-dom":"^18.3.1","antd":"^5.20.0","typescript":"^5.5.0","vite":"^5.4.0"' if stack == "react-vite" else '"@vitejs/plugin-vue":"^5.1.0","vue":"^3.4.0","vue-router":"^4.4.0","pinia":"^2.2.0","element-plus":"^2.8.0","typescript":"^5.5.0","vite":"^5.4.0"'
-    extra = ',"qiankun":"^2.10.16"' if stack == "qiankun" else ',"wujie-vue3":"^1.0.22"' if stack == "wujie" else ""
+    framework = context.get("micro_frontend_framework")
+    extra = ',"qiankun":"^2.10.16"' if framework == "qiankun" else ',"wujie-vue3":"^1.0.22"' if framework == "wujie" else ""
     return f'{{"name":"{context["service_key"]}","type":"module","scripts":{{"build":"vite build","dev":"vite --host 0.0.0.0"}},"dependencies":{{{deps}{extra}}},"devDependencies":{{}}}}\n'

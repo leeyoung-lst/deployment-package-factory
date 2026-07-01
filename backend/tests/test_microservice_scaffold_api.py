@@ -173,10 +173,11 @@ def test_microservice_options_include_multi_stack_and_middleware() -> None:
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert {item["key"] for item in payload["projectKinds"]} == {"backend", "frontend", "microfrontend"}
-    assert {"nodejs-express", "java-spring-cloud-alibaba", "vue3-vite", "react-vite", "qiankun", "wujie"}.issubset(
+    assert {item["key"] for item in payload["projectKinds"]} == {"backend", "frontend"}
+    assert {"nodejs-express", "java-spring-cloud-alibaba", "vue3-vite", "react-vite"}.issubset(
         {item["key"] for item in payload["techStacks"]}
     )
+    assert {"qiankun", "wujie"} == {item["key"] for item in payload["microFrontendFrameworks"]}
     assert {"redis", "dm", "postgresql", "iotdb", "mongodb", "kafka", "mq"}.issubset({item["key"] for item in payload["middleware"]})
 
 
@@ -272,6 +273,34 @@ def test_register_microservice_generates_java_and_frontend_projects(tmp_path, mo
         assert "asset-ui/package.json" in names
         assert "asset-ui/src/main.ts" in names
         assert "asset-ui/src/router/index.ts" in names
+
+
+def test_register_frontend_microservice_can_enable_micro_frontend_framework(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-portal",
+            "serviceName": "Asset Portal",
+            "projectKind": "frontend",
+            "techStack": "vue3-vite",
+            "microFrontendFramework": "qiankun",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["microFrontendFramework"] == "qiankun"
+    assert payload["validation"]["passed"] is True
+    with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
+        package_json = tar.extractfile("asset-portal/package.json").read().decode("utf-8")
+    assert '"qiankun":"^2.10.16"' in package_json
 
 
 def test_register_microservice_accepts_runtime_discovered_business_platform(tmp_path, monkeypatch) -> None:
@@ -395,7 +424,7 @@ def test_register_microservice_normalizes_scaffold_inputs(tmp_path, monkeypatch)
     assert registered is not None
     assert registered["gitGroup"] == "business-services/eam"
     assert registered["image"] == "registry.local:5000/business/eam/eam-asset-service"
-    assert registered["k8sNamespace"] == "test-biz-eam-asset"
+    assert registered["k8sNamespace"] == "test-biz-eam-4x60"
 
 
 def test_register_microservice_uses_system_setting_defaults(tmp_path, monkeypatch) -> None:
@@ -660,6 +689,28 @@ def test_register_microservice_rejects_invalid_port(tmp_path, monkeypatch) -> No
 
     assert response.status_code == 422
     assert "port must be between 1 and 65535" in response.text
+
+
+def test_register_microservice_rejects_micro_frontend_framework_for_backend(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DEPLOYMENT_PACKAGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(deployment_packages, "_BUSINESS_PLATFORM_REPO", InMemoryBusinessPlatformRepository())
+    monkeypatch.setattr(deployment_packages, "_MICROSERVICE_REPO", InMemoryMicroserviceRepository())
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-service",
+            "serviceName": "资产服务",
+            "projectKind": "backend",
+            "techStack": "python-fastapi",
+            "microFrontendFramework": "qiankun",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "microFrontendFramework can only be used by frontend projectKind" in response.text
 
 
 def _register_platform(tmp_path, monkeypatch) -> None:

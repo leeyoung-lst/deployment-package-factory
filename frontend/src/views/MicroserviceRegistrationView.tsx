@@ -1,9 +1,10 @@
 import React from "react";
 import { App, Button, Form, Space, Spin } from "antd";
 import { listMicroservices } from "../api/microservices";
-import { MicroserviceRegistrationWizard, stepFields } from "./components/MicroserviceRegistrationWizard";
+import { MicroserviceRegistrationWizard, WIZARD_STEP_COUNT, stepFields } from "./components/MicroserviceRegistrationWizard";
 import { MicroserviceResultPanel } from "./components/MicroserviceResultPanel";
 import { RegisteredMicroservicesPanel } from "./components/RegisteredMicroservicesPanel";
+import { businessPlatformValue } from "./components/microserviceUtils";
 import { DEFAULT_MICROSERVICE_VALUES, type MicroserviceWizardValues, useMicroserviceRegistration } from "./hooks/useMicroserviceRegistration";
 import styles from "./MicroserviceRegistrationView.module.css";
 
@@ -22,7 +23,12 @@ export const MicroserviceRegistrationView: React.FC = () => {
     state.normalizeCurrentInputs();
     await form.validateFields(stepFields(state.currentStep));
     state.setFormValues(form.getFieldsValue(true));
-    state.setCurrentStep(Math.min(state.currentStep + 1, 3));
+    state.setCurrentStep(Math.min(state.currentStep + 1, WIZARD_STEP_COUNT - 1));
+  };
+
+  const syncFormValues = (values: MicroserviceWizardValues) => {
+    const selected = state.businessPlatforms.find((item) => businessPlatformValue(item) === values.businessPlatform);
+    state.setFormValues({ ...DEFAULT_MICROSERVICE_VALUES, ...values, k8sNamespace: selected?.namespace || "" });
   };
 
   const copyCommand = async (value: string) => {
@@ -75,7 +81,7 @@ export const MicroserviceRegistrationView: React.FC = () => {
         onNext={goNext}
         onPrevious={() => { state.setFormValues(form.getFieldsValue(true)); state.setCurrentStep(Math.max(state.currentStep - 1, 0)); }}
         onSubmit={() => void state.submit().then((ok) => ok && message.success("微服务项目已生成"))}
-        onValuesChange={(_, values) => state.setFormValues({ ...DEFAULT_MICROSERVICE_VALUES, ...values })}
+        onValuesChange={(_, values) => syncFormValues(values)}
       />
     </div>
   );
