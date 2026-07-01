@@ -21,7 +21,7 @@ class RenderedInstallFile:
 def render_root_install_files(manifest: dict | None = None) -> list[RenderedInstallFile]:
     default_mode = _default_deploy_mode(manifest)
     return [
-        RenderedInstallFile(PurePosixPath("install.sh"), render_install_sh(INSTALLER_VERSION), executable=True),
+        RenderedInstallFile(PurePosixPath("install.sh"), render_install_sh(INSTALLER_VERSION, default_mode), executable=True),
         RenderedInstallFile(PurePosixPath("install.ps1"), render_install_ps1(INSTALLER_VERSION, default_mode)),
     ]
 

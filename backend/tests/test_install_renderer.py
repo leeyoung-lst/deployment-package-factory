@@ -52,4 +52,5 @@ def test_render_root_install_files_defaults_compose_when_package_only_supports_c
     files = render_root_install_files({"deployModes": ["docker-compose"]})
     by_path = {item.path.as_posix(): item for item in files}
 
+    assert 'MODE="docker-compose"' in by_path["install.sh"].content
     assert "[string]$Mode = 'docker-compose'" in by_path["install.ps1"].content

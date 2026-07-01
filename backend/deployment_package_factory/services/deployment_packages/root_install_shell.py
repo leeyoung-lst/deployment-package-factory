@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 
-def render_install_sh(installer_version: str) -> str:
+def render_install_sh(installer_version: str, default_mode: str = "k8s") -> str:
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f'INSTALLER_VERSION="{installer_version}"\n'
-        'MODE="k8s"\n'
+        f'MODE="{default_mode}"\n'
         'if [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; then\n'
         '  MODE="$1"\n'
         "  shift\n"
