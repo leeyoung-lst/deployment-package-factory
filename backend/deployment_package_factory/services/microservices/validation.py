@@ -77,8 +77,8 @@ def _tech_stack_contract(project_root: Path, tech_stack: str) -> dict[str, objec
             "src/main/resources/application.yml": ["nacos"],
             "src/main/java/com/example/Application.java": ["@SpringBootApplication"],
         },
-        "vue3-vite": {"package.json": ["element-plus", "pinia"], "src/router/index.ts": ["createRouter"]},
-        "react-vite": {"package.json": ["antd", "react"], "src/main.tsx": ["createRoot"]},
+        "vue3-vite": {"package.json": ["element-plus", "pinia"], "src/router/index.ts": ["createRouter"], "vite.config.ts": ["@vitejs/plugin-vue"]},
+        "react-vite": {"package.json": ["antd", "react"], "src/main.tsx": ["createRoot"], "vite.config.ts": ["@vitejs/plugin-react"]},
     }
     expected = contracts.get(tech_stack)
     if not expected:
@@ -97,10 +97,11 @@ def _tech_stack_contract(project_root: Path, tech_stack: str) -> dict[str, objec
 def _micro_frontend_contract(project_root: Path, framework: str) -> dict[str, object]:
     if not framework:
         return {"name": "micro-frontend-contract", "passed": True, "message": "未启用微前端"}
-    packages = {"qiankun": "qiankun", "wujie": "wujie-vue3"}
-    expected = packages.get(framework, framework)
     package_json = project_root / "package.json"
     content = package_json.read_text(encoding="utf-8") if package_json.exists() else ""
+    is_react = "@vitejs/plugin-react" in content
+    packages = {"qiankun": "qiankun", "wujie": "wujie-react" if is_react else "wujie-vue3"}
+    expected = packages.get(framework, framework)
     passed = expected in content
     return {"name": "micro-frontend-contract", "passed": passed, "message": "微前端依赖检查通过" if passed else f"缺失依赖: {expected}"}
 

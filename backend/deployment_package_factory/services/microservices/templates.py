@@ -61,9 +61,9 @@ def generic_required_files(tech_stack: str) -> list[str]:
     elif tech_stack == "java-spring-cloud-alibaba":
         required.extend(["pom.xml", "src/main/java/com/example/domain/DemoItem.java", "src/main/java/com/example/interfaces/HealthController.java"])
     elif tech_stack == "react-vite":
-        required.extend(["package.json", "src/main.tsx"])
+        required.extend(["package.json", "index.html", "vite.config.ts", "tsconfig.json", "src/main.tsx"])
     else:
-        required.extend(["package.json", "src/main.ts", "src/router/index.ts"])
+        required.extend(["package.json", "index.html", "vite.config.ts", "tsconfig.json", "src/main.ts", "src/router/index.ts", "src/App.vue"])
     return required
 
 
@@ -133,14 +133,26 @@ def _frontend_files(context: dict[str, object]) -> list[TemplateFile]:
         main_path = "src/main.ts"
     files = [
         TemplateFile(PurePosixPath("package.json"), _frontend_package(context)),
+        TemplateFile(PurePosixPath("tsconfig.json"), _frontend_tsconfig()),
+        TemplateFile(PurePosixPath("vite.config.ts"), _frontend_vite_config(context)),
         TemplateFile(PurePosixPath("index.html"), index),
         TemplateFile(PurePosixPath(main_path), main),
-        TemplateFile(PurePosixPath("src/router/index.ts"), "import { createRouter, createWebHistory } from 'vue-router';\nexport default createRouter({ history: createWebHistory(), routes: [{ path: '/', component: { template: '<main>微服务前端骨架</main>' } }] });\n"),
         TemplateFile(PurePosixPath("src/style.css"), "body { margin: 0; font-family: Inter, 'Microsoft YaHei', sans-serif; }\n"),
     ]
     if stack != "react-vite":
+        files.append(TemplateFile(PurePosixPath("src/router/index.ts"), "import { createRouter, createWebHistory } from 'vue-router';\nexport default createRouter({ history: createWebHistory(), routes: [{ path: '/', component: { template: '<main>微服务前端骨架</main>' } }] });\n"))
         files.append(TemplateFile(PurePosixPath("src/App.vue"), f"<template><main><h1>{context['service_name']}</h1><p>{context['description']}</p></main></template>\n"))
     return files
+
+
+def _frontend_tsconfig() -> str:
+    return '{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"Bundler","strict":true,"jsx":"react-jsx","skipLibCheck":true},"include":["src","vite.config.ts"]}\n'
+
+
+def _frontend_vite_config(context: dict[str, object]) -> str:
+    plugin = "react from '@vitejs/plugin-react'" if context["tech_stack"] == "react-vite" else "vue from '@vitejs/plugin-vue'"
+    use_plugin = "react()" if context["tech_stack"] == "react-vite" else "vue()"
+    return f"import {{ defineConfig }} from 'vite';\nimport {plugin};\n\nexport default defineConfig({{ plugins: [{use_plugin}], server: {{ host: '0.0.0.0', port: {context['port']} }} }});\n"
 
 
 def _env_template(context: dict[str, object]) -> str:
@@ -264,5 +276,5 @@ def _frontend_package(context: dict[str, object]) -> str:
     stack = context["tech_stack"]
     deps = '"@vitejs/plugin-react":"^4.3.0","react":"^18.3.1","react-dom":"^18.3.1","antd":"^5.20.0","typescript":"^5.5.0","vite":"^5.4.0"' if stack == "react-vite" else '"@vitejs/plugin-vue":"^5.1.0","vue":"^3.4.0","vue-router":"^4.4.0","pinia":"^2.2.0","element-plus":"^2.8.0","typescript":"^5.5.0","vite":"^5.4.0"'
     framework = context.get("micro_frontend_framework")
-    extra = ',"qiankun":"^2.10.16"' if framework == "qiankun" else ',"wujie-vue3":"^1.0.22"' if framework == "wujie" else ""
+    extra = ',"qiankun":"^2.10.16"' if framework == "qiankun" else ',"wujie-react":"^1.0.5"' if framework == "wujie" and stack == "react-vite" else ',"wujie-vue3":"^1.0.22"' if framework == "wujie" else ""
     return f'{{"name":"{context["service_key"]}","type":"module","scripts":{{"build":"vite build","dev":"vite --host 0.0.0.0"}},"dependencies":{{{deps}{extra}}},"devDependencies":{{}}}}\n'

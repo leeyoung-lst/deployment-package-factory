@@ -271,8 +271,41 @@ def test_register_microservice_generates_java_and_frontend_projects(tmp_path, mo
     with tarfile.open(Path(vue_response.json()["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
         assert "asset-ui/package.json" in names
+        assert "asset-ui/vite.config.ts" in names
+        assert "asset-ui/tsconfig.json" in names
         assert "asset-ui/src/main.ts" in names
         assert "asset-ui/src/router/index.ts" in names
+
+
+def test_register_microservice_generates_react_frontend_project(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-react",
+            "serviceName": "Asset React",
+            "projectKind": "frontend",
+            "techStack": "react-vite",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["validation"]["passed"] is True
+    with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
+        names = set(tar.getnames())
+        package_json = tar.extractfile("asset-react/package.json").read().decode("utf-8")
+        vite_config = tar.extractfile("asset-react/vite.config.ts").read().decode("utf-8")
+    assert "asset-react/src/main.tsx" in names
+    assert "asset-react/src/router/index.ts" not in names
+    assert '"antd"' in package_json
+    assert "@vitejs/plugin-react" in vite_config
 
 
 def test_register_frontend_microservice_can_enable_micro_frontend_framework(tmp_path, monkeypatch) -> None:
@@ -301,6 +334,34 @@ def test_register_frontend_microservice_can_enable_micro_frontend_framework(tmp_
     with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
         package_json = tar.extractfile("asset-portal/package.json").read().decode("utf-8")
     assert '"qiankun":"^2.10.16"' in package_json
+
+
+def test_register_react_frontend_uses_react_wujie_adapter(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-wujie",
+            "serviceName": "Asset Wujie",
+            "projectKind": "frontend",
+            "techStack": "react-vite",
+            "microFrontendFramework": "wujie",
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+            "imageRegistry": "registry.local",
+            "imageNamespace": "business",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["validation"]["passed"] is True
+    with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
+        package_json = tar.extractfile("asset-wujie/package.json").read().decode("utf-8")
+    assert '"wujie-react":"^1.0.5"' in package_json
+    assert "wujie-vue3" not in package_json
 
 
 def test_register_microservice_accepts_runtime_discovered_business_platform(tmp_path, monkeypatch) -> None:
