@@ -57,6 +57,8 @@ def resolve_package_preview(request: PackagePreviewRequest, catalog: DeploymentC
         for middleware_key in capability.middleware:
             middleware_required_by[middleware_key].add(platform_key)
 
+    _expand_middleware_dependencies(middleware_required_by, catalog)
+
     middleware_keys = set(middleware_required_by)
     if "database" in middleware_keys:
         middleware_keys.remove("database")
@@ -90,6 +92,26 @@ def resolve_package_preview(request: PackagePreviewRequest, catalog: DeploymentC
         images=_resolve_images(selected_platform, selected_business, middleware_keys, catalog),
         warnings=warnings,
     )
+
+
+def _expand_middleware_dependencies(
+    middleware_required_by: dict[str, set[str]],
+    catalog: DeploymentCatalog,
+) -> None:
+    changed = True
+    while changed:
+        changed = False
+        for middleware_key in list(middleware_required_by):
+            if middleware_key == "database" or middleware_key in catalog.database_options:
+                continue
+            option = catalog.middleware.get(middleware_key)
+            if option is None:
+                raise CatalogError(f"Unknown middleware {middleware_key!r}.")
+            for dependency in option.depends_on:
+                before = len(middleware_required_by[dependency])
+                middleware_required_by[dependency].add(middleware_key)
+                if len(middleware_required_by[dependency]) != before:
+                    changed = True
 
 
 def _apply_project_defaults(request: PackagePreviewRequest, catalog: DeploymentCatalog) -> PackagePreviewRequest:

@@ -21,6 +21,7 @@ def test_catalog_loads_default_capabilities() -> None:
     assert catalog.middleware["redis"].compose_healthcheck["test"] == ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping']
     assert catalog.middleware["redis"].env_template["REDIS_PASSWORD"] == "__REPLACE_WITH_REDIS_PASSWORD__"
     assert catalog.middleware["redis"].env_sources["REDIS_PASSWORD"]["secretKeys"] == ["REDIS_PASSWORD"]
+    assert catalog.middleware["camunda"].depends_on == ["camunda-elasticsearch"]
     assert catalog.database_options["postgres"].compose_environment["POSTGRES_PASSWORD"] == "${DATABASE_PASSWORD}"
     assert catalog.database_options["postgres"].env_sources["DATABASE_PASSWORD"]["secretKeys"] == ["DATABASE_PASSWORD", "POSTGRES_PASSWORD"]
 
@@ -42,8 +43,9 @@ def test_eam_preview_resolves_platform_and_middleware_dependencies() -> None:
     middleware_keys = {item.key for item in preview.middleware}
 
     assert {"iam", "gateway-frontend", "file-documents", "workflow-camunda", "audit"}.issubset(platform_keys)
-    assert {"postgres", "redis", "minio", "camunda", "iotdb"}.issubset(middleware_keys)
+    assert {"postgres", "redis", "minio", "camunda", "camunda-elasticsearch", "iotdb"}.issubset(middleware_keys)
     assert "local-ai-eam-service" in preview.images["business"]
+    assert "192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in preview.images["middleware"]
     assert "192.168.10.210/local-ai/nginx:1.27-alpine" in preview.images["support"]
 
     redis = next(item for item in preview.middleware if item.key == "redis")

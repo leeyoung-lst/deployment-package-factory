@@ -47,6 +47,8 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert checksum.read_text(encoding="utf-8") == f"{result.sha256}  {artifact.name}\n"
     assert result.manifest["businessServices"] == ["eam"]
     assert result.manifest["database"] == "postgres"
+    assert "camunda-elasticsearch" in result.manifest["middleware"]
+    assert "192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in result.manifest["images"]["middleware"]
 
     with tarfile.open(artifact, "r:gz") as tar:
         names = set(tar.getnames())
@@ -178,6 +180,8 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     compose_install = (root / "docker-compose" / "install.sh").read_text(encoding="utf-8")
     compose_dry_run = (root / "docker-compose" / "dry-run.sh").read_text(encoding="utf-8")
     compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
+    compose = (root / "docker-compose" / "docker-compose.yml").read_text(encoding="utf-8")
+    images_txt = (root / "images" / "images.txt").read_text(encoding="utf-8")
     root_install = (root / "install.sh").read_text(encoding="utf-8")
     root_install_ps1 = (root / "install.ps1").read_text(encoding="utf-8")
     quality_gate = (root / "quality-gate.sh").read_text(encoding="utf-8")
@@ -207,6 +211,11 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "CAMUNDA_ADMIN_PASSWORD=source-camunda-password" in compose_env
     assert "IOTDB_PASSWORD=source-iotdb-password" in compose_env
     assert "__REPLACE_WITH_" not in compose_env
+    assert "  camunda-elasticsearch:" in compose
+    assert "CAMUNDA_DATA_SECONDARY_STORAGE_ELASTICSEARCH_URL: http://camunda-elasticsearch:9200" in compose
+    assert "      camunda-elasticsearch:\n        condition: service_healthy" in compose
+    assert "xpack.security.enabled: \"false\"" in compose
+    assert "middleware 192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in images_txt
     assert "_runtimeEnv" not in result.manifest
     assert "package-index.json" in root_install
     assert "--skip-verify" in root_install
@@ -871,6 +880,25 @@ def test_image_archive_uses_source_registry_separately_from_target_registry(tmp_
     assert all(item["sourceRef"].startswith("harbor.internal/local-ai/") for item in lock["images"])
     assert all(item["targetRef"].startswith("harbor.prod/local-ai/") for item in lock["images"])
     assert any(item["catalogRef"] == "192.168.10.210/local-ai/postgres:16-alpine" for item in lock["images"])
+
+
+def test_image_entries_keep_cross_project_catalog_registry_for_source_registry() -> None:
+    entries = builder._image_entries(
+        {"middleware": ["192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4"]},
+        PackageBuildRequest(
+            sourceEnv="test",
+            deployModes=["docker-compose"],
+            database="postgres",
+            targetProfile=TargetProfile(
+                sourceRegistry="192.168.10.210/local-ai",
+                registry="harbor.prod/local-ai",
+            ),
+        ),
+        "prod",
+    )
+
+    assert entries[0]["sourceRef"] == "192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4"
+    assert entries[0]["targetRef"] == "harbor.prod/local-ai/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4"
 
 
 def test_image_entries_use_runtime_kubernetes_images_for_source_env(monkeypatch) -> None:

@@ -104,6 +104,11 @@ def _validate_catalog(
         if missing_middleware:
             raise CatalogError(f"Capability {capability.key!r} depends on unknown middleware: {sorted(missing_middleware)}")
 
+    for option in middleware.values():
+        missing_middleware = set(option.depends_on) - middleware_keys
+        if missing_middleware:
+            raise CatalogError(f"Middleware {option.key!r} depends on unknown middleware: {sorted(missing_middleware)}")
+
     for project in projects.values():
         missing_platform = set(project.default_platform_services) - set(platform)
         if missing_platform:

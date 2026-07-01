@@ -86,6 +86,76 @@ def test_docker_compose_install_skips_image_load_for_manifest_only_package() -> 
     assert '"${PACKAGE_ROOT}/scripts/load-images.sh"' not in by_path["docker-compose/install.sh"]
 
 
+def test_camunda_compose_waits_for_elasticsearch_dependency() -> None:
+    manifest = _manifest()
+    manifest["middleware"] = ["postgres", "camunda", "camunda-elasticsearch"]
+    manifest["middlewareConfig"]["camunda"] = {
+        "image": "192.168.10.210/local-ai/camunda/camunda:8.8.20",
+        "port": 8080,
+        "dataPath": "/camunda",
+        "dependsOn": ["camunda-elasticsearch"],
+        "envTemplate": {
+            "CAMUNDA_ADMIN_USER": "demo",
+            "CAMUNDA_ADMIN_PASSWORD": "__REPLACE_WITH_CAMUNDA_ADMIN_PASSWORD__",
+        },
+        "composeEnvironment": {
+            "CAMUNDA_ADMIN_USER": "${CAMUNDA_ADMIN_USER}",
+            "CAMUNDA_ADMIN_PASSWORD": "${CAMUNDA_ADMIN_PASSWORD}",
+            "CAMUNDA_DATA_SECONDARY_STORAGE_ELASTICSEARCH_URL": "http://camunda-elasticsearch:9200",
+            "CAMUNDA_DATA_SECONDARY_STORAGE_TYPE": "elasticsearch",
+        },
+    }
+    manifest["middlewareConfig"]["camunda-elasticsearch"] = {
+        "image": "192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4",
+        "port": 9200,
+        "dataPath": "/usr/share/elasticsearch/data",
+        "composeEnvironment": {
+            "discovery.type": "single-node",
+            "xpack.security.enabled": "false",
+        },
+        "composeHealthcheck": {
+            "test": ["CMD-SHELL", "bash -lc '</dev/tcp/127.0.0.1/9200'"],
+            "interval": "20s",
+            "timeout": "5s",
+            "retries": 30,
+            "startPeriod": "60s",
+        },
+    }
+    manifest["imageEntries"].extend(
+        [
+            {
+                "group": "middleware",
+                "sourceRef": "192.168.10.210/local-ai/camunda/camunda:8.8.20",
+                "targetRef": "harbor.example.com/prod/camunda/camunda:8.8.20",
+                "archiveFile": "camunda.tar",
+            },
+            {
+                "group": "middleware",
+                "sourceRef": "192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4",
+                "targetRef": "harbor.example.com/prod/docker.elastic.co/elasticsearch/elasticsearch:8.17.4",
+                "archiveFile": "camunda-elasticsearch.tar",
+            },
+        ]
+    )
+
+    files = render_deployment_files(manifest)
+    by_path = {item.path.as_posix(): item.content for item in files}
+    compose = by_path["docker-compose/docker-compose.yml"]
+
+    assert "  camunda-elasticsearch:" in compose
+    assert "CAMUNDA_DATA_SECONDARY_STORAGE_ELASTICSEARCH_URL: http://camunda-elasticsearch:9200" in compose
+    assert "xpack.security.enabled: \"false\"" in compose
+    assert "  camunda:\n" in compose
+    assert "      camunda-elasticsearch:\n        condition: service_healthy" in compose
+    workflow_deployments = by_path["k8s/layers/40-workflow-webui/deployments.yaml"]
+    assert "name: camunda-elasticsearch" in workflow_deployments
+    assert "name: CAMUNDA_DATA_SECONDARY_STORAGE_ELASTICSEARCH_URL" in workflow_deployments
+    assert 'value: "http://camunda-elasticsearch:9200"' in workflow_deployments
+    assert "name: CAMUNDA_ADMIN_PASSWORD" in workflow_deployments
+    assert "secretKeyRef:" in workflow_deployments
+    assert "key: CAMUNDA_ADMIN_PASSWORD" in workflow_deployments
+
+
 def _manifest() -> dict:
     return {
         "packageId": "pkg-test",

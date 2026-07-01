@@ -68,7 +68,14 @@ def test_deployment_package_options_returns_only_runtime_services(monkeypatch: p
     assert payload["businessServices"][0]["namespace"] == "test-biz-eam-4x60"
     assert payload["businessServices"][0]["sourceEnv"] == "test"
     assert {item["key"] for item in payload["databaseOptions"]} == {"postgres"}
-    assert {item["key"] for item in payload["middleware"]} == {"camunda", "iotdb", "minio", "monitoring", "redis"}
+    assert {item["key"] for item in payload["middleware"]} == {
+        "camunda",
+        "camunda-elasticsearch",
+        "iotdb",
+        "minio",
+        "monitoring",
+        "redis",
+    }
     assert [item["key"] for item in payload["projects"]] == ["test-eam-4x60"]
     assert payload["projects"][0]["registry"] == "192.168.10.210/local-ai"
 
@@ -156,8 +163,9 @@ def test_deployment_package_preview_returns_resolved_dependencies(monkeypatch: p
     platform_keys = {item["key"] for item in payload["platformServices"]}
     middleware_keys = {item["key"] for item in payload["middleware"]}
     assert {"iam", "gateway-frontend", "file-documents", "workflow-camunda", "audit"}.issubset(platform_keys)
-    assert {"postgres", "redis", "minio", "camunda", "iotdb"}.issubset(middleware_keys)
+    assert {"postgres", "redis", "minio", "camunda", "camunda-elasticsearch", "iotdb"}.issubset(middleware_keys)
     assert "local-ai-eam-service" in payload["images"]["business"]
+    assert "192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in payload["images"]["middleware"]
     assert "192.168.10.210/local-ai/mqtt-collector:k8s" in payload["images"]["business"]
     assert payload["runtimeConfig"]["resources"]
     database_resources = [item for item in payload["runtimeConfig"]["resources"] if item["type"] == "databaseSchema"]
@@ -1050,6 +1058,7 @@ def _mock_runtime_environment(monkeypatch: pytest.MonkeyPatch, *, seed_business:
         ("192.168.10.210/local-ai/redis:7", "redis"),
         ("192.168.10.210/local-ai/minio/minio:latest", "minio"),
         ("192.168.10.210/local-ai/camunda/camunda:latest", "camunda"),
+        ("192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4", "camunda-es"),
         ("192.168.10.210/local-ai/apache/iotdb:latest", "iotdb"),
         ("192.168.10.210/local-ai/prometheus:latest", "prometheus"),
     ]

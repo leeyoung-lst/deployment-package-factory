@@ -453,7 +453,7 @@ def _image_entries(
         for raw in values:
             catalog_ref = _with_default_tag(raw, default_tag)
             runtime_image = runtime_images.get(catalog_ref)
-            source_ref = _runtime_source_ref(catalog_ref, runtime_image) if runtime_image else _target_image_ref(catalog_ref, source_registry)
+            source_ref = _runtime_source_ref(catalog_ref, runtime_image) if runtime_image else _source_image_ref(catalog_ref, source_registry)
             source_export_ref = _source_export_ref(runtime_image, source_ref) if runtime_image else source_ref
             target_ref = _target_image_ref(catalog_ref, registry)
             if target_ref in seen:
@@ -724,6 +724,18 @@ def _runtime_source_ref(catalog_ref: str, runtime_image: RuntimeSourceImage | No
     if _has_registry(catalog_ref):
         return catalog_ref
     return runtime_image.source_ref
+
+
+def _source_image_ref(catalog_ref: str, source_registry: str) -> str:
+    if not source_registry:
+        return catalog_ref
+    if not _has_registry(catalog_ref):
+        return _target_image_ref(catalog_ref, source_registry)
+    image_path = catalog_ref.split("/", 1)[1]
+    registry_project = source_registry.rstrip("/").rsplit("/", 1)[-1]
+    if image_path.startswith(f"{registry_project}/") or image_path.startswith("local-ai/"):
+        return _target_image_ref(catalog_ref, source_registry)
+    return catalog_ref
 
 
 def _source_export_ref(runtime_image: RuntimeSourceImage | None, source_ref: str = "") -> str:

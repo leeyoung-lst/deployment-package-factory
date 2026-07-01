@@ -166,6 +166,7 @@ def _k8s_app_deployment(service: dict) -> str:
 
 def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
     port = _middleware_port(key, manifest)
+    environment = _k8s_middleware_environment(key, manifest)
     return (
         "apiVersion: apps/v1\n"
         "kind: Deployment\n"
@@ -186,6 +187,7 @@ def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
         f"        - name: {key}\n"
         f"          image: {_middleware_image(key, manifest)}\n"
         "          imagePullPolicy: IfNotPresent\n"
+        f"{environment}"
         "          ports:\n"
         f"            - containerPort: {port}\n"
         "          volumeMounts:\n"
@@ -196,6 +198,38 @@ def _k8s_middleware_deployment(key: str, manifest: dict) -> str:
         "          persistentVolumeClaim:\n"
         f"            claimName: {key}-data\n"
     )
+
+
+def _k8s_middleware_environment(key: str, manifest: dict) -> str:
+    values = _middleware_definition(key, manifest).get("composeEnvironment") or {}
+    if not values:
+        return ""
+    templates = _middleware_definition(key, manifest).get("envTemplate") or {}
+    lines = ["          env:"]
+    for name, value in values.items():
+        reference = _env_reference_name(value)
+        if reference and "__REPLACE_WITH_" in str(templates.get(reference, "")):
+            lines.append(f"            - name: {name}")
+            lines.append("              valueFrom:")
+            lines.append("                secretKeyRef:")
+            lines.append("                  name: platform-runtime-secret")
+            lines.append(f"                  key: {reference}")
+            continue
+        rendered_value = templates.get(reference, value) if reference else value
+        lines.append(f"            - name: {name}")
+        lines.append(f"              value: {_k8s_env_value(rendered_value)}")
+    return "\n".join(lines) + "\n"
+
+
+def _env_reference_name(value: str) -> str:
+    value = str(value).strip()
+    if value.startswith("${") and value.endswith("}") and value.count("${") == 1:
+        return value[2:-1]
+    return ""
+
+
+def _k8s_env_value(value: str) -> str:
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _k8s_services(manifest: dict) -> str:
@@ -494,6 +528,7 @@ def _compose_middleware_service(key: str, manifest: dict) -> str:
     port = _middleware_port(key, manifest)
     environment = _compose_middleware_environment(key, manifest)
     command = _compose_middleware_command(key, manifest)
+    depends_on = _compose_middleware_depends_on(key, manifest)
     healthcheck = _compose_middleware_healthcheck(key, manifest)
     return (
         f"  {key}:\n"
@@ -503,6 +538,7 @@ def _compose_middleware_service(key: str, manifest: dict) -> str:
         "      - .env\n"
         f"{environment}"
         f"{command}"
+        f"{depends_on}"
         "    networks:\n"
         "      - middleware\n"
         "    ports:\n"
@@ -518,8 +554,20 @@ def _compose_middleware_environment(key: str, manifest: dict) -> str:
     if not values:
         return ""
     lines = ["    environment:"]
-    lines.extend(f"      {name}: {value}" for name, value in values.items())
+    lines.extend(f"      {name}: {_compose_environment_value(value)}" for name, value in values.items())
     return "\n".join(lines) + "\n"
+
+
+def _compose_environment_value(value: str) -> str:
+    value = str(value)
+    if value == "":
+        return '""'
+    lowered = value.lower()
+    if lowered in {"true", "false", "null", "~"}:
+        return f'"{value}"'
+    if value[0] in {"@", "`", "!", "&", "*", "#", "{", "}", "[", "]", ",", "|", ">", "%"}:
+        return f'"{_escape_compose_command_arg(value)}"'
+    return value
 
 
 def _compose_middleware_command(key: str, manifest: dict) -> str:
@@ -528,6 +576,19 @@ def _compose_middleware_command(key: str, manifest: dict) -> str:
         return ""
     values = ", ".join(f'"{_escape_compose_command_arg(item)}"' for item in command)
     return f"    command: [{values}]\n"
+
+
+def _compose_middleware_depends_on(key: str, manifest: dict) -> str:
+    dependencies = [
+        item
+        for item in _middleware_definition(key, manifest).get("dependsOn", [])
+        if item != key and item in _runtime_middleware_keys(manifest)
+    ]
+    if not dependencies:
+        return ""
+    lines = ["    depends_on:"]
+    lines.extend(f"      {item}:\n        condition: service_healthy" for item in dependencies)
+    return "\n".join(lines) + "\n"
 
 
 def _compose_middleware_healthcheck(key: str, manifest: dict) -> str:
@@ -985,6 +1046,9 @@ def _runtime_middleware_keys(manifest: dict) -> list[str]:
 def _middleware_source_ref(key: str, manifest: dict) -> str:
     if key == manifest.get("database"):
         return _with_default_tag(manifest["databaseImage"], manifest)
+    configured_image = _middleware_definition(key, manifest).get("image")
+    if configured_image:
+        return _with_default_tag(str(configured_image), manifest)
     for item in manifest["imageEntries"]:
         catalog_ref = item.get("catalogRef") or item["sourceRef"]
         if item["group"] == "middleware" and catalog_ref.startswith(f"{key}:"):

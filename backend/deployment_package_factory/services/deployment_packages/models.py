@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class Capability(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     key: str
     name: str
     namespace_group: str = Field(alias="namespaceGroup")
@@ -21,7 +20,6 @@ class Capability(BaseModel):
 
 class DatabaseOption(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     key: str
     name: str
     domestic: bool
@@ -38,12 +36,12 @@ class DatabaseOption(BaseModel):
 
 class MiddlewareOption(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     key: str
     name: str
     image: str
     port: int = 8080
     data_path: str = Field(default="", alias="dataPath")
+    depends_on: list[str] = Field(default_factory=list, alias="dependsOn")
     env_template: dict[str, str] = Field(default_factory=dict, alias="envTemplate")
     env_sources: dict[str, dict] = Field(default_factory=dict, alias="envSources")
     compose_environment: dict[str, str] = Field(default_factory=dict, alias="composeEnvironment")
@@ -53,7 +51,6 @@ class MiddlewareOption(BaseModel):
 
 class DeploymentCatalog(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     platform: dict[str, Capability]
     business: dict[str, Capability]
     database_options: dict[str, DatabaseOption]

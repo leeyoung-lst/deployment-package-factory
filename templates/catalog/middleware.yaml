@@ -175,6 +175,8 @@ middleware:
     image: 192.168.10.210/local-ai/camunda/camunda:8.8.20
     port: 8080
     dataPath: /camunda
+    dependsOn:
+      - camunda-elasticsearch
     envTemplate:
       CAMUNDA_ADMIN_USER: demo
       CAMUNDA_ADMIN_PASSWORD: __REPLACE_WITH_CAMUNDA_ADMIN_PASSWORD__
@@ -194,10 +196,31 @@ middleware:
     composeEnvironment:
       CAMUNDA_ADMIN_USER: ${CAMUNDA_ADMIN_USER}
       CAMUNDA_ADMIN_PASSWORD: ${CAMUNDA_ADMIN_PASSWORD}
+      CAMUNDA_DATA_SECONDARY_STORAGE_ELASTICSEARCH_URL: http://camunda-elasticsearch:9200
+      CAMUNDA_DATA_SECONDARY_STORAGE_TYPE: elasticsearch
+      CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI: "true"
+      JAVA_TOOL_OPTIONS: -Xms512m -Xmx1024m
     composeHealthcheck:
       test:
         - CMD-SHELL
         - bash -lc '</dev/tcp/127.0.0.1/8080'
+      interval: 20s
+      timeout: 5s
+      retries: 30
+      startPeriod: 120s
+  camunda-elasticsearch:
+    name: Camunda Elasticsearch
+    image: 192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4
+    port: 9200
+    dataPath: /usr/share/elasticsearch/data
+    composeEnvironment:
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+    composeHealthcheck:
+      test:
+        - CMD-SHELL
+        - bash -lc '</dev/tcp/127.0.0.1/9200'
       interval: 20s
       timeout: 5s
       retries: 30
