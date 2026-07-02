@@ -35,6 +35,10 @@ def test_render_root_install_files_exports_shell_and_powershell_entries() -> Non
     assert "Invoke-DockerComposeInstall" in by_path["install.ps1"].content
     assert "Invoke-Diagnostics $Mode" in by_path["install.ps1"].content
     assert "Deployment succeeded for mode: $Mode." in by_path["install.ps1"].content
+    assert "Invoke-CheckedNativeCommand([string]$Description, [scriptblock]$Command)" in by_path["install.ps1"].content
+    assert 'throw "$Description failed with exit code $exitCode."' in by_path["install.ps1"].content
+    assert "Invoke-CheckedNativeCommand 'docker info'" in by_path["install.ps1"].content
+    assert "Invoke-CheckedNativeCommand 'docker compose version'" in by_path["install.ps1"].content
     assert "docker compose --env-file" in by_path["install.ps1"].content
     assert "docker info" in by_path["install.ps1"].content
     assert "Get-ComposeEnvFile -RequireConcreteEnv" in by_path["install.ps1"].content
