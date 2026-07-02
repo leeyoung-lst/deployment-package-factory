@@ -644,6 +644,7 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
     networks = ["base-public", "middleware"]
     if service["group"] == "business":
         networks.append(f"business-{service.get('businessKey') or service['namespace'].split('business-', 1)[-1]}")
+    networks_block = _compose_app_networks(service["name"], networks)
     return (
         f"  {service['name']}:\n"
         f"    image: {service['image']}\n"
@@ -655,13 +656,30 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
         f"      DATABASE_TYPE: {manifest['database']}\n"
         f"{_compose_app_database_url(manifest)}"
         f"{_compose_app_middleware_environment(manifest)}"
-        "    networks:\n"
-        + "".join(f"      - {network}\n" for network in networks)
+        f"{networks_block}"
         + "    depends_on:\n"
         + "".join(f"      {key}:\n        condition: service_healthy\n" for key in _runtime_middleware_keys(manifest))
         + "    ports:\n"
         f"      - \"{service['hostPort']}:{service['port']}\"\n"
     )
+
+
+def _compose_app_networks(service_name: str, networks: list[str]) -> str:
+    aliases = {
+        "local-ai-backend": "backend",
+        "local-ai-collection-service": "collection-service",
+        "local-ai-eam-service": "eam-service",
+    }
+    alias = aliases.get(service_name)
+    if not alias:
+        return "    networks:\n" + "".join(f"      - {network}\n" for network in networks)
+    lines = ["    networks:"]
+    for network in networks:
+        lines.append(f"      {network}:")
+        if network in {"base-public", "business-eam"}:
+            lines.append("        aliases:")
+            lines.append(f"          - {alias}")
+    return "\n".join(lines) + "\n"
 
 
 def _compose_install_script(manifest: dict) -> str:
@@ -703,7 +721,8 @@ def _compose_dry_run_script() -> str:
         '  ENV_FILE="${SCRIPT_DIR}/.env.template"\n'
         "fi\n"
         '"${PACKAGE_ROOT}/scripts/check-prerequisites.sh" docker-compose\n'
-        'docker compose --env-file "${ENV_FILE}" -f "${SCRIPT_DIR}/docker-compose.yml" config\n'
+        'docker compose --env-file "${ENV_FILE}" -f "${SCRIPT_DIR}/docker-compose.yml" config >/dev/null\n'
+        'echo "Docker Compose config validation passed."\n'
     )
 
 

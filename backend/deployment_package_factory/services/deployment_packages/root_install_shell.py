@@ -44,6 +44,34 @@ def render_install_sh(installer_version: str, default_mode: str = "k8s") -> str:
         '    "${SCRIPT_DIR}/scripts/diagnostics.sh" "${mode}"\n'
         "  fi\n"
         '  echo "Deployment succeeded for mode: ${mode}."\n'
+        '  print_access_info "${mode}"\n'
+        "}\n"
+        "\n"
+        "env_value() {\n"
+        '  local name="$1"\n'
+        '  local env_file="${SCRIPT_DIR}/docker-compose/.env"\n'
+        '  [ -f "${env_file}" ] || return 0\n'
+        '  awk -F= -v key="${name}" \'$1 == key { sub(/^[^=]*=/, ""); print; exit }\' "${env_file}"\n'
+        "}\n"
+        "\n"
+        "print_access_info() {\n"
+        '  local mode="$1"\n'
+        '  [ "${mode}" = "docker-compose" ] || return 0\n'
+        '  local three_admin_password="$(env_value DEFAULT_THREE_ADMIN_PASSWORD)"\n'
+        '  [ -n "${three_admin_password}" ] || three_admin_password="$(env_value LOCAL_THREE_ADMIN_PASSWORD)"\n'
+        '  [ -n "${three_admin_password}" ] || three_admin_password="Admin@123456"\n'
+        "  echo\n"
+        '  echo "Deployment access information:"\n'
+        '  echo "  Frontend: http://127.0.0.1:18082/"\n'
+        '  echo "  Backend health: http://127.0.0.1:18081/health"\n'
+        '  echo "  Camunda: http://127.0.0.1:8080/"\n'
+        '  echo "  MinIO API: http://127.0.0.1:9000"\n'
+        '  echo "  Prometheus: http://127.0.0.1:9090"\n'
+        '  echo "Three-admin initial accounts:"\n'
+        '  echo "  system_admin / 系统管理员 / password: ${three_admin_password}"\n'
+        '  echo "  security_admin / 安全管理员 / password: ${three_admin_password}"\n'
+        '  echo "  audit_admin / 审计管理员 / password: ${three_admin_password}"\n'
+        '  echo "  First login requires changing the password."\n'
         "}\n"
         "\n"
         'if [ ! -f "${INDEX_FILE}" ]; then\n'

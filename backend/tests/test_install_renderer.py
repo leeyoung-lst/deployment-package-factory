@@ -23,6 +23,10 @@ def test_render_root_install_files_exports_shell_and_powershell_entries() -> Non
     assert "scripts/health-check.sh" in by_path["install.sh"].content
     assert "scripts/diagnostics.sh" in by_path["install.sh"].content
     assert "Deployment succeeded for mode:" in by_path["install.sh"].content
+    assert "Deployment access information:" in by_path["install.sh"].content
+    assert "Frontend: http://127.0.0.1:18082/" in by_path["install.sh"].content
+    assert "system_admin / 系统管理员" in by_path["install.sh"].content
+    assert 'three_admin_password="Admin@123456"' in by_path["install.sh"].content
     assert "verify.sh" in by_path["install.sh"].content
     assert "ValidateSet('k8s', 'docker-compose')" in by_path["install.ps1"].content
     assert "[switch]$SkipVerify" in by_path["install.ps1"].content
@@ -35,11 +39,17 @@ def test_render_root_install_files_exports_shell_and_powershell_entries() -> Non
     assert "Invoke-DockerComposeInstall" in by_path["install.ps1"].content
     assert "Invoke-Diagnostics $Mode" in by_path["install.ps1"].content
     assert "Deployment succeeded for mode: $Mode." in by_path["install.ps1"].content
+    assert "Write-DeploymentAccessInfo $Mode" in by_path["install.ps1"].content
+    assert "Frontend: http://127.0.0.1:18082/" in by_path["install.ps1"].content
+    assert "system_admin / 系统管理员" in by_path["install.ps1"].content
+    assert "$threeAdminPassword = 'Admin@123456'" in by_path["install.ps1"].content
     assert "Invoke-CheckedNativeCommand([string]$Description, [scriptblock]$Command)" in by_path["install.ps1"].content
     assert 'throw "$Description failed with exit code $exitCode."' in by_path["install.ps1"].content
     assert "Invoke-CheckedNativeCommand 'docker info'" in by_path["install.ps1"].content
     assert "Invoke-CheckedNativeCommand 'docker compose version'" in by_path["install.ps1"].content
     assert "docker compose --env-file" in by_path["install.ps1"].content
+    assert "config | Out-Null" in by_path["install.ps1"].content
+    assert "Docker Compose config validation passed." in by_path["install.ps1"].content
     assert "docker info" in by_path["install.ps1"].content
     assert "Get-ComposeEnvFile -RequireConcreteEnv" in by_path["install.ps1"].content
     assert "Test-SecretPlaceholders $envFile" in by_path["install.ps1"].content

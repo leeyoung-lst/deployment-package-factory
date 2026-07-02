@@ -209,6 +209,8 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "layers/60-apps" in k8s_dry_run
     assert "docker compose --env-file" in compose_dry_run
     assert "docker-compose.yml\" config" in compose_dry_run
+    assert "config >/dev/null" in compose_dry_run
+    assert "Docker Compose config validation passed." in compose_dry_run
     assert "DATABASE_PASSWORD=source-db-password" in compose_env
     assert "REDIS_PASSWORD=source-redis-password" in compose_env
     assert "MINIO_ROOT_PASSWORD=source-minio-password" in compose_env
@@ -223,6 +225,9 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "IOTDB_HOST: iotdb" in compose
     assert "IOTDB_PORT: 6667" in compose
     assert "dn_rpc_address=0.0.0.0" in compose
+    assert "      base-public:\n        aliases:\n          - backend" in compose
+    assert "      base-public:\n        aliases:\n          - collection-service" in compose
+    assert "      base-public:\n        aliases:\n          - eam-service" in compose
     assert "dn_rpc_address=0.0.0.0" in k8s_edge_deployments
     assert "command:\n            - \"/usr/bin/dumb-init\"\n            - \"--\"\n            - \"bash\"\n            - \"-lc\"" in k8s_edge_deployments
     assert "middleware 192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in images_txt
