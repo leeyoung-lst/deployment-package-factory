@@ -42,10 +42,12 @@ def _diagnostics_sh(manifest: dict, services: list[dict], middleware_keys: list[
         "\n"
         "http_check() {\n"
         '  local name="$1" url="$2" fallback_host="$3" fallback_port="$4"\n'
-        "  if command -v curl >/dev/null 2>&1; then\n"
-        '    curl -fsS --max-time 10 "${url}" >/dev/null || fail "${name} HTTP check failed: ${url}"\n'
-        "  elif command -v python3 >/dev/null 2>&1; then\n"
-        '    URL="${url}" python3 - <<\'PY\' || exit 1\n'
+        "  local attempt\n"
+        "  for attempt in $(seq 1 12); do\n"
+        "    if command -v curl >/dev/null 2>&1; then\n"
+        '      curl -fsS --max-time 10 "${url}" >/dev/null && { echo "HTTP check passed: ${name} ${url}"; return; }\n'
+        "    elif command -v python3 >/dev/null 2>&1; then\n"
+        '      if URL="${url}" python3 - <<\'PY\'\n'
         "import os\n"
         "import sys\n"
         "import urllib.request\n"
@@ -57,10 +59,17 @@ def _diagnostics_sh(manifest: dict, services: list[dict], middleware_keys: list[
         "    print(f'HTTP check failed: {exc}', file=sys.stderr)\n"
         "    raise SystemExit(1)\n"
         "PY\n"
-        "  else\n"
-        '    tcp_check "${name}" "${fallback_host}" "${fallback_port}"\n'
-        "  fi\n"
-        '  echo "HTTP check passed: ${name} ${url}"\n'
+        "      then\n"
+        '        echo "HTTP check passed: ${name} ${url}"\n'
+        "        return\n"
+        "      fi\n"
+        "    else\n"
+        '      tcp_check "${name}" "${fallback_host}" "${fallback_port}"\n'
+        "      return\n"
+        "    fi\n"
+        '    [ "${attempt}" -eq 12 ] || sleep 5\n'
+        "  done\n"
+        '  fail "${name} HTTP check failed after 12 attempts: ${url}"\n'
         "}\n"
         "\n"
         "docker_compose_diagnostics() {\n"
@@ -145,10 +154,16 @@ def _diagnostics_ps1(manifest: dict, services: list[dict], middleware_keys: list
         "  } finally { $client.Close() }\n"
         "}\n"
         "function Test-HttpEndpoint([string]$Name, [string]$Url, [string]$HostName, [int]$Port) {\n"
-        "  try { $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri $Url }\n"
-        "  catch { Fail \"$Name HTTP check failed: $Url ($($_.Exception.Message))\" }\n"
-        "  if ([int]$response.StatusCode -ge 400) { Fail \"$Name HTTP status $($response.StatusCode): $Url\" }\n"
-        "  Write-Host \"HTTP check passed: $Name $Url\"\n"
+        "  $lastError = ''\n"
+        "  for ($attempt = 1; $attempt -le 12; $attempt++) {\n"
+        "    try {\n"
+        "      $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri $Url\n"
+        "      if ([int]$response.StatusCode -lt 400) { Write-Host \"HTTP check passed: $Name $Url\"; return }\n"
+        "      $lastError = \"HTTP status $($response.StatusCode)\"\n"
+        "    } catch { $lastError = $_.Exception.Message }\n"
+        "    if ($attempt -lt 12) { Start-Sleep -Seconds 5 }\n"
+        "  }\n"
+        "  Fail \"$Name HTTP check failed after 12 attempts: $Url ($lastError)\"\n"
         "}\n"
         "function Invoke-DockerComposeDiagnostics {\n"
         "  Require-Command 'docker'\n"

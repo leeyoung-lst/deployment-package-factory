@@ -77,9 +77,12 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "Docker Compose service health check passed" in by_path["scripts/health-check.sh"]
     assert "Deployment diagnostics failed" in by_path["scripts/diagnostics.sh"]
     assert "COMPOSE_HTTP_CHECKS" in by_path["scripts/diagnostics.sh"]
+    assert "HTTP check failed after 12 attempts" in by_path["scripts/diagnostics.sh"]
     assert "Docker Compose diagnostics passed." in by_path["scripts/diagnostics.sh"]
     assert "K8s diagnostics passed." in by_path["scripts/diagnostics.sh"]
     assert "Invoke-DockerComposeDiagnostics" in by_path["scripts/diagnostics.ps1"]
+    assert "Start-Sleep -Seconds 5" in by_path["scripts/diagnostics.ps1"]
+    assert "HTTP check failed after 12 attempts" in by_path["scripts/diagnostics.ps1"]
     assert "Convert-ComposePsJson" not in by_path["scripts/diagnostics.ps1"]
 
 
