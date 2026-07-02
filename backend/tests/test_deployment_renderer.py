@@ -80,6 +80,7 @@ def test_render_deployment_files_includes_namespaces_registry_and_secret_modes()
     assert "Docker Compose diagnostics passed." in by_path["scripts/diagnostics.sh"]
     assert "K8s diagnostics passed." in by_path["scripts/diagnostics.sh"]
     assert "Invoke-DockerComposeDiagnostics" in by_path["scripts/diagnostics.ps1"]
+    assert "Convert-ComposePsJson" not in by_path["scripts/diagnostics.ps1"]
 
 
 def test_docker_compose_install_loads_image_archives_when_exported() -> None:
@@ -112,6 +113,49 @@ def test_docker_compose_does_not_inject_runtime_env_file_into_middleware() -> No
     assert "MINIO_ENDPOINT: minio:9000" in app_block
     assert "MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}" in app_block
     assert "QDRANT_URL: http://qdrant:6333" in app_block
+
+
+def test_compose_frontend_gateway_is_generated_from_service_specs() -> None:
+    manifest = _manifest()
+    manifest["businessServices"] = ["mes"]
+    manifest["images"]["business"] = ["mes-api-service:prod", "sub-app-mes:prod", "sub-app-quality:prod"]
+    manifest["imageEntries"] = [item for item in manifest["imageEntries"] if item["group"] != "business"]
+    manifest["imageEntries"].extend(
+        [
+            {
+                "group": "business",
+                "sourceRef": "mes-api-service:prod",
+                "targetRef": "harbor.example.com/prod/mes-api-service:prod",
+                "archiveFile": "mes-api-service_prod.tar",
+            },
+            {
+                "group": "business",
+                "sourceRef": "sub-app-mes:prod",
+                "targetRef": "harbor.example.com/prod/sub-app-mes:prod",
+                "archiveFile": "sub-app-mes_prod.tar",
+            },
+            {
+                "group": "business",
+                "sourceRef": "sub-app-quality:prod",
+                "targetRef": "harbor.example.com/prod/sub-app-quality:prod",
+                "archiveFile": "sub-app-quality_prod.tar",
+            },
+        ]
+    )
+
+    files = render_deployment_files(manifest)
+    by_path = {item.path.as_posix(): item.content for item in files}
+    compose = by_path["docker-compose/docker-compose.yml"]
+    nginx = by_path["docker-compose/frontend-nginx.conf"]
+
+    assert "  local-ai-frontend-shell:" in compose
+    assert "      - ./frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro" in _service_block(compose, "local-ai-frontend-shell")
+    assert "location ^~ /sub-app-mes/" in nginx
+    assert "location ^~ /sub-app-quality/" in nginx
+    assert "rewrite ^/sub\\-app\\-mes/(.*)$ /$1 break;" in nginx
+    assert "proxy_pass $sub_app_mes_upstream;" in nginx
+    assert "proxy_pass $mes_api_service_upstream$request_uri;" in nginx
+    assert "location ^~ /api/mes/" in nginx
 
 
 def test_camunda_compose_waits_for_elasticsearch_dependency() -> None:

@@ -53,7 +53,7 @@ def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
         RenderedDeploymentFile(PurePosixPath("scripts/health-check.sh"), _health_check_script(manifest), executable=True),
     ]
     if _compose_needs_frontend_gateway(manifest):
-        files.append(RenderedDeploymentFile(PurePosixPath("docker-compose/frontend-nginx.conf"), _compose_frontend_nginx_conf()))
+        files.append(RenderedDeploymentFile(PurePosixPath("docker-compose/frontend-nginx.conf"), _compose_frontend_nginx_conf(manifest)))
     files.extend(
         RenderedDeploymentFile(path, content, executable=executable)
         for path, content, executable in render_diagnostics_files(manifest, _service_specs(manifest), _runtime_middleware_keys(manifest))
@@ -668,7 +668,8 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
 
 
 def _compose_app_volumes(service_name: str, manifest: dict) -> str:
-    if service_name == "local-ai-frontend" and _compose_needs_frontend_gateway(manifest):
+    gateway = _compose_frontend_gateway(manifest)
+    if gateway and service_name == gateway["frontend"]["name"]:
         return "    volumes:\n      - ./frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro\n"
     return ""
 
@@ -692,11 +693,28 @@ def _compose_app_networks(service_name: str, networks: list[str]) -> str:
 
 
 def _compose_needs_frontend_gateway(manifest: dict) -> bool:
-    service_names = {service["name"] for service in _service_specs(manifest)}
-    return "local-ai-frontend" in service_names and "sub-app-eam" in service_names
+    return _compose_frontend_gateway(manifest) is not None
 
 
-def _compose_frontend_nginx_conf() -> str:
+def _compose_frontend_gateway(manifest: dict) -> dict | None:
+    services = _service_specs(manifest)
+    frontend = next((service for service in services if _is_frontend_service(service)), None)
+    sub_apps = [service for service in services if _is_sub_app_service(service)]
+    if not frontend or not sub_apps:
+        return None
+    return {
+        "frontend": frontend,
+        "subApps": sub_apps,
+        "apiRoutes": _compose_frontend_api_routes(services),
+    }
+
+
+def _compose_frontend_nginx_conf(manifest: dict) -> str:
+    gateway = _compose_frontend_gateway(manifest)
+    if not gateway:
+        return ""
+    routes = gateway["apiRoutes"] + _compose_grafana_routes(manifest) + _compose_sub_app_routes(gateway["subApps"])
+    service_vars = _compose_frontend_service_vars(routes)
     return (
         "server {\n"
         "    listen 80;\n"
@@ -707,95 +725,8 @@ def _compose_frontend_nginx_conf() -> str:
         "    index index.html;\n"
         "\n"
         "    resolver 127.0.0.11 valid=10s ipv6=off;\n"
-        "    set $collection_service http://collection-service:8020;\n"
-        "    set $equipment_service http://eam-service:8000;\n"
-        "    set $backend_service http://backend:8000;\n"
-        "    set $grafana_service http://grafana:3000;\n"
-        "    set $sub_app_eam_service http://sub-app-eam:80;\n"
-        "\n"
-        "    location /api/equipment/collection- {\n"
-        "        proxy_pass $collection_service$request_uri;\n"
-        "        proxy_http_version 1.1;\n"
-        "        proxy_request_buffering off;\n"
-        "        proxy_buffering off;\n"
-        "        proxy_read_timeout 600s;\n"
-        "        proxy_send_timeout 600s;\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Real-IP $remote_addr;\n"
-        "    }\n"
-        "\n"
-        "    location /api/equipment/collection/ {\n"
-        "        proxy_pass $collection_service$request_uri;\n"
-        "        proxy_http_version 1.1;\n"
-        "        proxy_request_buffering off;\n"
-        "        proxy_buffering off;\n"
-        "        proxy_read_timeout 600s;\n"
-        "        proxy_send_timeout 600s;\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Real-IP $remote_addr;\n"
-        "    }\n"
-        "\n"
-        "    location /api/equipment/ {\n"
-        "        proxy_pass $equipment_service$request_uri;\n"
-        "        proxy_http_version 1.1;\n"
-        "        proxy_request_buffering off;\n"
-        "        proxy_buffering off;\n"
-        "        proxy_read_timeout 600s;\n"
-        "        proxy_send_timeout 600s;\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Real-IP $remote_addr;\n"
-        "    }\n"
-        "\n"
-        "    location /api/ {\n"
-        "        proxy_pass $backend_service$request_uri;\n"
-        "        proxy_http_version 1.1;\n"
-        "        proxy_request_buffering off;\n"
-        "        proxy_buffering off;\n"
-        "        proxy_read_timeout 600s;\n"
-        "        proxy_send_timeout 600s;\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Real-IP $remote_addr;\n"
-        "    }\n"
-        "\n"
-        "    location = /health {\n"
-        "        proxy_pass $backend_service$request_uri;\n"
-        "        proxy_http_version 1.1;\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Real-IP $remote_addr;\n"
-        "    }\n"
-        "\n"
-        "    location /grafana/ {\n"
-        "        proxy_pass $grafana_service$request_uri;\n"
-        "        proxy_http_version 1.1;\n"
-        "        proxy_buffering off;\n"
-        "        proxy_read_timeout 600s;\n"
-        "        proxy_send_timeout 600s;\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Real-IP $remote_addr;\n"
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
-        "        proxy_set_header X-Forwarded-Proto $scheme;\n"
-        "        proxy_set_header X-Forwarded-Prefix /grafana;\n"
-        "        proxy_set_header Upgrade $http_upgrade;\n"
-        "        proxy_set_header Connection \"upgrade\";\n"
-        "    }\n"
-        "\n"
-        "    location = /sub-app-eam {\n"
-        "        return 301 /sub-app-eam/;\n"
-        "    }\n"
-        "\n"
-        "    location ^~ /sub-app-eam/ {\n"
-        "        rewrite ^/sub-app-eam/(.*)$ /$1 break;\n"
-        "        proxy_pass $sub_app_eam_service;\n"
-        "        proxy_http_version 1.1;\n"
-        "        proxy_buffering off;\n"
-        "        proxy_read_timeout 600s;\n"
-        "        proxy_send_timeout 600s;\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Real-IP $remote_addr;\n"
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
-        "        proxy_set_header X-Forwarded-Proto $scheme;\n"
-        "        proxy_set_header X-Forwarded-Prefix /sub-app-eam;\n"
-        "    }\n"
+        f"{service_vars}"
+        f"{''.join(_compose_frontend_proxy_location(route) for route in routes)}"
         "\n"
         "    location /assets/ {\n"
         "        try_files $uri =404;\n"
@@ -812,6 +743,113 @@ def _compose_frontend_nginx_conf() -> str:
         "    }\n"
         "}\n"
     )
+
+
+def _compose_frontend_api_routes(services: list[dict]) -> list[dict]:
+    routes: list[dict] = []
+    for service in services:
+        for path in _compose_api_prefixes(service):
+            routes.append({"path": path, "service": service, "passRequestUri": True})
+    return sorted(routes, key=lambda item: len(item["path"]), reverse=True)
+
+
+def _compose_api_prefixes(service: dict) -> list[str]:
+    metadata_routes = _compose_metadata_api_prefixes(service)
+    if metadata_routes:
+        return metadata_routes
+    name = service["name"]
+    if name == "local-ai-collection-service":
+        return ["/api/equipment/collection-", "/api/equipment/collection/"]
+    if name == "local-ai-eam-service":
+        return ["/api/equipment/"]
+    if name == "local-ai-backend":
+        return ["/api/"]
+    business_key = service.get("businessKey")
+    if business_key and name.endswith("-service"):
+        return [f"/api/{business_key}/"]
+    return []
+
+
+def _compose_metadata_api_prefixes(service: dict) -> list[str]:
+    microservice = service.get("microservice") or {}
+    routes = microservice.get("gatewayRoutes") or microservice.get("apiRoutes") or []
+    prefixes: list[str] = []
+    for route in routes:
+        path = route.get("path") if isinstance(route, dict) else route
+        if isinstance(path, str) and path.startswith("/"):
+            prefixes.append(path if path.endswith("/") or path.endswith("-") else f"{path}/")
+    return prefixes
+
+
+def _compose_grafana_routes(manifest: dict) -> list[dict]:
+    if "grafana" not in _runtime_middleware_keys(manifest):
+        return []
+    return [{"path": "/grafana/", "service": {"name": "grafana", "port": _middleware_port("grafana", manifest)}, "forwardedPrefix": "/grafana"}]
+
+
+def _compose_sub_app_routes(sub_apps: list[dict]) -> list[dict]:
+    routes: list[dict] = []
+    for service in sub_apps:
+        path = f"/{service['name']}/"
+        routes.append({"path": path, "service": service, "stripPrefix": path, "forwardedPrefix": path.rstrip("/")})
+    return routes
+
+
+def _compose_frontend_service_vars(routes: list[dict]) -> str:
+    services = {route["service"]["name"]: route["service"] for route in routes}
+    return "".join(f"    set ${_compose_nginx_var(service)} http://{service['name']}:{service['port']};\n" for service in services.values()) + "\n"
+
+
+def _compose_frontend_proxy_location(route: dict) -> str:
+    path = route["path"]
+    service = route["service"]
+    prefix = route.get("stripPrefix")
+    redirect = f"    location = {path.rstrip('/')} {{\n        return 301 {path};\n    }}\n\n" if prefix else ""
+    rewrite = f"        rewrite ^{re.escape(path)}(.*)$ /$1 break;\n" if prefix else ""
+    pass_suffix = "" if prefix else "$request_uri"
+    forwarded_prefix = route.get("forwardedPrefix")
+    forwarded_headers = (
+        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+        "        proxy_set_header X-Forwarded-Proto $scheme;\n"
+        f"        proxy_set_header X-Forwarded-Prefix {forwarded_prefix};\n"
+        if forwarded_prefix
+        else ""
+    )
+    return (
+        f"\n{redirect}"
+        f"    location ^~ {path} {{\n"
+        f"{rewrite}"
+        f"        proxy_pass ${_compose_nginx_var(service)}{pass_suffix};\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_request_buffering off;\n"
+        "        proxy_buffering off;\n"
+        "        proxy_read_timeout 600s;\n"
+        "        proxy_send_timeout 600s;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        f"{forwarded_headers}"
+        "    }\n"
+    )
+
+
+def _compose_nginx_var(service: dict) -> str:
+    return f"{service['name'].replace('-', '_')}_upstream"
+
+
+def _is_frontend_service(service: dict) -> bool:
+    microservice = service.get("microservice") or {}
+    if microservice.get("projectKind") == "frontend" and not _is_sub_app_service(service):
+        return True
+    name = service["name"]
+    return "frontend" in name and not _is_sub_app_service(service)
+
+
+def _is_sub_app_service(service: dict) -> bool:
+    microservice = service.get("microservice") or {}
+    if microservice.get("projectKind") == "frontend" and microservice.get("microFrontendFramework"):
+        return True
+    name = service["name"]
+    return name.startswith("sub-app") or name.startswith("micro-app")
 
 
 def _compose_install_script(manifest: dict) -> str:

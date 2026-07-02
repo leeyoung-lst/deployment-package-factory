@@ -232,8 +232,9 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "      base-public:\n        aliases:\n          - eam-service" in compose
     assert "      - ./frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro" in compose
     assert "location ^~ /sub-app-eam/" in compose_frontend_nginx
-    assert "rewrite ^/sub-app-eam/(.*)$ /$1 break;" in compose_frontend_nginx
-    assert "proxy_pass $sub_app_eam_service;" in compose_frontend_nginx
+    assert "rewrite ^/sub\\-app\\-eam/(.*)$ /$1 break;" in compose_frontend_nginx
+    assert "proxy_pass $sub_app_eam_upstream;" in compose_frontend_nginx
+    assert "location ^~ /api/equipment/collection-" in compose_frontend_nginx
     assert "dn_rpc_address=0.0.0.0" in k8s_edge_deployments
     assert "command:\n            - \"/usr/bin/dumb-init\"\n            - \"--\"\n            - \"bash\"\n            - \"-lc\"" in k8s_edge_deployments
     assert "middleware 192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in images_txt
@@ -259,6 +260,8 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "[switch]$SkipDiagnostics" in root_install_ps1
     assert "Invoke-DockerComposeInstall" in root_install_ps1
     assert "Invoke-Diagnostics $Mode" in root_install_ps1
+    assert "docker compose ps -q" in root_install_ps1
+    assert "docker compose ps --format json" not in root_install_ps1
     assert "bash (Join-Path $ScriptDir 'docker-compose" not in root_install_ps1
     assert "__REPLACE_WITH_" in secret_check
     assert "Deployment diagnostics failed" in diagnostics
