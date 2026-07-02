@@ -94,6 +94,7 @@ def test_build_deployment_package_creates_mvp_archive(tmp_path) -> None:
     assert f"{root}/k8s/uninstall.sh" in names
     assert f"{root}/k8s/dry-run.sh" in names
     assert f"{root}/docker-compose/docker-compose.yml" in names
+    assert f"{root}/docker-compose/frontend-nginx.conf" in names
     assert f"{root}/docker-compose/.env" in names
     assert f"{root}/docker-compose/install.sh" in names
     assert f"{root}/docker-compose/uninstall.sh" in names
@@ -182,6 +183,7 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     k8s_edge_deployments = (root / "k8s" / "layers" / "30-edge" / "deployments.yaml").read_text(encoding="utf-8")
     compose_install = (root / "docker-compose" / "install.sh").read_text(encoding="utf-8")
     compose_dry_run = (root / "docker-compose" / "dry-run.sh").read_text(encoding="utf-8")
+    compose_frontend_nginx = (root / "docker-compose" / "frontend-nginx.conf").read_text(encoding="utf-8")
     compose_env = (root / "docker-compose" / ".env").read_text(encoding="utf-8")
     compose = (root / "docker-compose" / "docker-compose.yml").read_text(encoding="utf-8")
     images_txt = (root / "images" / "images.txt").read_text(encoding="utf-8")
@@ -228,6 +230,10 @@ def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypa
     assert "      base-public:\n        aliases:\n          - backend" in compose
     assert "      base-public:\n        aliases:\n          - collection-service" in compose
     assert "      base-public:\n        aliases:\n          - eam-service" in compose
+    assert "      - ./frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro" in compose
+    assert "location ^~ /sub-app-eam/" in compose_frontend_nginx
+    assert "rewrite ^/sub-app-eam/(.*)$ /$1 break;" in compose_frontend_nginx
+    assert "proxy_pass $sub_app_eam_service;" in compose_frontend_nginx
     assert "dn_rpc_address=0.0.0.0" in k8s_edge_deployments
     assert "command:\n            - \"/usr/bin/dumb-init\"\n            - \"--\"\n            - \"bash\"\n            - \"-lc\"" in k8s_edge_deployments
     assert "middleware 192.168.10.210/k8s-platform/docker.elastic.co/elasticsearch/elasticsearch:8.17.4" in images_txt

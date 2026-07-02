@@ -52,6 +52,8 @@ def render_deployment_files(manifest: dict) -> list[RenderedDeploymentFile]:
         RenderedDeploymentFile(PurePosixPath("scripts/secret-check.sh"), _secret_check_script(), executable=True),
         RenderedDeploymentFile(PurePosixPath("scripts/health-check.sh"), _health_check_script(manifest), executable=True),
     ]
+    if _compose_needs_frontend_gateway(manifest):
+        files.append(RenderedDeploymentFile(PurePosixPath("docker-compose/frontend-nginx.conf"), _compose_frontend_nginx_conf()))
     files.extend(
         RenderedDeploymentFile(path, content, executable=executable)
         for path, content, executable in render_diagnostics_files(manifest, _service_specs(manifest), _runtime_middleware_keys(manifest))
@@ -656,12 +658,19 @@ def _compose_app_service(service: dict, manifest: dict) -> str:
         f"      DATABASE_TYPE: {manifest['database']}\n"
         f"{_compose_app_database_url(manifest)}"
         f"{_compose_app_middleware_environment(manifest)}"
+        f"{_compose_app_volumes(service['name'], manifest)}"
         f"{networks_block}"
         + "    depends_on:\n"
         + "".join(f"      {key}:\n        condition: service_healthy\n" for key in _runtime_middleware_keys(manifest))
         + "    ports:\n"
         f"      - \"{service['hostPort']}:{service['port']}\"\n"
     )
+
+
+def _compose_app_volumes(service_name: str, manifest: dict) -> str:
+    if service_name == "local-ai-frontend" and _compose_needs_frontend_gateway(manifest):
+        return "    volumes:\n      - ./frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro\n"
+    return ""
 
 
 def _compose_app_networks(service_name: str, networks: list[str]) -> str:
@@ -680,6 +689,129 @@ def _compose_app_networks(service_name: str, networks: list[str]) -> str:
             lines.append("        aliases:")
             lines.append(f"          - {alias}")
     return "\n".join(lines) + "\n"
+
+
+def _compose_needs_frontend_gateway(manifest: dict) -> bool:
+    service_names = {service["name"] for service in _service_specs(manifest)}
+    return "local-ai-frontend" in service_names and "sub-app-eam" in service_names
+
+
+def _compose_frontend_nginx_conf() -> str:
+    return (
+        "server {\n"
+        "    listen 80;\n"
+        "    server_name _;\n"
+        "    client_max_body_size 2048m;\n"
+        "\n"
+        "    root /usr/share/nginx/html;\n"
+        "    index index.html;\n"
+        "\n"
+        "    resolver 127.0.0.11 valid=10s ipv6=off;\n"
+        "    set $collection_service http://collection-service:8020;\n"
+        "    set $equipment_service http://eam-service:8000;\n"
+        "    set $backend_service http://backend:8000;\n"
+        "    set $grafana_service http://grafana:3000;\n"
+        "    set $sub_app_eam_service http://sub-app-eam:80;\n"
+        "\n"
+        "    location /api/equipment/collection- {\n"
+        "        proxy_pass $collection_service$request_uri;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_request_buffering off;\n"
+        "        proxy_buffering off;\n"
+        "        proxy_read_timeout 600s;\n"
+        "        proxy_send_timeout 600s;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "    }\n"
+        "\n"
+        "    location /api/equipment/collection/ {\n"
+        "        proxy_pass $collection_service$request_uri;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_request_buffering off;\n"
+        "        proxy_buffering off;\n"
+        "        proxy_read_timeout 600s;\n"
+        "        proxy_send_timeout 600s;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "    }\n"
+        "\n"
+        "    location /api/equipment/ {\n"
+        "        proxy_pass $equipment_service$request_uri;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_request_buffering off;\n"
+        "        proxy_buffering off;\n"
+        "        proxy_read_timeout 600s;\n"
+        "        proxy_send_timeout 600s;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "    }\n"
+        "\n"
+        "    location /api/ {\n"
+        "        proxy_pass $backend_service$request_uri;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_request_buffering off;\n"
+        "        proxy_buffering off;\n"
+        "        proxy_read_timeout 600s;\n"
+        "        proxy_send_timeout 600s;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "    }\n"
+        "\n"
+        "    location = /health {\n"
+        "        proxy_pass $backend_service$request_uri;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "    }\n"
+        "\n"
+        "    location /grafana/ {\n"
+        "        proxy_pass $grafana_service$request_uri;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_buffering off;\n"
+        "        proxy_read_timeout 600s;\n"
+        "        proxy_send_timeout 600s;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+        "        proxy_set_header X-Forwarded-Proto $scheme;\n"
+        "        proxy_set_header X-Forwarded-Prefix /grafana;\n"
+        "        proxy_set_header Upgrade $http_upgrade;\n"
+        "        proxy_set_header Connection \"upgrade\";\n"
+        "    }\n"
+        "\n"
+        "    location = /sub-app-eam {\n"
+        "        return 301 /sub-app-eam/;\n"
+        "    }\n"
+        "\n"
+        "    location ^~ /sub-app-eam/ {\n"
+        "        rewrite ^/sub-app-eam/(.*)$ /$1 break;\n"
+        "        proxy_pass $sub_app_eam_service;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_buffering off;\n"
+        "        proxy_read_timeout 600s;\n"
+        "        proxy_send_timeout 600s;\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+        "        proxy_set_header X-Forwarded-Proto $scheme;\n"
+        "        proxy_set_header X-Forwarded-Prefix /sub-app-eam;\n"
+        "    }\n"
+        "\n"
+        "    location /assets/ {\n"
+        "        try_files $uri =404;\n"
+        "        add_header Cache-Control \"public, max-age=31536000, immutable\";\n"
+        "    }\n"
+        "\n"
+        "    location = /index.html {\n"
+        "        add_header Cache-Control \"no-store, no-cache, must-revalidate\";\n"
+        "    }\n"
+        "\n"
+        "    location / {\n"
+        "        add_header Cache-Control \"no-store, no-cache, must-revalidate\";\n"
+        "        try_files $uri $uri/ /index.html;\n"
+        "    }\n"
+        "}\n"
+    )
 
 
 def _compose_install_script(manifest: dict) -> str:
