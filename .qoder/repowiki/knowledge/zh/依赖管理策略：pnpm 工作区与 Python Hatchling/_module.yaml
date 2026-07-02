@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: dependency_management
+title: 依赖管理策略：pnpm 工作区与 Python Hatchling
+scope: []
+source_files:
+    - frontend/package.json
+    - frontend/pnpm-lock.yaml
+    - pnpm-workspace.yaml
+    - backend/pyproject.toml
+    - frontend/Dockerfile
+    - backend/Dockerfile
+depends_on: []
+related_to: []

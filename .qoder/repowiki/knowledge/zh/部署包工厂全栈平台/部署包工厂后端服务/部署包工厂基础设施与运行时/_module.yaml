@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: backend/app_infrastructure
+title: 部署包工厂基础设施与运行时
+scope:
+    - backend/deployment_package_factory/main.py
+    - backend/deployment_package_factory/auth.py
+    - backend/deployment_package_factory/settings.py
+    - backend/deployment_package_factory/metrics.py
+    - backend/deployment_package_factory/readiness.py
+    - backend/deployment_package_factory/worker.py
+source_files: []
+depends_on: []
+related_to: []

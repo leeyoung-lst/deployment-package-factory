@@ -56,6 +56,10 @@ def test_render_root_install_files_exports_shell_and_powershell_entries() -> Non
     assert "Invoke-LoadImageArchives" in by_path["install.ps1"].content
     assert "docker load -i $archivePath" in by_path["install.ps1"].content
     assert "docker tag $image.sourceRef $image.targetRef" in by_path["install.ps1"].content
+    assert "docker compose ps -q" in by_path["install.ps1"].content
+    assert "docker inspect -f '{{.State.Status}}'" in by_path["install.ps1"].content
+    assert "docker compose ps --format json" not in by_path["install.ps1"].content
+    assert "Convert-ComposePsJson" not in by_path["install.ps1"].content
     assert "[System.Text.Encoding]::UTF8" in by_path["install.ps1"].content
     assert "ReadAllText((Join-Path $ScriptDir 'manifest.json'), [System.Text.Encoding]::UTF8)" in by_path["install.ps1"].content
     assert "ReadAllText($valuesPath, [System.Text.Encoding]::UTF8)" in by_path["install.ps1"].content

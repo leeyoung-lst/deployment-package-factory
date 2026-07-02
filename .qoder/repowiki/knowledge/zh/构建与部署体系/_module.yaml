@@ -1,0 +1,18 @@
+schema_version: 1
+module_path: build_system
+title: 构建与部署体系
+scope: []
+source_files:
+    - Jenkinsfile
+    - backend/pyproject.toml
+    - frontend/package.json
+    - backend/Dockerfile
+    - backend/Dockerfile.worker
+    - frontend/Dockerfile
+    - scripts/build-images.sh
+    - scripts/render-deploy-images.sh
+    - deploy/k8s/kustomization.yaml
+    - docker-compose.yml
+    - deploy/docker-compose.prod.yml
+depends_on: []
+related_to: []

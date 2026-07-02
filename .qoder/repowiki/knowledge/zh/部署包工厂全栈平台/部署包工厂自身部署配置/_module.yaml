@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: deploy
+title: 部署包工厂自身部署配置
+scope:
+    - deploy/
+source_files: []
+depends_on: []
+related_to: []
