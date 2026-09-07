@@ -31,6 +31,7 @@ from deployment_package_factory.services.deployment_packages.models import (
     ProjectProfile,
 )
 from deployment_package_factory.services.deployment_packages.microservice_delivery import microservice_delivery_succeeded, microservice_delivery_warning
+from deployment_package_factory.services.deployment_packages.mcp_verify_renderer import render_mcp_verify_files
 from deployment_package_factory.services.microservices.repository import create_microservice_repository
 from deployment_package_factory.settings import load_settings
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
@@ -55,6 +56,17 @@ from deployment_package_factory.services.deployment_packages.runtime_resources i
 from deployment_package_factory.services.deployment_packages.runtime_env_probe import runtime_env_probes
 from deployment_package_factory.services.deployment_packages.values_renderer import render_values_files
 from deployment_package_factory.services.deployment_packages.verify_renderer import VERIFIER_VERSION, render_package_verify_files
+from deployment_package_factory.services.deployment_packages import image_manager
+from deployment_package_factory.services.deployment_packages.errors import (
+    PackageBuildError,
+    environment_error,
+    kubernetes_error,
+    image_export_error,
+    dependency_error,
+    validation_error,
+    filesystem_error,
+    network_error,
+)
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "deployment-packages"
@@ -86,10 +98,6 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "CAMUNDA_ADMIN_PASSWORD": ["CAMUNDA_ADMIN_PASSWORD", "CAMUNDA_CLIENT_SECRET", "DEFAULT_THREE_ADMIN_PASSWORD", "admin-password", "password"],
     "IOTDB_PASSWORD": ["IOTDB_PASSWORD", "EAM_IOTDB_PASSWORD", "root_password", "password"],
 }
-
-
-class PackageBuildError(RuntimeError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -185,6 +193,9 @@ def build_deployment_package(
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_package_verify_files():
+        writer = _write_script if rendered_file.executable else _write_text
+        writer(package_root / rendered_file.path, rendered_file.content)
+    for rendered_file in render_mcp_verify_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_quality_gate_files(manifest):
