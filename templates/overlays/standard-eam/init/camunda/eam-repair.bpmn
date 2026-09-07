@@ -1,7 +1,107 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  targetNamespace="http://local-ai/eam">
-  <process id="eam_repair" name="EAM Repair" isExecutable="true">
-    <startEvent id="start" name="Start" />
-  </process>
-</definitions>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_1"
+                  targetNamespace="http://local-ai/eam"
+                  exporter="Camunda Modeler"
+                  exporterVersion="5.0.0">
+  <bpmn:process id="eam_repair_workflow" name="EAM Repair Workflow" isExecutable="true">
+
+    <bpmn:startEvent id="start_repair" name="Start Repair">
+      <bpmn:outgoing>flow_to_report</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:sequenceFlow id="flow_to_report" sourceRef="start_repair" targetRef="report_fault"/>
+
+    <bpmn:userTask id="report_fault" name="Report Fault" camunda:assignee="${initiator}">
+      <bpmn:documentation>Report equipment fault and basic information</bpmn:documentation>
+      <bpmn:incoming>flow_to_report</bpmn:incoming>
+      <bpmn:outgoing>flow_to_review</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:sequenceFlow id="flow_to_review" sourceRef="report_fault" targetRef="review_repair"/>
+
+    <bpmn:userTask id="review_repair" name="Review Repair Request" camunda:candidateGroups="eam-maintenance-manager">
+      <bpmn:documentation>Review and approve repair request</bpmn:documentation>
+      <bpmn:incoming>flow_to_review</bpmn:incoming>
+      <bpmn:outgoing>flow_to_assign</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:sequenceFlow id="flow_to_assign" sourceRef="review_repair" targetRef="assign_technician"/>
+
+    <bpmn:serviceTask id="assign_technician" name="Assign Technician" camunda:delegateExpression="${technicianAssignmentService}">
+      <bpmn:documentation>Automatically assign available technician based on skill and workload</bpmn:documentation>
+      <bpmn:incoming>flow_to_assign</bpmn:incoming>
+      <bpmn:outgoing>flow_to_execute</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:sequenceFlow id="flow_to_execute" sourceRef="assign_technician" targetRef="execute_repair"/>
+
+    <bpmn:userTask id="execute_repair" name="Execute Repair" camunda:assignee="${assignedTechnician}">
+      <bpmn:documentation>Perform repair work and record materials used</bpmn:documentation>
+      <bpmn:incoming>flow_to_execute</bpmn:incoming>
+      <bpmn:outgoing>flow_to_verify</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:sequenceFlow id="flow_to_verify" sourceRef="execute_repair" targetRef="verify_repair"/>
+
+    <bpmn:userTask id="verify_repair" name="Verify Repair" camunda:candidateGroups="eam-quality-inspector">
+      <bpmn:documentation>Verify repair quality and equipment status</bpmn:documentation>
+      <bpmn:incoming>flow_to_verify</bpmn:incoming>
+      <bpmn:outgoing>flow_to_complete</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:sequenceFlow id="flow_to_complete" sourceRef="verify_repair" targetRef="notify_completion"/>
+
+    <bpmn:serviceTask id="notify_completion" name="Notify Completion" camunda:delegateExpression="${notificationService}">
+      <bpmn:documentation>Send completion notification to initiator</bpmn:documentation>
+      <bpmn:incoming>flow_to_complete</bpmn:incoming>
+      <bpmn:outgoing>flow_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:sequenceFlow id="flow_to_end" sourceRef="notify_completion" targetRef="end_repair"/>
+
+    <bpmn:endEvent id="end_repair" name="Repair Complete">
+      <bpmn:incoming>flow_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="eam_repair_workflow">
+      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_2" bpmnElement="start_repair">
+        <dc:Bounds x="179" y="99" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="165" y="142" width="65" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_ReportFault" bpmnElement="report_fault">
+        <dc:Bounds x="270" y="77" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_ReviewRepair" bpmnElement="review_repair">
+        <dc:Bounds x="430" y="77" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_AssignTechnician" bpmnElement="assign_technician">
+        <dc:Bounds x="590" y="77" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_ExecuteRepair" bpmnElement="execute_repair">
+        <dc:Bounds x="750" y="77" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_VerifyRepair" bpmnElement="verify_repair">
+        <dc:Bounds x="910" y="77" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_NotifyCompletion" bpmnElement="notify_completion">
+        <dc:Bounds x="1070" y="77" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_End" bpmnElement="end_repair">
+        <dc:Bounds x="1232" y="99" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1208" y="142" width="85" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
