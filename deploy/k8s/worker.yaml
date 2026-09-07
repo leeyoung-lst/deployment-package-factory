@@ -29,6 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
+          # Build with: docker build -f backend/Dockerfile.worker -t deployment-package-factory-worker:latest .
           image: deployment-package-factory-worker:latest
           imagePullPolicy: IfNotPresent
           securityContext:
@@ -36,6 +37,9 @@ spec:
             capabilities:
               drop:
                 - ALL
+          env:
+            - name: DEPLOYMENT_PACKAGE_EXECUTION_MODE
+              value: "worker"
           envFrom:
             - configMapRef:
                 name: deployment-package-factory-config

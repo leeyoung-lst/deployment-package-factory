@@ -170,6 +170,179 @@ deployment-package-factory.example.com
 默认 K8s/生产 Compose 部署采用 worker 模式：API 只创建任务，`deployment-package-factory-worker` 负责领取和执行任务。本地开发 `docker-compose.yml` 仍保留后台任务模式，便于单进程调试。
 如果 worker 进程崩溃，后续 worker 会根据任务的 `heartbeatAt` 判断是否超过 `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES`，超时的 running 任务会被标记为 failed，用户可在页面上重试。执行中的 worker 会按 `DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS` 周期刷新心跳。
 
+## Worker 独立部署
+
+### Worker 架构说明
+
+Worker 进程是独立的后台任务执行器，与 API 服务解耦：
+
+- **API 服务**（backend）：接收用户请求，创建任务并持久化到数据库，返回任务 ID
+- **Worker 进程**（worker）：轮询数据库，领取 pending 任务，执行构建，更新任务状态
+
+两者通过 **PostgreSQL 数据库** 协调，使用 `SELECT FOR UPDATE SKIP LOCKED` 实现分布式锁，避免同一任务被多个 Worker 抢占。
+
+### Worker 环境变量
+
+Worker 进程支持以下关键环境变量（已在 `deploy/k8s/configmap.yaml` 中配置）：
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `DEPLOYMENT_PACKAGE_EXECUTION_MODE` | `background` | **必须设置为 `worker`** 才能启用 Worker 模式 |
+| `DEPLOYMENT_PACKAGE_DATABASE_URL` | 无 | **必填**，PostgreSQL 连接字符串 |
+| `DEPLOYMENT_PACKAGE_OUTPUT_DIR` | `/app/data/deployment-packages` | 部署包产物输出目录 |
+| `DEPLOYMENT_PACKAGE_MAX_CONCURRENT_BUILDS` | `1` | 单个 Worker 进程内最大并发构建数 |
+| `DEPLOYMENT_PACKAGE_WORKER_POLL_INTERVAL_SECONDS` | `3` | 轮询 pending 任务的间隔（秒） |
+| `DEPLOYMENT_PACKAGE_WORKER_HEARTBEAT_SECONDS` | `15` | 心跳刷新间隔（秒） |
+| `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES` | `120` | 任务超时阈值（分钟） |
+| `DEPLOYMENT_PACKAGE_WORKER_ID` | `{hostname}-{random}` | 可选，Worker 实例标识 |
+
+**注意**：
+- `DEPLOYMENT_PACKAGE_EXECUTION_MODE` 在 ConfigMap 中统一设置为 `worker`
+- Worker Deployment 通过环境变量 `DEPLOYMENT_PACKAGE_EXECUTION_MODE=worker` 显式指定（优先级最高）
+- API backend 可保持 `background` 模式或同样设置为 `worker`（当 `worker` 模式时 API 不执行任务）
+
+### 多 Worker 实例部署
+
+Worker 支持水平扩展，多个 Worker 实例可以并行处理不同的任务：
+
+```yaml
+spec:
+  replicas: 3  # 同时运行 3 个 Worker 实例
+```
+
+**数据库层面的并发保护**：
+- `PostgresPackageTaskRepository.claim_next_pending()` 使用 `SELECT FOR UPDATE SKIP LOCKED`
+- 被某个 Worker 锁定的任务行对其他 Worker 不可见
+- 每个 Worker 实例有独立的 `worker_id`（主机名 + 随机后缀）
+- 任务的 `worker_id`、`claimed_at`、`heartbeat_at` 字段记录归属和活跃状态
+
+**并发控制**：
+- 单个 Worker 进程内的并发由 `MAX_CONCURRENT_BUILDS` 控制（通过 asyncio.Semaphore）
+- 集群总并发 = Worker 实例数 × 每实例并发数
+- 示例：3 个 Worker × 并发 2 = 最多同时构建 6 个部署包
+
+### Worker 健康检查
+
+验证 Worker 正在运行：
+
+```bash
+# 查看 Worker Pod 状态
+kubectl get pods -n deployment-package-factory -l app.kubernetes.io/component=worker
+
+# 查看 Worker 日志
+kubectl logs -n deployment-package-factory -l app.kubernetes.io/component=worker --tail=50 -f
+
+# 查看 Worker 是否在处理任务（日志中应包含 "Running deployment package task task-xxx"）
+kubectl logs -n deployment-package-factory deployment/deployment-package-factory-worker | grep "Running deployment package task"
+```
+
+验证 Worker 心跳正常：
+
+```sql
+-- 连接到 PostgreSQL
+SELECT task_id, status, worker_id, heartbeat_at, updated_at 
+FROM package_tasks 
+WHERE status = 'running' 
+ORDER BY heartbeat_at DESC;
+```
+
+如果 `heartbeat_at` 持续更新（每 15 秒刷新一次），说明 Worker 正常工作。
+
+### Worker 故障恢复
+
+**场景 1：Worker 进程崩溃**
+
+- 正在执行的任务会因为心跳超时被标记为 `failed`
+- 超时判定：`heartbeat_at` 超过 `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES`（默认 120 分钟）
+- 其他 Worker 实例会继续处理新任务
+- 用户可在前端重试失败的任务
+
+**场景 2：Worker Pod 重启**
+
+- K8s 会自动重启 Worker Pod
+- 新 Worker 实例会领取新的 pending 任务
+- 旧 Worker 正在处理的任务会因心跳超时被标记为 `failed`
+
+**场景 3：数据库连接丢失**
+
+- Worker 会在下次轮询时尝试重连
+- 如果长时间无法连接，Worker 会退出（由 K8s 重启）
+
+### Worker 构建镜像
+
+Worker 使用独立的 Dockerfile：
+
+```bash
+# 构建 Worker 镜像
+docker build -f backend/Dockerfile.worker -t deployment-package-factory-worker:latest .
+
+# 或使用统一构建脚本
+scripts/build-images.sh --tag latest
+```
+
+Worker 镜像与 backend 镜像的唯一区别是 `CMD` 命令：
+- **backend**: `uvicorn deployment_package_factory.main:app --host 0.0.0.0 --port 8096`
+- **worker**: `python -m deployment_package_factory.worker`
+
+两者共享相同的依赖（包括 skopeo），确保镜像导出功能可用。
+
+### 验证 Worker 部署
+
+完整验证流程：
+
+```bash
+# 1. 确认 Worker Pod 运行
+kubectl get pods -n deployment-package-factory -l app.kubernetes.io/component=worker
+
+# 2. 通过 API 创建一个部署包任务
+curl -X POST http://deployment-package-factory.example.com/api/deployment-packages \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectKey": "standard-eam",
+    "sourceEnv": "test",
+    "deployModes": ["k8s"],
+    "platformServices": ["iam", "gateway-frontend", "audit"],
+    "businessServices": [{"name": "eam", "profile": "4x60"}],
+    "database": "postgres",
+    "imageMode": "image-manifest"
+  }'
+
+# 3. 观察 Worker 日志，应看到 "Running deployment package task task-xxx"
+kubectl logs -n deployment-package-factory deployment/deployment-package-factory-worker --tail=100 -f
+
+# 4. 查询任务状态，验证任务从 pending → running → completed
+curl http://deployment-package-factory.example.com/api/deployment-packages/tasks/${TASK_ID} \
+  -H "Authorization: Bearer ${API_TOKEN}"
+
+# 5. 检查任务的 worker_id 字段，确认是 Worker 而非 API 执行的
+# worker_id 格式：{hostname}-{random}，例如 "deployment-package-factory-worker-7d8f9c5b4-abc12-a1b2c3d4"
+```
+
+### 故障排查
+
+**问题：Worker 无法领取任务**
+
+检查点：
+1. 确认 `DEPLOYMENT_PACKAGE_EXECUTION_MODE=worker` 已设置
+2. 确认 `DEPLOYMENT_PACKAGE_DATABASE_URL` 配置正确
+3. 查看 Worker 日志是否有数据库连接错误
+4. 确认 API 服务正常创建任务（任务状态为 `pending`）
+
+**问题：任务一直处于 pending 状态**
+
+检查点：
+1. Worker Pod 是否正在运行：`kubectl get pods -n deployment-package-factory`
+2. Worker 日志是否有错误：`kubectl logs -n deployment-package-factory deployment/deployment-package-factory-worker`
+3. 数据库中是否有 pending 任务：`SELECT * FROM package_tasks WHERE status = 'pending'`
+
+**问题：任务频繁超时失败**
+
+检查点：
+1. 提高 `DEPLOYMENT_PACKAGE_RUNNING_TASK_TIMEOUT_MINUTES`（当前 120 分钟）
+2. 检查镜像导出是否因网络问题耗时过长
+3. 考虑增加 Worker 资源限制（CPU/Memory）
+
 ## 监控指标
 
 后端服务提供 Prometheus 文本指标：

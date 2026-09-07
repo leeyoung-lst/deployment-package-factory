@@ -6,6 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: deployment-package-factory
   annotations:
+    cert-manager.io/cluster-issuer: local-ai-ca-issuer
     nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
@@ -13,6 +14,10 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - deployment-package-factory.example.com
+      secretName: deployment-package-factory-tls
   rules:
     - host: deployment-package-factory.example.com
       http:
