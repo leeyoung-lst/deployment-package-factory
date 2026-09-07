@@ -11,7 +11,7 @@ export function TechStackStep({ form, options, onValuesChange }: MicroserviceWiz
 
   const selectProjectKind = (value: string) => {
     const first = (options?.techStacks ?? []).find((item) => item.projectKind === value);
-    form.setFieldsValue({ techStack: first?.key || "", microFrontendFramework: "" });
+    form.setFieldsValue({ techStack: first?.key || "", microFrontendFramework: "", mcpServerEnabled: false });
     onValuesChange(null, form.getFieldsValue(true));
   };
 

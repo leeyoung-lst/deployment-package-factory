@@ -6,10 +6,13 @@ import { MicroserviceDeliveryDiagnostics } from "./MicroserviceDeliveryDiagnosti
 import { MicroserviceResultRow } from "./MicroserviceResultRow";
 
 export function MicroserviceResultContent({ result, retrying, refreshing, onCopy, onRefreshDelivery, onRetryDelivery }: { result: MicroserviceScaffoldResult; retrying: boolean; refreshing: boolean; onCopy: (value: string) => void; onRefreshDelivery: () => void; onRetryDelivery: () => void }) {
+  const agentConfig = JSON.stringify(mcpAgentConfig(result), null, 2);
   return (
     <div className={styles.resultGrid}>
       <MicroserviceResultRow label="业务平台"><Space size={6} wrap><Tag color="purple">{result.businessPlatformName}</Tag><span className={styles.mono}>{result.businessPlatformNamespace}</span></Space></MicroserviceResultRow>
       <MicroserviceResultRow label="项目类型"><Space size={6} wrap><Tag color="blue">{result.projectKind}</Tag><Tag>{result.techStack}</Tag>{result.microFrontendFramework ? <Tag color="cyan">{result.microFrontendFramework}</Tag> : null}</Space></MicroserviceResultRow>
+      {result.mcpServerEnabled ? <MicroserviceResultRow label="MCP"><Space size={6} wrap><Tag color="green">{result.mcpTransport || "streamable-http"}</Tag><Tag color={result.mcpRequiresApiKey ? "orange" : "default"}>{result.mcpRequiresApiKey ? "Bearer API Key" : "未启用鉴权"}</Tag><span className={styles.mono}>{result.mcpEndpoint || "/mcp"}</span></Space></MicroserviceResultRow> : null}
+      {result.mcpServerEnabled ? <MicroserviceResultRow label="Agent地址"><MicroserviceCommandField value={result.mcpServiceUrl || `http://${result.serviceKey}.${result.businessPlatformNamespace}.svc.cluster.local/mcp`} onCopy={onCopy} /></MicroserviceResultRow> : null}
       <MicroserviceResultRow label="镜像"><span className={styles.mono}>{result.image}</span></MicroserviceResultRow>
       <MicroserviceResultRow label="Git项目"><span className={styles.mono}>{result.gitRepositoryUrl}</span></MicroserviceResultRow>
       <MicroserviceResultRow label="Jenkins"><span className={styles.mono}>{result.jenkinsJob}</span></MicroserviceResultRow>
@@ -21,8 +24,17 @@ export function MicroserviceResultContent({ result, retrying, refreshing, onCopy
       <MicroserviceResultRow label="本地初始化"><MicroserviceCommandField value={result.cloneCommand} onCopy={onCopy} /></MicroserviceResultRow>
       <MicroserviceResultRow label="构建镜像"><MicroserviceCommandField value={result.buildCommand} onCopy={onCopy} /></MicroserviceResultRow>
       <MicroserviceResultRow label="部署验证"><MicroserviceCommandField value={result.deployCommand} onCopy={onCopy} /></MicroserviceResultRow>
-      {result.artifactAvailable ? <Space wrap><Button icon={<i className="ri-download-line" />} href={downloadMicroserviceScaffold(result.projectId)}>下载项目包</Button><Button icon={<i className="ri-file-copy-line" />} onClick={() => onCopy(result.downloadCommand)}>复制下载命令</Button></Space> : null}
+      {result.artifactAvailable ? <Space wrap><Button icon={<i className="ri-download-line" />} href={downloadMicroserviceScaffold(result.projectId)}>下载项目包</Button><Button icon={<i className="ri-file-copy-line" />} onClick={() => onCopy(result.downloadCommand)}>复制下载命令</Button>{result.mcpServerEnabled ? <Button icon={<i className="ri-file-copy-line" />} onClick={() => onCopy(agentConfig)}>复制Agent MCP配置</Button> : null}</Space> : null}
       <div className={styles.fileList}>{result.generatedFiles.map((item) => <span key={item} className={styles.mono}>{item}</span>)}</div>
     </div>
   );
+}
+
+function mcpAgentConfig(result: MicroserviceScaffoldResult) {
+  if (Object.keys(result.mcpAgentConfig || {}).length) return result.mcpAgentConfig;
+  return {
+    type: result.mcpTransport || "streamable-http",
+    url: result.mcpServiceUrl || `http://${result.serviceKey}.${result.businessPlatformNamespace}.svc.cluster.local/mcp`,
+    headers: result.mcpRequiresApiKey ? { Authorization: "Bearer ${MCP_API_KEY}" } : {},
+  };
 }

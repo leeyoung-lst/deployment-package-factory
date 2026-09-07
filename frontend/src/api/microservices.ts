@@ -6,6 +6,7 @@ export interface MicroserviceScaffoldOptions {
   techStacks: Array<{ key: string; name: string; projectKind?: string }>;
   microFrontendFrameworks: Array<{ key: string; name: string }>;
   middleware: Array<{ key: string; name: string }>;
+  features: Array<{ key: string; name: string; field: string; projectKinds: string[]; description: string }>;
 }
 
 export interface MicroserviceScaffoldRequest {
@@ -15,6 +16,7 @@ export interface MicroserviceScaffoldRequest {
   projectKind: string;
   techStack: string;
   microFrontendFramework: string;
+  mcpServerEnabled: boolean;
   port: number;
   middleware: string[];
   sourceEnv: SourceEnv;
@@ -33,6 +35,12 @@ export interface MicroserviceScaffoldResult {
   projectKind: string;
   techStack: string;
   microFrontendFramework: string;
+  mcpServerEnabled: boolean;
+  mcpEndpoint: string;
+  mcpTransport: string;
+  mcpRequiresApiKey: boolean;
+  mcpServiceUrl: string;
+  mcpAgentConfig: Record<string, unknown>;
   sourceEnv: SourceEnv;
   businessPlatformKey: string;
   businessPlatformProfile: string;
@@ -72,6 +80,12 @@ export interface RegisteredMicroservice {
   projectKind: string;
   techStack: string;
   microFrontendFramework: string;
+  mcpServerEnabled: boolean;
+  mcpEndpoint: string;
+  mcpTransport: string;
+  mcpRequiresApiKey: boolean;
+  mcpServiceUrl: string;
+  mcpAgentConfig: Record<string, unknown>;
   port: number;
   middleware: string[];
   sourceEnv: SourceEnv;

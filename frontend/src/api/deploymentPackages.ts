@@ -50,6 +50,12 @@ export interface RegisteredDeploymentMicroservice {
   businessPlatformProfile: string;
   businessPlatformNamespace: string;
   image: string;
+  mcpServerEnabled?: boolean;
+  mcpEndpoint?: string;
+  mcpTransport?: string;
+  mcpRequiresApiKey?: boolean;
+  mcpServiceUrl?: string;
+  mcpAgentConfig?: Record<string, unknown>;
   k8sNamespace: string;
   status: string;
   gitRepositoryUrl?: string;

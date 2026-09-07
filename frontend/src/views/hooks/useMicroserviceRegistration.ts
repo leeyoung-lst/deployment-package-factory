@@ -12,6 +12,7 @@ export const DEFAULT_MICROSERVICE_VALUES = {
   projectKind: "backend",
   techStack: "python-fastapi",
   microFrontendFramework: "",
+  mcpServerEnabled: false,
   port: 8000,
   middleware: ["redis", "postgresql"],
   sourceEnv: "test" as SourceEnv,
@@ -24,7 +25,7 @@ export const DEFAULT_MICROSERVICE_VALUES = {
 
 export type MicroserviceWizardValues = typeof DEFAULT_MICROSERVICE_VALUES;
 
-const API_FIELD_STEPS: Record<string, number> = { sourceEnv: 0, businessPlatformKey: 0, serviceKey: 1, serviceName: 1, projectKind: 2, techStack: 2, microFrontendFramework: 2, port: 3, gitGroup: 3, imageRegistry: 3, imageNamespace: 3, middleware: 4, k8sNamespace: 4 };
+const API_FIELD_STEPS: Record<string, number> = { sourceEnv: 0, businessPlatformKey: 0, serviceKey: 1, serviceName: 1, projectKind: 2, techStack: 2, microFrontendFramework: 2, mcpServerEnabled: 4, port: 3, gitGroup: 3, imageRegistry: 3, imageNamespace: 3, middleware: 4, k8sNamespace: 4 };
 
 export function useMicroserviceRegistration(form: FormInstance<MicroserviceWizardValues>, notifyError: (message: string) => void) {
   const [options, setOptions] = useState<MicroserviceScaffoldOptions | null>(null);

@@ -12,6 +12,7 @@ export function SummaryStep({ formValues, options, selectedPlatform, systemSetti
       <SummaryItem label="服务" value={`${formValues.serviceName} (${formValues.serviceKey})`} />
       <SummaryItem label="镜像" value={`${imageRegistry}/${formValues.imageNamespace}/${formValues.serviceKey}`} />
       <SummaryItem label="中间件" value={(formValues.middleware || []).join(", ") || "无"} />
+      <SummaryItem label="MCP Server" value={formValues.mcpServerEnabled ? "启用" : "未启用"} />
       <SummaryItem label="微前端" value={microFrontend || "未启用"} />
       <SummaryItem label="K8s namespace" value={formValues.k8sNamespace || selectedPlatform?.namespace || "使用业务平台 namespace"} />
     </div>

@@ -19,8 +19,9 @@ function ServiceItem({ item }: { item: RegisteredMicroservice }) {
   return (
     <div className={styles.serviceItem}>
       <span><strong>{item.serviceName}</strong><span className={styles.mono}>{item.serviceKey}</span></span>
-      <span><Tag color="purple">{item.businessPlatformName}</Tag><Tag color="blue">{item.sourceEnv}</Tag><Tag>{item.techStack}</Tag>{item.microFrontendFramework ? <Tag color="cyan">{item.microFrontendFramework}</Tag> : null}</span>
+      <span><Tag color="purple">{item.businessPlatformName}</Tag><Tag color="blue">{item.sourceEnv}</Tag><Tag>{item.techStack}</Tag>{item.mcpServerEnabled ? <Tag color="green">MCP</Tag> : null}{item.microFrontendFramework ? <Tag color="cyan">{item.microFrontendFramework}</Tag> : null}</span>
       <span className={styles.mono}>{item.image}</span>
+      {item.mcpServerEnabled ? <span className={styles.mono}>MCP: {item.mcpServiceUrl || item.mcpEndpoint || "/mcp"}</span> : null}
     </div>
   );
 }
