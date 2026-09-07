@@ -5,7 +5,7 @@ from pathlib import PurePosixPath
 
 
 QUALITY_GATE_VERSION = "1.0.0"
-QUALITY_GATE_CHECKS = ["verify", "k8s-dry-run", "docker-compose-config"]
+QUALITY_GATE_CHECKS = ["verify", "mcp-connectivity", "k8s-dry-run", "docker-compose-config"]
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,6 @@ def _quality_gate_sh(manifest: dict) -> str:
         "EOF\n"
         "\n"
         'run_check "package-integrity" "${SCRIPT_DIR}/verify.sh"\n'
-        "\n"
         'if [ "${MODE}" = "all" ] || [ "${MODE}" = "k8s" ]; then\n'
         '  if has_mode "k8s"; then\n'
         '    run_check "k8s-client-dry-run" "${SCRIPT_DIR}/k8s/dry-run.sh"\n'
@@ -160,10 +159,16 @@ def _quality_report(manifest: dict) -> str:
         "## Required Checks\n"
         "\n"
         "- package-integrity: `./verify.sh` or `./verify.ps1`\n"
+        "- mcp-connectivity: `./scripts/verify-mcp.sh` or `./scripts/verify-mcp.ps1` when MCP services are included\n"
         "- k8s-client-dry-run: `./k8s/dry-run.sh`\n"
         "- docker-compose-config: `./docker-compose/dry-run.sh`\n"
+        f"- MCP-enabled registered microservices: {len(_mcp_services(manifest))}\n"
         "\n"
         "## Results\n"
         "\n"
         "Run `./quality-gate.sh` from the package root to write check results to `docs/quality-report.runtime.md`.\n"
     )
+
+
+def _mcp_services(manifest: dict) -> list[dict]:
+    return [item for item in manifest.get("registeredMicroservices") or [] if item.get("mcpServerEnabled")]

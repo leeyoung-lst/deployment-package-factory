@@ -38,6 +38,16 @@ def test_render_acceptance_report_files_summarizes_package_inputs() -> None:
                     }
                 ],
             },
+            "registeredMicroservices": [
+                {
+                    "serviceKey": "asset-service",
+                    "mcpServerEnabled": True,
+                    "mcpEndpoint": "/mcp",
+                    "mcpTransport": "streamable-http",
+                    "mcpRequiresApiKey": True,
+                    "mcpServiceUrl": "http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp",
+                }
+            ],
         }
     )
 
@@ -51,3 +61,6 @@ def test_render_acceptance_report_files_summarizes_package_inputs() -> None:
     assert "secret-password" not in content
     assert "databaseSchema: postgres local_ai.eam" in content
     assert "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\verify.ps1" in content
+    assert "MCP Server Operations" in content
+    assert "scripts/verify-mcp.sh" in content
+    assert "asset-service: streamable-http http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp" in content

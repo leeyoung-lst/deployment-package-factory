@@ -26,7 +26,7 @@ def test_render_init_files_contains_idempotent_placeholders() -> None:
     assert "CREATE SCHEMA IF NOT EXISTS local_ai_platform" in by_path["init/postgres/001_schema.sql"]
     assert "mc mb --ignore-existing" in by_path["init/minio/create-buckets.sh"]
     assert 'create_collection "agent_memory" "1536" "Cosine"' in by_path["init/qdrant/create-collections.sh"]
-    assert "Bootstrap Camunda tenants" in by_path["init/camunda/bootstrap-admin.sh"]
+    assert "Bootstrapping Camunda" in by_path["init/camunda/bootstrap-admin.sh"]
     assert "deployment/create" in by_path["init/camunda/bootstrap-admin.sh"]
     assert "run_sql \"postgres\"" in by_path["init/run-init.sh"]
     assert "PROJECT_INIT_DIR" in by_path["init/run-init.sh"]

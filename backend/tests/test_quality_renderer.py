@@ -11,6 +11,7 @@ def test_render_quality_gate_files_exports_entries() -> None:
             "productVersion": "2026.06",
             "deployModes": ["k8s", "docker-compose"],
             "database": "postgres",
+            "registeredMicroservices": [{"serviceKey": "asset-service", "mcpServerEnabled": True}],
         }
     )
     by_path = {item.path.as_posix(): item for item in files}
@@ -27,3 +28,5 @@ def test_render_quality_gate_files_exports_entries() -> None:
     assert "ReadAllText((Join-Path $ScriptDir 'manifest.json'), [System.Text.Encoding]::UTF8)" in by_path["quality-gate.ps1"].content
     assert "Required Checks" in by_path["docs/quality-report.md"].content
     assert "quality-report.runtime.md" in by_path["docs/quality-report.md"].content
+    assert "mcp-connectivity" in by_path["docs/quality-report.md"].content
+    assert "MCP-enabled registered microservices: 1" in by_path["docs/quality-report.md"].content

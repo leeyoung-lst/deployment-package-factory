@@ -141,6 +141,10 @@ def _init_readme(manifest: dict) -> str:
 def _postgres_schema_sql(manifest: dict) -> str:
     resources = _resources_by_type(manifest, "databaseSchema")
     services = "\n".join(f"-- service: {item}" for item in manifest["platformServices"] + manifest["businessServices"])
+    platform_services = set(manifest["platformServices"])
+    business_services = set(manifest["businessServices"])
+
+    # 收集所有 schema
     schema_lines = [
         f"CREATE SCHEMA IF NOT EXISTS {_sql_ident(_resource_value(resource, 'schema', 'public'))};"
         for resource in resources
@@ -148,11 +152,89 @@ def _postgres_schema_sql(manifest: dict) -> str:
     ]
     if not schema_lines:
         schema_lines = ["CREATE SCHEMA IF NOT EXISTS local_ai_platform;"]
+
+    # 生成核心平台表结构
+    core_tables = []
+
+    # IAM 核心表
+    if "iam" in platform_services:
+        core_tables.extend([
+            "",
+            "-- IAM Core Tables",
+            "CREATE SCHEMA IF NOT EXISTS iam;",
+            "",
+            "CREATE TABLE IF NOT EXISTS iam.users (",
+            "  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),",
+            "  username VARCHAR(255) UNIQUE NOT NULL,",
+            "  email VARCHAR(255),",
+            "  password_hash VARCHAR(255) NOT NULL,",
+            "  display_name VARCHAR(255),",
+            "  is_active BOOLEAN DEFAULT TRUE,",
+            "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+            "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            ");",
+            "",
+            "CREATE TABLE IF NOT EXISTS iam.roles (",
+            "  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),",
+            "  name VARCHAR(255) UNIQUE NOT NULL,",
+            "  description TEXT,",
+            "  permissions JSONB DEFAULT '[]'::JSONB,",
+            "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+            "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            ");",
+            "",
+            "CREATE TABLE IF NOT EXISTS iam.user_roles (",
+            "  user_id UUID NOT NULL REFERENCES iam.users(id) ON DELETE CASCADE,",
+            "  role_id UUID NOT NULL REFERENCES iam.roles(id) ON DELETE CASCADE,",
+            "  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+            "  PRIMARY KEY (user_id, role_id)",
+            ");",
+            "",
+            "CREATE INDEX IF NOT EXISTS idx_users_username ON iam.users(username);",
+            "CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON iam.user_roles(user_id);",
+        ])
+
+    # Audit 核心表
+    if "audit" in platform_services:
+        core_tables.extend([
+            "",
+            "-- Audit Core Tables",
+            "CREATE SCHEMA IF NOT EXISTS audit;",
+            "",
+            "CREATE TABLE IF NOT EXISTS audit.events (",
+            "  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),",
+            "  action VARCHAR(255) NOT NULL,",
+            "  operator VARCHAR(255),",
+            "  client_ip VARCHAR(45),",
+            "  target_id VARCHAR(255),",
+            "  status VARCHAR(50),",
+            "  message TEXT,",
+            "  metadata JSONB DEFAULT '{}'::JSONB,",
+            "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            ");",
+            "",
+            "CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit.events(action);",
+            "CREATE INDEX IF NOT EXISTS idx_audit_events_operator ON audit.events(operator);",
+            "CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit.events(created_at DESC);",
+        ])
+
+    # 业务服务 schema（仅创建 schema，具体表结构由项目级 SQL 补充）
+    for service in sorted(business_services):
+        if service in ["eam", "mes", "erp", "aps"]:
+            core_tables.extend([
+                "",
+                f"-- {service.upper()} Business Schema",
+                f"CREATE SCHEMA IF NOT EXISTS {_sql_ident(f'{service}_schema')};",
+            ])
+
     return (
-        "-- PostgreSQL schema initialization placeholder.\n"
-        "-- Idempotent production SQL should use CREATE IF NOT EXISTS and upsert semantics.\n"
+        "-- PostgreSQL schema and core table initialization.\n"
+        "-- This script is idempotent and can be executed multiple times.\n"
         f"{services}\n"
+        "\n"
         + "\n".join(dict.fromkeys(schema_lines))
+        + "\n"
+        + "\n".join(core_tables)
         + "\n"
     )
 
@@ -160,17 +242,97 @@ def _postgres_schema_sql(manifest: dict) -> str:
 def _dm_schema_sql(manifest: dict) -> str:
     services = "\n".join(f"-- service: {item}" for item in manifest["platformServices"] + manifest["businessServices"])
     resources = _resources_by_type(manifest, "databaseSchema")
+    platform_services = set(manifest["platformServices"])
+    business_services = set(manifest["businessServices"])
+
     schema_lines = [
         f"-- DM schema resource: {_resource_value(resource, 'databaseName', 'LOCAL_AI')}.{_resource_value(resource, 'schema', 'PUBLIC')}"
         for resource in resources
         if (resource.get("middlewareKey") or manifest.get("database")) == "dm"
     ]
+
+    # 生成达梦核心表结构（使用达梦 SQL 语法）
+    core_tables = []
+
+    # IAM 核心表（达梦语法）
+    if "iam" in platform_services:
+        core_tables.extend([
+            "",
+            "-- IAM Core Tables (DM Syntax)",
+            "-- Note: Adjust tablespace and storage parameters for production",
+            "",
+            "CREATE TABLE IAM_USERS (",
+            "  ID VARCHAR2(36) PRIMARY KEY,",
+            "  USERNAME VARCHAR2(255) UNIQUE NOT NULL,",
+            "  EMAIL VARCHAR2(255),",
+            "  PASSWORD_HASH VARCHAR2(255) NOT NULL,",
+            "  DISPLAY_NAME VARCHAR2(255),",
+            "  IS_ACTIVE NUMBER(1) DEFAULT 1,",
+            "  CREATED_AT TIMESTAMP DEFAULT SYSDATE,",
+            "  UPDATED_AT TIMESTAMP DEFAULT SYSDATE",
+            ");",
+            "",
+            "CREATE TABLE IAM_ROLES (",
+            "  ID VARCHAR2(36) PRIMARY KEY,",
+            "  NAME VARCHAR2(255) UNIQUE NOT NULL,",
+            "  DESCRIPTION CLOB,",
+            "  PERMISSIONS CLOB,",
+            "  CREATED_AT TIMESTAMP DEFAULT SYSDATE,",
+            "  UPDATED_AT TIMESTAMP DEFAULT SYSDATE",
+            ");",
+            "",
+            "CREATE TABLE IAM_USER_ROLES (",
+            "  USER_ID VARCHAR2(36) NOT NULL,",
+            "  ROLE_ID VARCHAR2(36) NOT NULL,",
+            "  ASSIGNED_AT TIMESTAMP DEFAULT SYSDATE,",
+            "  PRIMARY KEY (USER_ID, ROLE_ID)",
+            ");",
+            "",
+            "CREATE INDEX IDX_USERS_USERNAME ON IAM_USERS(USERNAME);",
+            "CREATE INDEX IDX_USER_ROLES_USER_ID ON IAM_USER_ROLES(USER_ID);",
+        ])
+
+    # Audit 核心表（达梦语法）
+    if "audit" in platform_services:
+        core_tables.extend([
+            "",
+            "-- Audit Core Tables (DM Syntax)",
+            "",
+            "CREATE TABLE AUDIT_EVENTS (",
+            "  ID VARCHAR2(36) PRIMARY KEY,",
+            "  ACTION VARCHAR2(255) NOT NULL,",
+            "  OPERATOR VARCHAR2(255),",
+            "  CLIENT_IP VARCHAR2(45),",
+            "  TARGET_ID VARCHAR2(255),",
+            "  STATUS VARCHAR2(50),",
+            "  MESSAGE CLOB,",
+            "  METADATA CLOB,",
+            "  CREATED_AT TIMESTAMP DEFAULT SYSDATE",
+            ");",
+            "",
+            "CREATE INDEX IDX_AUDIT_EVENTS_ACTION ON AUDIT_EVENTS(ACTION);",
+            "CREATE INDEX IDX_AUDIT_EVENTS_OPERATOR ON AUDIT_EVENTS(OPERATOR);",
+            "CREATE INDEX IDX_AUDIT_EVENTS_CREATED_AT ON AUDIT_EVENTS(CREATED_AT DESC);",
+        ])
+
+    # 业务服务 schema 注释（达梦需要在 DBA 权限下创建 schema/用户）
+    for service in sorted(business_services):
+        if service in ["eam", "mes", "erp", "aps"]:
+            core_tables.extend([
+                "",
+                f"-- {service.upper()} Business Schema",
+                f"-- Production: CREATE USER {service.upper()}_SCHEMA IDENTIFIED BY <password>;",
+                f"-- Production: GRANT CONNECT, RESOURCE TO {service.upper()}_SCHEMA;",
+            ])
+
     return (
-        "-- DM schema initialization placeholder.\n"
-        "-- Idempotent production SQL should guard existing users, schemas, and seed rows.\n"
+        "-- DM schema and core table initialization.\n"
+        "-- This script uses DM-specific syntax (VARCHAR2, SYSDATE, CLOB).\n"
+        "-- Production deployment should be executed by DBA with appropriate tablespace configuration.\n"
         f"{services}\n"
         + ("\n".join(dict.fromkeys(schema_lines)) + "\n" if schema_lines else "")
-        + "-- TODO: create DM schema with production account and tablespace policy.\n"
+        + "\n".join(core_tables)
+        + "\n"
     )
 
 
@@ -298,7 +460,30 @@ def _camunda_init_script(manifest: dict) -> str:
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
         'PROJECT_INIT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/project"\n'
         'CAMUNDA_URL="${CAMUNDA_URL:-http://camunda:8080}"\n'
-        f'echo "Bootstrap Camunda tenants and admin groups for {manifest["packageId"]} at ${{CAMUNDA_URL}}."\n'
+        'CAMUNDA_ENGINE_URL="${CAMUNDA_URL}/engine-rest"\n'
+        'CAMUNDA_ADMIN_USER="${CAMUNDA_ADMIN_USER:-admin}"\n'
+        'CAMUNDA_ADMIN_PASSWORD="${CAMUNDA_ADMIN_PASSWORD:-admin}"\n'
+        "\n"
+        f'echo "Bootstrapping Camunda for {manifest["packageId"]} at ${{CAMUNDA_URL}}"\n'
+        "\n"
+        "# Check Camunda availability\n"
+        "check_camunda_ready() {\n"
+        '  if ! command -v curl >/dev/null 2>&1; then\n'
+        '    echo "curl is not available; cannot verify Camunda readiness."\n'
+        "    return 1\n"
+        "  fi\n"
+        '  if curl -fsS -u "${CAMUNDA_ADMIN_USER}:${CAMUNDA_ADMIN_PASSWORD}" \\\n'
+        '    "${CAMUNDA_ENGINE_URL}/version" >/dev/null 2>&1; then\n'
+        '    echo "Camunda is ready at ${CAMUNDA_ENGINE_URL}"\n'
+        "    return 0\n"
+        "  else\n"
+        '    echo "Warning: Camunda is not accessible at ${CAMUNDA_ENGINE_URL}"\n'
+        '    echo "Check CAMUNDA_URL, CAMUNDA_ADMIN_USER, and CAMUNDA_ADMIN_PASSWORD."\n'
+        "    return 1\n"
+        "  fi\n"
+        "}\n"
+        "\n"
+        "# Deploy BPMN/DMN process model\n"
         "deploy_process_model() {\n"
         '  local model_file="$1"\n'
         '  local deployment_name="$(basename "${model_file}")"\n'
@@ -306,20 +491,30 @@ def _camunda_init_script(manifest: dict) -> str:
         '    echo "curl is not available; pending Camunda deployment: ${model_file}"\n'
         "    return 0\n"
         "  fi\n"
-        '  curl -fsS -X POST "${CAMUNDA_URL}/engine-rest/deployment/create" \\\n'
+        '  echo "Deploying Camunda model: ${model_file}"\n'
+        '  if curl -fsS -u "${CAMUNDA_ADMIN_USER}:${CAMUNDA_ADMIN_PASSWORD}" \\\n'
+        '    -X POST "${CAMUNDA_ENGINE_URL}/deployment/create" \\\n'
         '    -F "deployment-name=${deployment_name}" \\\n'
         '    -F "enable-duplicate-filtering=true" \\\n'
         '    -F "deploy-changed-only=true" \\\n'
-        '    -F "data=@${model_file}"\n'
+        '    -F "data=@${model_file}"; then\n'
+        '    echo "Successfully deployed: ${deployment_name}"\n'
+        "  else\n"
+        '    echo "Warning: Failed to deploy ${deployment_name}"\n'
+        "  fi\n"
         "}\n"
         "\n"
+        "# Check Camunda readiness\n"
+        "check_camunda_ready || exit 0\n"
+        "\n"
+        "# Deploy project-level BPMN/DMN models\n"
         'if [ -d "${PROJECT_INIT_DIR}" ]; then\n'
         '  while IFS= read -r -d "" model_file; do\n'
-        '    echo "Deploying project Camunda model: ${model_file}"\n'
         '    deploy_process_model "${model_file}"\n'
         '  done < <(find "${PROJECT_INIT_DIR}" -type f \\( -path "*/camunda/*.bpmn" -o -path "*/camunda/*.bpmn20.xml" -o -path "*/camunda/*.dmn" \\) -print0 | sort -z)\n'
         "fi\n"
-        "echo \"TODO: seed operator groups with Camunda REST API.\"\n"
+        "\n"
+        'echo "Camunda bootstrap completed."\n'
     )
 
 

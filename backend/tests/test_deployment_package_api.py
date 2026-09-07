@@ -996,6 +996,7 @@ def _microservice_request() -> MicroserviceScaffoldRequest:
         imageNamespace="business",
         port=8000,
         middleware=["redis", "postgresql"],
+        mcpServerEnabled=True,
     )
 
 
@@ -1006,6 +1007,16 @@ def _microservice_result(delivery: dict[str, object] | None = None) -> Microserv
         serviceName="Asset Service",
         projectKind="backend",
         techStack="python-fastapi",
+        mcpServerEnabled=True,
+        mcpEndpoint="/mcp",
+        mcpTransport="streamable-http",
+        mcpRequiresApiKey=True,
+        mcpServiceUrl="http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp",
+        mcpAgentConfig={
+            "type": "streamable-http",
+            "url": "http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp",
+            "headers": {"Authorization": "Bearer ${MCP_API_KEY}"},
+        },
         sourceEnv="test",
         businessPlatformKey="eam",
         businessPlatformProfile="4x60",

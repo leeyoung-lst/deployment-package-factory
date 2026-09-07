@@ -141,10 +141,15 @@ def test_build_deployment_package_includes_registered_microservices(tmp_path, mo
     k8s_deployments = (root / "k8s" / "layers" / "60-apps" / "deployments.yaml").read_text(encoding="utf-8")
     k8s_services = (root / "k8s" / "layers" / "60-apps" / "services.yaml").read_text(encoding="utf-8")
     compose = (root / "docker-compose" / "docker-compose.yml").read_text(encoding="utf-8")
+    acceptance_report = (root / "docs" / "acceptance-report.md").read_text(encoding="utf-8")
+    quality_report = (root / "docs" / "quality-report.md").read_text(encoding="utf-8")
+    verify_mcp = (root / "scripts" / "verify-mcp.sh").read_text(encoding="utf-8")
 
     by_catalog = {item["catalogRef"]: item for item in result.manifest["imageEntries"]}
     assert result.manifest["registeredMicroservices"][0]["serviceKey"] == "asset-service"
     assert result.manifest["registeredMicroservices"][0]["delivery"]["build"]["status"] == "success"
+    assert result.manifest["registeredMicroservices"][0]["mcpEndpoint"] == "/mcp"
+    assert result.manifest["registeredMicroservices"][0]["mcpServiceUrl"] == "http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp"
     assert "registry.local/business/asset-service:prod" in result.manifest["images"]["business"]
     assert by_catalog["registry.local/business/asset-service:prod"]["targetRef"] == "harbor.prod/local-ai/business/asset-service:prod"
     assert "business registry.local/business/asset-service:prod harbor.prod/local-ai/business/asset-service:prod" in images_txt
@@ -157,6 +162,11 @@ def test_build_deployment_package_includes_registered_microservices(tmp_path, mo
     assert "    image: harbor.prod/local-ai/business/asset-service:prod" in compose
     assert "      - business-eam" in compose
     assert ":8000\"" in compose
+    assert "MCP Server Operations" in acceptance_report
+    assert "scripts/verify-mcp.sh" in acceptance_report
+    assert "mcp-connectivity" in quality_report
+    assert "tools/list" in verify_mcp
+    assert "MCP_API_KEY is required" in verify_mcp
 
 
 def test_build_deployment_package_includes_validation_scripts(tmp_path, monkeypatch) -> None:
@@ -1520,6 +1530,7 @@ def _microservice_request() -> MicroserviceScaffoldRequest:
         imageNamespace="business",
         port=8000,
         middleware=["redis", "postgresql"],
+        mcpServerEnabled=True,
     )
 
 
@@ -1530,6 +1541,16 @@ def _microservice_result() -> MicroserviceScaffoldResult:
         serviceName="Asset Service",
         projectKind="backend",
         techStack="python-fastapi",
+        mcpServerEnabled=True,
+        mcpEndpoint="/mcp",
+        mcpTransport="streamable-http",
+        mcpRequiresApiKey=True,
+        mcpServiceUrl="http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp",
+        mcpAgentConfig={
+            "type": "streamable-http",
+            "url": "http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp",
+            "headers": {"Authorization": "Bearer ${MCP_API_KEY}"},
+        },
         sourceEnv="test",
         businessPlatformKey="eam",
         businessPlatformProfile="4x60",

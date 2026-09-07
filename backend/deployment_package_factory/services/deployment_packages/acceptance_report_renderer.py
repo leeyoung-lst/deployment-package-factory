@@ -48,6 +48,10 @@ def _acceptance_report(manifest: dict) -> str:
         "",
         *_runtime_resources(manifest),
         "",
+        "## MCP Server Operations",
+        "",
+        *_mcp_server_operations(manifest),
+        "",
         "## Key Files",
         "",
         "- `manifest.json`",
@@ -115,6 +119,23 @@ def _runtime_resources(manifest: dict) -> list[str]:
         lines.append(
             f"- {resource.get('type')}: {resource.get('name')} "
             f"({review}, source={resource.get('source') or '-'}, usedBy={used_by})"
+        )
+    return lines
+
+
+def _mcp_server_operations(manifest: dict) -> list[str]:
+    services = [item for item in manifest.get("registeredMicroservices") or [] if item.get("mcpServerEnabled")]
+    if not services:
+        return ["- No MCP-enabled registered microservices are included."]
+    lines = [
+        "- Set `MCP_API_KEY` before connectivity checks.",
+        "- Run `scripts/verify-mcp.sh` or `scripts/verify-mcp.ps1` after services are reachable from the agent network.",
+    ]
+    for service in services:
+        auth = "Bearer API key required" if service.get("mcpRequiresApiKey") else "no API key required"
+        lines.append(
+            f"- {service.get('serviceKey')}: {service.get('mcpTransport') or 'streamable-http'} "
+            f"{service.get('mcpServiceUrl') or service.get('mcpEndpoint') or '/mcp'} ({auth})"
         )
     return lines
 
