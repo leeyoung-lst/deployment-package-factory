@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tarfile
 import shutil
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -70,6 +71,7 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
             "businessPlatformKey": "eam",
             "businessPlatformProfile": "4x60",
             "middleware": ["redis", "postgresql"],
+            "mcpServerEnabled": True,
             "imageRegistry": "registry.local",
             "imageNamespace": "business",
         },
@@ -84,6 +86,12 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert payload["deployCommand"] == "./deploy.sh registry.local/business/asset-service:dev"
     assert payload["gitRepositoryUrl"] == "business-services/asset-service"
     assert payload["jenkinsJob"] == "business-services/asset-service"
+    assert payload["mcpServerEnabled"] is True
+    assert payload["mcpEndpoint"] == "/mcp"
+    assert payload["mcpTransport"] == "streamable-http"
+    assert payload["mcpRequiresApiKey"] is True
+    assert payload["mcpServiceUrl"] == "http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp"
+    assert payload["mcpAgentConfig"]["headers"]["Authorization"] == "Bearer ${MCP_API_KEY}"
     assert payload["validation"]["passed"] is True
     assert payload["validation"]["fileCount"] == len(payload["generatedFiles"])
     assert {item["name"] for item in payload["validation"]["checks"]} == {
@@ -93,6 +101,7 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         "helm-templates",
         "tech-stack-contract",
         "middleware-placeholders",
+        "mcp-server-contract",
         "artifact-archive",
     }
     artifact = Path(payload["artifactPath"])
@@ -105,6 +114,8 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         assert "asset-service/Jenkinsfile" in names
         assert "asset-service/.env.template" in names
         assert "asset-service/config/middleware.example.yaml" in names
+        assert "asset-service/config/mcp-server.example.yaml" in names
+        assert "asset-service/docs/MCP_SERVER.md" in names
         assert "asset-service/deploy.sh" in names
         assert "asset-service/migrate.sh" in names
         assert "asset-service/run-local.sh" in names
@@ -115,6 +126,7 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         assert "asset-service/src/app/infrastructure/redis_client.py" in names
         assert "asset-service/src/app/infrastructure/postgres_repository.py" in names
         assert "asset-service/src/app/interfaces/http/routes.py" in names
+        assert "asset-service/src/app/interfaces/mcp/server.py" in names
         assert "asset-service/tests/test_api.py" in names
         assert "asset-service/deploy/k8s/namespace.yaml" in names
         assert "asset-service/deploy/k8s/deployment.yaml" in names
@@ -130,6 +142,11 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
         deployment = tar.extractfile("asset-service/deploy/k8s/deployment.yaml").read().decode("utf-8")
         helm_values = tar.extractfile("asset-service/deploy/helm/asset-service/values.yaml").read().decode("utf-8")
         routes = tar.extractfile("asset-service/src/app/interfaces/http/routes.py").read().decode("utf-8")
+        mcp_config = tar.extractfile("asset-service/config/mcp-server.example.yaml").read().decode("utf-8")
+        mcp_doc = tar.extractfile("asset-service/docs/MCP_SERVER.md").read().decode("utf-8")
+        mcp_server = tar.extractfile("asset-service/src/app/interfaces/mcp/server.py").read().decode("utf-8")
+        api_tests = tar.extractfile("asset-service/tests/test_api.py").read().decode("utf-8")
+        secret = tar.extractfile("asset-service/deploy/k8s/secret.template.yaml").read().decode("utf-8")
         python_sources = {
             name: tar.extractfile(name).read().decode("utf-8")
             for name in names
@@ -152,8 +169,18 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert 'KUBECONFIG="$KUBECONFIG_FILE" ./deploy.sh "$IMAGE"' in jenkinsfile
     assert "REDIS_URL=redis://redis.test-middleware-public.svc.cluster.local:6379/0" in env_template
     assert "POSTGRES_DSN=postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgres.test-middleware-public.svc.cluster.local:5432/app" in env_template
+    assert "MCP_SERVER_NAME=asset-service-mcp" in env_template
+    assert "MCP_SERVER_TRANSPORT=streamable-http" in env_template
+    assert "MCP_API_KEY=__REPLACE_WITH_MCP_API_KEY__" in env_template
+    assert "MCP_ALLOWED_ORIGINS=" in env_template
+    assert "MCP_ALLOWED_HOSTS=" in env_template
     assert "REDIS_URL: redis://redis.test-middleware-public.svc.cluster.local:6379/0" in helm_values
     assert "POSTGRES_DSN: postgresql://app:__REPLACE_WITH_POSTGRES_PASSWORD__@postgres.test-middleware-public.svc.cluster.local:5432/app" in helm_values
+    assert "MCP_SERVER_ENDPOINT: /mcp" in helm_values
+    assert "MCP_ALLOWED_ORIGINS:" in helm_values
+    assert "MCP_ALLOWED_HOSTS:" in helm_values
+    assert "MCP_API_KEY: __REPLACE_WITH_MCP_API_KEY__" in helm_values
+    assert "MCP_API_KEY: __REPLACE_WITH_MCP_API_KEY__" in secret
     assert "helm upgrade --install" in deploy_sh
     assert "helm upgrade --install asset-service deploy/helm/asset-service" in readme
     assert "business-platform: eam" in deployment
@@ -162,8 +189,31 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert "repository: registry.local/business/asset-service" in helm_values
     assert 'router = APIRouter(prefix="/api/v1")' in routes
     assert "create_demo_item" in routes
+    assert '@mcp_router.post("/mcp")' in routes
+    assert "authorization" in routes
+    assert "Header" in routes
+    assert "Invalid MCP API key" in routes
+    assert "Origin is not allowed" in routes
+    assert "Host is not allowed" in routes
+    assert "server:" in mcp_config
+    assert "transport: streamable-http" in mcp_config
+    assert '"method":"tools/list"' in mcp_doc
+    assert '"Authorization": "Bearer <MCP_API_KEY>"' in mcp_doc
+    assert "MCP_ALLOWED_ORIGINS" in mcp_doc
+    assert "Do not expose `/mcp` publicly" in mcp_doc
+    assert "Deployment smoke test" in mcp_doc
+    assert "MCP_ASSET_SERVICE_URL" in mcp_doc
+    assert "generated verification scripts reject placeholder keys" in mcp_doc
+    assert "handle_mcp_request" in mcp_server
+    assert "protocolVersion" in mcp_server
+    assert "create_demo_item" in mcp_server
+    assert "test_mcp_initialize" in api_tests
+    assert "test_mcp_tools_list" in api_tests
+    assert "test_mcp_tools_call" in api_tests
+    assert "test_mcp_requires_api_key" in api_tests
     for name, source in python_sources.items():
         compile(source, name, "exec")
+    _assert_generated_fastapi_mcp_endpoint(artifact, tmp_path)
 
     listed = _client().get("/api/microservices?source_env=test&business_platform_key=eam&business_platform_profile=4x60")
 
@@ -176,6 +226,9 @@ def test_register_microservice_generates_fastapi_project_for_business_platform(t
     assert services[0]["buildCommand"] == "./build.sh registry.local/business/asset-service:dev"
     assert services[0]["deployCommand"] == "./deploy.sh registry.local/business/asset-service:dev"
     assert services[0]["jenkinsJob"] == "business-services/asset-service"
+    assert services[0]["mcpServerEnabled"] is True
+    assert services[0]["mcpEndpoint"] == "/mcp"
+    assert services[0]["mcpServiceUrl"] == "http://asset-service.test-biz-eam-4x60.svc.cluster.local/mcp"
 
     app = FastAPI()
     app.include_router(deployment_packages.router)
@@ -196,6 +249,15 @@ def test_microservice_options_include_multi_stack_and_middleware() -> None:
     )
     assert {"qiankun", "wujie"} == {item["key"] for item in payload["microFrontendFrameworks"]}
     assert {"redis", "dm", "postgresql", "iotdb", "mongodb", "kafka", "mq"}.issubset({item["key"] for item in payload["middleware"]})
+    assert payload["features"] == [
+        {
+            "key": "mcp-server",
+            "name": "MCP Server",
+            "field": "mcpServerEnabled",
+            "projectKinds": ["backend"],
+            "description": "生成 MCP Server 示例项目和配置",
+        }
+    ]
 
 
 def test_register_microservice_generates_nodejs_project_with_extended_middleware(tmp_path, monkeypatch) -> None:
@@ -212,6 +274,7 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
             "businessPlatformKey": "eam",
             "businessPlatformProfile": "4x60",
             "middleware": ["redis", "mongodb", "kafka", "mq"],
+            "mcpServerEnabled": True,
             "imageRegistry": "registry.local",
             "imageNamespace": "business",
         },
@@ -226,6 +289,7 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
         "helm-templates",
         "tech-stack-contract",
         "middleware-placeholders",
+        "mcp-server-contract",
         "artifact-archive",
     }
     with tarfile.open(Path(payload["artifactPath"]), "r:gz") as tar:
@@ -237,11 +301,15 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
         assert "asset-node/src/infrastructure/logger.ts" in names
         assert "asset-node/src/infrastructure/middlewareClients.ts" in names
         assert "asset-node/src/interfaces/http/routes.ts" in names
+        assert "asset-node/src/interfaces/mcp/server.ts" in names
         assert "asset-node/src/interfaces/http/server.ts" in names
         assert "asset-node/tests/demo.test.ts" in names
         package_json = tar.extractfile("asset-node/package.json").read().decode("utf-8")
         tsconfig = tar.extractfile("asset-node/tsconfig.json").read().decode("utf-8")
         env_template = tar.extractfile("asset-node/.env.template").read().decode("utf-8")
+        mcp_server = tar.extractfile("asset-node/src/interfaces/mcp/server.ts").read().decode("utf-8")
+        node_tests = tar.extractfile("asset-node/tests/demo.test.ts").read().decode("utf-8")
+        routes = tar.extractfile("asset-node/src/interfaces/http/routes.ts").read().decode("utf-8")
         middleware_yaml = tar.extractfile("asset-node/config/middleware.example.yaml").read().decode("utf-8")
         helm_deployment = tar.extractfile("asset-node/deploy/helm/asset-node/templates/deployment.yaml").read().decode("utf-8")
         helm_configmap = tar.extractfile("asset-node/deploy/helm/asset-node/templates/configmap.yaml").read().decode("utf-8")
@@ -251,6 +319,17 @@ def test_register_microservice_generates_nodejs_project_with_extended_middleware
     assert '"include":["src","tests"]' in tsconfig
     assert "MONGODB_ENDPOINT=mongodb://mongodb.test-middleware-public.svc.cluster.local:27017/app" in env_template
     assert "REDIS_ENDPOINT=redis://redis.test-middleware-public.svc.cluster.local:6379/0" in env_template
+    assert "MCP_SERVER_NAME=asset-node-mcp" in env_template
+    assert "MCP_SERVER_TRANSPORT=streamable-http" in env_template
+    assert "MCP_API_KEY=__REPLACE_WITH_MCP_API_KEY__" in env_template
+    assert "MCP_ALLOWED_ORIGINS=" in env_template
+    assert "handleMcpRequest" in mcp_server
+    assert "protocolVersion" in mcp_server
+    assert "mcp tools/list exposes callable tools" in node_tests
+    assert "mcp tools/call invokes demo item tool" in node_tests
+    assert "authorization" in routes
+    assert "Invalid MCP API key" in routes
+    assert "Origin is not allowed" in routes
     assert "kafka:" in middleware_yaml
     assert "mq:" in middleware_yaml
     assert "envFrom:" in helm_deployment
@@ -274,6 +353,7 @@ def test_register_microservice_generates_java_and_frontend_projects(tmp_path, mo
             "businessPlatformKey": "eam",
             "businessPlatformProfile": "4x60",
             "middleware": ["dm", "iotdb"],
+            "mcpServerEnabled": True,
             "imageRegistry": "registry.local",
             "imageNamespace": "business",
         },
@@ -304,12 +384,26 @@ def test_register_microservice_generates_java_and_frontend_projects(tmp_path, mo
         assert "asset-java/pom.xml" in names
         assert "asset-java/src/main/java/com/example/domain/DemoItem.java" in names
         assert "asset-java/src/main/resources/application.yml" in names
+        assert "asset-java/config/mcp-server.example.yaml" in names
+        assert "asset-java/src/main/java/com/example/interfaces/McpServerController.java" in names
+        java_mcp = tar.extractfile("asset-java/src/main/java/com/example/interfaces/McpServerController.java").read().decode("utf-8")
         assert "<java.version>17</java.version>" in pom
         assert "<maven.compiler.release>${java.version}</maven.compiler.release>" in pom
         assert "<artifactId>maven-compiler-plugin</artifactId>" in pom
         assert "<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>" in pom
         assert "eclipse-temurin:17-jre" in dockerfile
         assert "NACOS_ENDPOINT=nacos.test-middleware-public.svc.cluster.local:8848" in env_template
+        assert "MCP_SERVER_NAME=asset-java-mcp" in env_template
+        assert "MCP_SERVER_TRANSPORT=streamable-http" in env_template
+        assert "MCP_API_KEY=__REPLACE_WITH_MCP_API_KEY__" in env_template
+        assert "MCP_ALLOWED_HOSTS=" in env_template
+        assert "@PostMapping(\"/mcp\")" in java_mcp
+        assert "tools/list" in java_mcp
+        assert "Invalid MCP API key" in java_mcp
+        assert "Origin is not allowed" in java_mcp
+        assert "ResponseEntity.status(401)" in java_mcp
+        assert "ResponseEntity.status(403)" in java_mcp
+        assert "new LinkedHashMap<>()" in java_mcp
     with tarfile.open(Path(vue_response.json()["artifactPath"]), "r:gz") as tar:
         names = set(tar.getnames())
         assert "asset-ui/package.json" in names
@@ -348,6 +442,27 @@ def test_register_microservice_generates_react_frontend_project(tmp_path, monkey
     assert "asset-react/src/router/index.ts" not in names
     assert '"antd"' in package_json
     assert "@vitejs/plugin-react" in vite_config
+
+
+def test_register_frontend_microservice_rejects_mcp_server(tmp_path, monkeypatch) -> None:
+    _register_platform(tmp_path, monkeypatch)
+
+    response = _client().post(
+        "/api/microservices",
+        json={
+            "serviceKey": "asset-ui-mcp",
+            "serviceName": "Asset UI MCP",
+            "projectKind": "frontend",
+            "techStack": "vue3-vite",
+            "mcpServerEnabled": True,
+            "sourceEnv": "test",
+            "businessPlatformKey": "eam",
+            "businessPlatformProfile": "4x60",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "mcpServerEnabled can only be used by backend projectKind" in response.text
 
 
 def test_register_frontend_microservice_can_enable_micro_frontend_framework(tmp_path, monkeypatch) -> None:
@@ -1056,3 +1171,39 @@ def _register_platform(tmp_path, monkeypatch) -> None:
     )
     monkeypatch.setattr(_common, "_BUSINESS_PLATFORM_REPO", repo)
     monkeypatch.setattr(_common, "_MICROSERVICE_REPO", microservice_repo)
+
+
+def _assert_generated_fastapi_mcp_endpoint(artifact: Path, tmp_path: Path) -> None:
+    extract_dir = tmp_path / "generated-fastapi-mcp"
+    extract_dir.mkdir()
+    with tarfile.open(artifact, "r:gz") as tar:
+        tar.extractall(extract_dir, filter="data")
+    source_root = extract_dir / "asset-service" / "src"
+    sys.path.insert(0, str(source_root))
+    try:
+        for name in list(sys.modules):
+            if name == "app" or name.startswith("app."):
+                sys.modules.pop(name)
+        from app.main import app as generated_app
+
+        client = TestClient(generated_app)
+        unauthorized = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 0, "method": "tools/list", "params": {}},
+        )
+        assert unauthorized.status_code == 401
+        response = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            headers={"Authorization": "Bearer __REPLACE_WITH_MCP_API_KEY__"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["jsonrpc"] == "2.0"
+        assert payload["id"] == 1
+        assert payload["result"]["tools"][0]["name"] == "describe_service"
+    finally:
+        sys.path.remove(str(source_root))
+        for name in list(sys.modules):
+            if name == "app" or name.startswith("app."):
+                sys.modules.pop(name)

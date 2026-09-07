@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
+from deployment_package_factory.services.microservices.feature_specs import feature_env_template_lines, feature_secret_env_lines, feature_yaml_env_lines, render_feature_files
 from deployment_package_factory.services.microservices.middleware_plugins import middleware_catalog, middleware_yaml
 from deployment_package_factory.services.microservices.middleware_runtime import middleware_config_keys, plugin_runtime_env, resolve_middleware_config
 from deployment_package_factory.services.microservices.frontend_templates import frontend_required_files, render_frontend_files
@@ -50,6 +51,7 @@ def render_generic_template(request) -> list[TemplateFile]:
         files.extend(render_frontend_files(context))
     else:
         raise ValueError(f"Unsupported techStack: {stack}")
+    files.extend(render_feature_files(context))
     return files
 
 
@@ -85,6 +87,7 @@ def _context(request) -> dict[str, object]:
         "description": request.description or request.service_name,
         "tech_stack": request.tech_stack,
         "micro_frontend_framework": request.micro_frontend_framework,
+        "mcp_server_enabled": request.mcp_server_enabled,
         "port": request.port,
         "middleware": request.middleware,
         "middleware_config_keys": config_keys,
@@ -132,6 +135,7 @@ def _nodejs_files(context: dict[str, object]) -> list[TemplateFile]:
 def _env_template(context: dict[str, object]) -> str:
     lines = [f"SERVICE_NAME={context['service_key']}", f"BUSINESS_PLATFORM_KEY={context['business_platform_key']}", f"BUSINESS_PLATFORM_NAMESPACE={context['business_platform_namespace']}", f"APP_PORT={context['port']}"]
     lines.extend(f"{name}={entry['value']}" for name, entry in context["runtime_env"].items())
+    lines.extend(feature_env_template_lines(context))
     return "\n".join(lines) + "\n"
 
 
@@ -144,6 +148,7 @@ def _readme(context: dict[str, object]) -> str:
 - Business platform: {context['business_platform_key']}
 - Namespace: {context['k8s_namespace']}
 - Middleware: {', '.join(context['middleware']) or 'none'}
+- MCP server: {'enabled' if context['mcp_server_enabled'] else 'disabled'}
 
 ## Run
 
@@ -252,6 +257,7 @@ def _k8s_configmap(context: dict[str, object]) -> str:
     for name, entry in context["runtime_env"].items():
         if not entry["secret"]:
             lines.append(f"  {name}: {entry['value']}")
+    lines.extend(feature_yaml_env_lines(context))
     return "\n".join(lines) + "\n"
 
 
@@ -266,6 +272,7 @@ def _k8s_secret(context: dict[str, object]) -> str:
         "stringData:",
     ]
     secret_lines = [f"  {name}: {entry['value']}" for name, entry in context["runtime_env"].items() if entry["secret"]]
+    secret_lines.extend(feature_secret_env_lines(context))
     lines.extend(secret_lines or ["  PLACEHOLDER: replace-me"])
     return "\n".join(lines) + "\n"
 
@@ -292,7 +299,9 @@ def _helm_values(context: dict[str, object]) -> str:
     for name, entry in context["runtime_env"].items():
         if not entry["secret"]:
             lines.append(f"  {name}: {entry['value']}")
+    lines.extend(feature_yaml_env_lines(context))
     secret_lines = [f"  {name}: {entry['value']}" for name, entry in context["runtime_env"].items() if entry["secret"]]
+    secret_lines.extend(feature_secret_env_lines(context))
     lines.extend(["", "secretEnv:"])
     lines.extend(secret_lines or ["  PLACEHOLDER: replace-me"])
     return "\n".join(lines) + "\n"
@@ -334,5 +343,7 @@ def _helm_secret(context: dict[str, object]) -> str:
         "stringData:",
     ]
     secret_lines = [f"  {name}: {{{{ .Values.secretEnv.{name} | quote }}}}" for name, entry in context["runtime_env"].items() if entry["secret"]]
+    if context["mcp_server_enabled"]:
+        secret_lines.append("  MCP_API_KEY: {{ .Values.secretEnv.MCP_API_KEY | quote }}")
     lines.extend(secret_lines or ["  PLACEHOLDER: replace-me"])
     return "\n".join(lines) + "\n"

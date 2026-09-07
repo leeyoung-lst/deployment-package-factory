@@ -17,9 +17,9 @@ def render_nodejs_files(context: dict[str, object]) -> list[TemplateFile]:
         TemplateFile(PurePosixPath("src/infrastructure/logger.ts"), logger_file()),
         TemplateFile(PurePosixPath("src/infrastructure/middleware.ts"), middleware_ts(context["middleware"])),
         TemplateFile(PurePosixPath("src/infrastructure/middlewareClients.ts"), middleware_clients(context)),
-        TemplateFile(PurePosixPath("src/interfaces/http/routes.ts"), routes_file()),
+        TemplateFile(PurePosixPath("src/interfaces/http/routes.ts"), routes_file(context)),
         TemplateFile(PurePosixPath("src/interfaces/http/server.ts"), server_file(context)),
-        TemplateFile(PurePosixPath("tests/demo.test.ts"), test_file()),
+        TemplateFile(PurePosixPath("tests/demo.test.ts"), test_file(context)),
     ]
 
 
@@ -78,6 +78,12 @@ def settings_file(context: dict[str, object]) -> str:
   businessPlatformKey: process.env.BUSINESS_PLATFORM_KEY || '{context['business_platform_key']}',
   namespace: process.env.BUSINESS_PLATFORM_NAMESPACE || '{context['business_platform_namespace']}',
   port: Number(process.env.APP_PORT || {context['port']}),
+  mcpServerName: process.env.MCP_SERVER_NAME || '{context['service_key']}-mcp',
+  mcpServerTransport: process.env.MCP_SERVER_TRANSPORT || 'streamable-http',
+  mcpServerEndpoint: process.env.MCP_SERVER_ENDPOINT || '/mcp',
+  mcpApiKey: process.env.MCP_API_KEY || '__REPLACE_WITH_MCP_API_KEY__',
+  mcpAllowedOrigins: process.env.MCP_ALLOWED_ORIGINS || '',
+  mcpAllowedHosts: process.env.MCP_ALLOWED_HOSTS || '',
 }};
 """
 
@@ -98,15 +104,34 @@ def middleware_clients(context: dict[str, object]) -> str:
 """
 
 
-def routes_file() -> str:
-    return """import { Router } from 'express';
-import { collectRuntime, createItem } from '../../application/useCases.js';
+def routes_file(context: dict[str, object]) -> str:
+    imports = ["import { Router } from 'express';", "import { collectRuntime, createItem } from '../../application/useCases.js';"]
+    if context["mcp_server_enabled"]:
+        imports.append("import { handleMcpRequest } from '../mcp/server.js';")
+    body = [
+        "",
+        "export const router = Router();",
+        "router.get('/health', (_, res) => res.json({ status: 'ok' }));",
+        "router.get('/runtime', (_, res) => res.json(collectRuntime()));",
+        "router.post('/api/v1/items/:name', (req, res) => res.json(createItem(req.params.name)));",
+    ]
+    if context["mcp_server_enabled"]:
+        body.extend(
+            [
+                "router.post('/mcp', (req, res) => {",
+                "  if (settings.mcpApiKey && req.header('authorization') !== `Bearer ${settings.mcpApiKey}`) return res.status(401).json({ detail: 'Invalid MCP API key' });",
+                "  if (!allowed(req.header('origin') || '', settings.mcpAllowedOrigins)) return res.status(403).json({ detail: 'Origin is not allowed' });",
+                "  if (!allowed(req.header('host') || '', settings.mcpAllowedHosts)) return res.status(403).json({ detail: 'Host is not allowed' });",
+                "  return res.json(handleMcpRequest(req.body));",
+                "});",
+                "function allowed(value: string, csvValues: string) {",
+                "  const allowedValues = csvValues.split(',').map((item) => item.trim()).filter(Boolean);",
+                "  return !allowedValues.length || !value || allowedValues.includes(value);",
+                "}",
+            ]
+        )
+    return "\n".join(imports + body) + "\n"
 
-export const router = Router();
-router.get('/health', (_, res) => res.json({ status: 'ok' }));
-router.get('/runtime', (_, res) => res.json(collectRuntime()));
-router.post('/api/v1/items/:name', (req, res) => res.json(createItem(req.params.name)));
-"""
 
 
 def server_file(context: dict[str, object]) -> str:
@@ -122,12 +147,28 @@ app.listen(settings.port, () => logger.info('service started', {{ service: '{con
 """
 
 
-def test_file() -> str:
-    return """import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { createItem } from '../src/application/useCases.js';
+def test_file(context: dict[str, object]) -> str:
+    imports = ["import assert from 'node:assert/strict';", "import { test } from 'node:test';", "import { createItem } from '../src/application/useCases.js';"]
+    if context["mcp_server_enabled"]:
+        imports.append("import { handleMcpRequest } from '../src/interfaces/mcp/server.js';")
+    body = """
 
 test('create item normalizes name', () => {
   assert.equal(createItem('Demo Item').normalizedName, 'demo-item');
 });
 """
+    if context["mcp_server_enabled"]:
+        body += """
+
+test('mcp tools/list exposes callable tools', () => {
+  const response = handleMcpRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+  assert.equal(response.jsonrpc, '2.0');
+  assert.equal(response.result.tools[0].name, 'describe_service');
+});
+
+test('mcp tools/call invokes demo item tool', () => {
+  const response = handleMcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'create_demo_item', arguments: { name: 'MCP Item' } } });
+  assert.match(response.result.content[0].text, /mcp-item/);
+});
+"""
+    return "\n".join(imports) + body

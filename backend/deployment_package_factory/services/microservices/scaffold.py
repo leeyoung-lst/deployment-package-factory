@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from deployment_package_factory.services.microservices.feature_specs import feature_env_template_lines, feature_required_files, feature_secret_env_lines, feature_yaml_env_lines, render_feature_files, scaffold_feature_options
 from deployment_package_factory.services.microservices.middleware_plugins import middleware_yaml
 from deployment_package_factory.services.microservices.middleware_runtime import (
     middleware_config_keys,
@@ -65,6 +66,7 @@ class MicroserviceScaffoldRequest(BaseModel):
     package_name: str = ""
     port: int = 8000
     middleware: list[str] = Field(default_factory=list)
+    mcp_server_enabled: bool = False
     source_env: str
     business_platform_key: str
     business_platform_profile: str = ""
@@ -163,6 +165,8 @@ class MicroserviceScaffoldRequest(BaseModel):
             raise ValueError(f"projectKind must be {expected} for techStack {self.tech_stack}")
         if self.micro_frontend_framework and self.project_kind != "frontend":
             raise ValueError("microFrontendFramework can only be used by frontend projectKind")
+        if self.mcp_server_enabled and self.project_kind != "backend":
+            raise ValueError("mcpServerEnabled can only be used by backend projectKind")
 
     @field_validator("middleware")
     @classmethod
@@ -182,6 +186,12 @@ class MicroserviceScaffoldResult(BaseModel):
     project_kind: str
     tech_stack: str
     micro_frontend_framework: str = ""
+    mcp_server_enabled: bool = False
+    mcp_endpoint: str = ""
+    mcp_transport: str = ""
+    mcp_requires_api_key: bool = False
+    mcp_service_url: str = ""
+    mcp_agent_config: dict[str, object] = Field(default_factory=dict)
     source_env: str
     business_platform_key: str
     business_platform_profile: str
@@ -212,6 +222,7 @@ class MicroserviceScaffoldOptions(BaseModel):
     tech_stacks: list[dict[str, str]]
     micro_frontend_frameworks: list[dict[str, str]]
     middleware: list[dict[str, str]]
+    features: list[dict[str, object]]
 
 
 @dataclass(frozen=True)
@@ -227,6 +238,7 @@ def scaffold_options() -> MicroserviceScaffoldOptions:
         techStacks=[{"key": key, "name": name, "projectKind": TECH_STACK_PROJECT_KIND[key]} for key, name in SUPPORTED_TECH_STACKS.items()],
         microFrontendFrameworks=[{"key": key, "name": name} for key, name in SUPPORTED_MICRO_FRONTEND_FRAMEWORKS.items()],
         middleware=[{"key": key, "name": name} for key, name in SUPPORTED_MIDDLEWARE.items()],
+        features=scaffold_feature_options(),
     )
 
 
@@ -257,8 +269,9 @@ def create_microservice_scaffold(
     with tarfile.open(artifact_path, "w:gz") as tar:
         tar.add(project_root, arcname=request.service_key)
     digest = _file_sha256(artifact_path)
-    validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack, request.middleware, request.micro_frontend_framework)
+    validation = _validate_scaffold(project_root, artifact_path, rendered_files, request.tech_stack, request.middleware, request.micro_frontend_framework, request.mcp_server_enabled)
     image = image_ref(request)
+    mcp_metadata = _mcp_metadata(request)
 
     return MicroserviceScaffoldResult(
         projectId=project_id,
@@ -267,6 +280,12 @@ def create_microservice_scaffold(
         projectKind=request.project_kind,
         techStack=request.tech_stack,
         microFrontendFramework=request.micro_frontend_framework,
+        mcpServerEnabled=request.mcp_server_enabled,
+        mcpEndpoint=str(mcp_metadata.get("endpoint") or ""),
+        mcpTransport=str(mcp_metadata.get("transport") or ""),
+        mcpRequiresApiKey=bool(mcp_metadata.get("requiresApiKey", False)),
+        mcpServiceUrl=str(mcp_metadata.get("serviceUrl") or ""),
+        mcpAgentConfig=mcp_metadata.get("agentConfig") or {},
         sourceEnv=request.source_env,
         businessPlatformKey=request.business_platform_key,
         businessPlatformProfile=request.business_platform_profile,
@@ -288,6 +307,25 @@ def create_microservice_scaffold(
         generatedFiles=sorted(str(file.path) for file in rendered_files),
         validation=validation,
     )
+
+
+def _mcp_metadata(request: MicroserviceScaffoldRequest) -> dict[str, object]:
+    if not request.mcp_server_enabled:
+        return {}
+    endpoint = "/mcp"
+    namespace = request.k8s_namespace or request.business_platform_namespace or request.business_platform_key
+    service_url = f"http://{request.service_key}.{namespace}.svc.cluster.local{endpoint}"
+    return {
+        "endpoint": endpoint,
+        "transport": "streamable-http",
+        "requiresApiKey": True,
+        "serviceUrl": service_url,
+        "agentConfig": {
+            "type": "streamable-http",
+            "url": service_url,
+            "headers": {"Authorization": "Bearer ${MCP_API_KEY}"},
+        },
+    }
 
 
 def _render_scaffold(request: MicroserviceScaffoldRequest) -> list[RenderedFile]:
@@ -371,6 +409,7 @@ def _render_python_fastapi(request: MicroserviceScaffoldRequest) -> list[Rendere
                 RenderedFile(PurePosixPath("db/init/001_items.sql"), _postgres_init_sql()),
             ]
         )
+    files.extend(RenderedFile(item.path, item.content, item.executable) for item in render_feature_files(context))
     return files
 
 
@@ -385,6 +424,7 @@ def _context(request: MicroserviceScaffoldRequest) -> dict[str, object]:
         "description": request.description or request.service_name,
         "tech_stack": request.tech_stack,
         "micro_frontend_framework": request.micro_frontend_framework,
+        "mcp_server_enabled": request.mcp_server_enabled,
         "port": request.port,
         "middleware": request.middleware,
         "middleware_config_keys": config_keys,
@@ -411,7 +451,7 @@ def _write_file(path: Path, content: str, executable: bool = False) -> None:
         path.chmod(path.stat().st_mode | 0o111)
 
 
-def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile], tech_stack: str = "python-fastapi", middleware: list[str] | None = None, micro_frontend_framework: str = "") -> dict[str, object]:
+def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: list[RenderedFile], tech_stack: str = "python-fastapi", middleware: list[str] | None = None, micro_frontend_framework: str = "", mcp_server_enabled: bool = False) -> dict[str, object]:
     required_files = generic_required_files(tech_stack) if tech_stack != "python-fastapi" else [
         "README.md",
         ".env.template",
@@ -436,7 +476,8 @@ def _validate_scaffold(project_root: Path, artifact_path: Path, rendered_files: 
         "deploy/k8s/ingress.template.yaml",
         "deploy/helm",
     ]
-    return validate_scaffold_artifact(project_root, artifact_path, rendered_files, tech_stack, middleware or [], required_files, micro_frontend_framework)
+    required_files.extend(feature_required_files(tech_stack, mcp_server_enabled=mcp_server_enabled))
+    return validate_scaffold_artifact(project_root, artifact_path, rendered_files, tech_stack, middleware or [], required_files, micro_frontend_framework, mcp_server_enabled)
 
 
 def _initialize_git(project_root: Path) -> None:
@@ -479,6 +520,7 @@ def _env_template(context: dict[str, object]) -> str:
     ]
     for name, entry in context["runtime_env"].items():
         lines.append(f"{name}={entry['value']}")
+    lines.extend(feature_env_template_lines(context))
     return "\n".join(lines) + "\n"
 
 
@@ -548,6 +590,11 @@ git commit -m "Initial scaffold"
 Enabled middleware: {middleware}
 
 Middleware checks are non-blocking in local development. If Redis or PostgreSQL is not running, `/api/v1/runtime` returns a clear `ok: false` status instead of crashing the service.
+
+## MCP Server
+
+MCP server example: {'enabled' if context['mcp_server_enabled'] else 'disabled'}
+{'When enabled, see `docs/MCP_SERVER.md` and `config/mcp-server.example.yaml` for the generated sample server wiring.' if context['mcp_server_enabled'] else 'Enable MCP support during registration to generate sample MCP server wiring and config.'}
 
 ## Business platform
 
@@ -770,13 +817,17 @@ pytest -q
 
 
 def _fastapi_main(context: dict[str, object]) -> str:
-    return f"""from fastapi import FastAPI
+    imports = ["from fastapi import FastAPI", "", "from app.interfaces.http.routes import router"]
+    includes = ["app.include_router(router)"]
+    if context["mcp_server_enabled"]:
+        imports.append("from app.interfaces.http.routes import mcp_router")
+        includes.append("app.include_router(mcp_router)")
+    return f"""{'\n'.join(imports)}
 
-from app.interfaces.http.routes import router
 from app.config import settings
 
 app = FastAPI(title="{context['service_name']}", version="0.1.0")
-app.include_router(router)
+{'\n'.join(includes)}
 
 
 @app.get("/health")
@@ -803,6 +854,17 @@ def _fastapi_config(context: dict[str, object]) -> str:
         fields.append('    redis_url: str = "redis://localhost:6379/0"')
     if "postgresql" in context["middleware"]:
         fields.append('    postgres_dsn: str = "postgresql://app:app@localhost:5432/app"')
+    if context["mcp_server_enabled"]:
+        fields.extend(
+            [
+                f'    mcp_server_name: str = "{context["service_key"]}-mcp"',
+                '    mcp_server_transport: str = "streamable-http"',
+                '    mcp_server_endpoint: str = "/mcp"',
+                '    mcp_api_key: str = "__REPLACE_WITH_MCP_API_KEY__"',
+                '    mcp_allowed_origins: str = ""',
+                '    mcp_allowed_hosts: str = ""',
+            ]
+        )
     fields.extend(["", "", "settings = Settings()", ""])
     return "\n".join(fields)
 
@@ -814,6 +876,8 @@ def _fastapi_routes(context: dict[str, object]) -> str:
         "from app.application.health import collect_health",
         "from app.application.use_cases import create_demo_item",
     ]
+    if context["mcp_server_enabled"]:
+        imports.extend(["from fastapi import Header, HTTPException", "from app.config import settings", "from app.interfaces.mcp.server import handle_mcp_request"])
     body = [
         "",
         'router = APIRouter(prefix="/api/v1")',
@@ -833,6 +897,31 @@ def _fastapi_routes(context: dict[str, object]) -> str:
         "def runtime():",
         "    return collect_health()",
     ]
+    if context["mcp_server_enabled"]:
+        body.extend(
+            [
+                "",
+                "",
+                "mcp_router = APIRouter()",
+                "",
+                "",
+                '@mcp_router.post("/mcp")',
+                'def mcp_endpoint(payload: dict, authorization: str = Header(default=""), origin: str = Header(default=""), host: str = Header(default="")):',
+                "    expected = f\"Bearer {settings.mcp_api_key}\"",
+                "    if settings.mcp_api_key and authorization != expected:",
+                '        raise HTTPException(status_code=401, detail="Invalid MCP API key")',
+                "    if not _allowed(origin, settings.mcp_allowed_origins):",
+                '        raise HTTPException(status_code=403, detail="Origin is not allowed")',
+                "    if not _allowed(host, settings.mcp_allowed_hosts):",
+                '        raise HTTPException(status_code=403, detail="Host is not allowed")',
+                "    return handle_mcp_request(payload)",
+                "",
+                "",
+                "def _allowed(value: str, csv_values: str) -> bool:",
+                "    allowed = [item.strip() for item in csv_values.split(',') if item.strip()]",
+                "    return not allowed or not value or value in allowed",
+            ]
+        )
     return "\n".join(imports + body) + "\n"
 
 
@@ -946,7 +1035,7 @@ def _postgres_init_sql() -> str:
 
 
 def _api_tests(context: dict[str, object]) -> str:
-    return f"""from fastapi.testclient import TestClient
+    tests = f"""from fastapi.testclient import TestClient
 
 from app.main import app
 
@@ -967,6 +1056,56 @@ def test_create_demo_item():
     assert payload["name"] == "Demo Item"
     assert payload["normalizedName"] == "demo-item"
 """
+    if context["mcp_server_enabled"]:
+        tests += """
+
+
+def test_mcp_initialize():
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        headers={"Authorization": "Bearer __REPLACE_WITH_MCP_API_KEY__"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["jsonrpc"] == "2.0"
+    assert payload["result"]["protocolVersion"]
+    assert payload["result"]["capabilities"]["tools"] == {}
+
+
+def test_mcp_tools_list():
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        headers={"Authorization": "Bearer __REPLACE_WITH_MCP_API_KEY__"},
+    )
+    assert response.status_code == 200
+    tools = response.json()["result"]["tools"]
+    assert [item["name"] for item in tools] == ["describe_service", "create_demo_item"]
+
+
+def test_mcp_tools_call():
+    response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "create_demo_item", "arguments": {"name": "MCP Item"}},
+        },
+        headers={"Authorization": "Bearer __REPLACE_WITH_MCP_API_KEY__"},
+    )
+    assert response.status_code == 200
+    content = response.json()["result"]["content"]
+    assert content[0]["type"] == "text"
+    assert "mcp-item" in content[0]["text"]
+
+
+def test_mcp_requires_api_key():
+    response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {}})
+    assert response.status_code == 401
+"""
+    return tests
 
 
 def _k8s_namespace(context: dict[str, object]) -> str:
@@ -1109,6 +1248,7 @@ def _k8s_configmap(context: dict[str, object]) -> str:
     for name, entry in context["runtime_env"].items():
         if not entry["secret"]:
             lines.append(f"  {name}: {entry['value']}")
+    lines.extend(feature_yaml_env_lines(context))
     return "\n".join(lines) + "\n"
 
 
@@ -1123,6 +1263,7 @@ def _k8s_secret(context: dict[str, object]) -> str:
         "stringData:",
     ]
     secret_lines = [f"  {name}: {entry['value']}" for name, entry in context["runtime_env"].items() if entry["secret"]]
+    secret_lines.extend(feature_secret_env_lines(context))
     if secret_lines:
         lines.extend(secret_lines)
     else:
@@ -1171,7 +1312,9 @@ def _helm_values(context: dict[str, object]) -> str:
     for name, entry in context["runtime_env"].items():
         if not entry["secret"]:
             lines.append(f"  {name}: {entry['value']}")
+    lines.extend(feature_yaml_env_lines(context))
     secret_lines = [f"  {name}: {entry['value']}" for name, entry in context["runtime_env"].items() if entry["secret"]]
+    secret_lines.extend(feature_secret_env_lines(context))
     lines.extend(["", "secretEnv:"])
     lines.extend(secret_lines or ["  PLACEHOLDER: replace-me"])
     lines.extend(

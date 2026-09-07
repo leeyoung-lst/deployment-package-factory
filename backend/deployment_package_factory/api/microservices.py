@@ -183,6 +183,7 @@ def _request_from_registered(row: dict) -> MicroserviceScaffoldRequest:
         projectKind=row.get("projectKind", "backend"),
         techStack=row.get("techStack", "python-fastapi"),
         microFrontendFramework=row.get("microFrontendFramework", ""),
+        mcpServerEnabled=bool(row.get("mcpServerEnabled", False)),
         port=row.get("port", 8000),
         middleware=row.get("middleware", []),
         sourceEnv=row["sourceEnv"],

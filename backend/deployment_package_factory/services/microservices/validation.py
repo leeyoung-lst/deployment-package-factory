@@ -3,10 +3,13 @@ from __future__ import annotations
 import tarfile
 from pathlib import Path
 
+import yaml
+
+from deployment_package_factory.services.microservices.feature_specs import FeatureSpec, enabled_feature_specs_from_flags
 from deployment_package_factory.services.microservices.middleware_plugins import required_env_names
 
 
-def validate_scaffold_artifact(project_root: Path, artifact_path: Path, rendered_files: list, tech_stack: str, middleware: list[str], required_files: list[str], micro_frontend_framework: str = "") -> dict[str, object]:
+def validate_scaffold_artifact(project_root: Path, artifact_path: Path, rendered_files: list, tech_stack: str, middleware: list[str], required_files: list[str], micro_frontend_framework: str = "", mcp_server_enabled: bool = False) -> dict[str, object]:
     checks: list[dict[str, object]] = []
     checks.append(_required_files(project_root, required_files))
     if tech_stack == "python-fastapi":
@@ -14,6 +17,7 @@ def validate_scaffold_artifact(project_root: Path, artifact_path: Path, rendered
     checks.extend([_pipeline_files(project_root), _helm_templates(project_root), _tech_stack_contract(project_root, tech_stack)])
     if micro_frontend_framework:
         checks.append(_micro_frontend_contract(project_root, micro_frontend_framework))
+    checks.extend(_feature_contract(project_root, tech_stack, feature) for feature in enabled_feature_specs_from_flags(mcp_server_enabled=mcp_server_enabled))
     checks.extend([_middleware_placeholders(project_root, middleware), _artifact_archive(artifact_path)])
     return {"passed": all(bool(item["passed"]) for item in checks), "checks": checks, "fileCount": len(rendered_files)}
 
@@ -51,6 +55,9 @@ def _pipeline_files(project_root: Path) -> dict[str, object]:
             continue
         content = path.read_text(encoding="utf-8")
         missing.extend(f"{relative}:{choices[0]}" for choices in expected if not any(snippet in content for snippet in choices))
+    deployment = _read_yaml(project_root / "deploy/k8s/deployment.yaml")
+    if deployment and not _deployment_has_env_sources(deployment):
+        missing.append("deploy/k8s/deployment.yaml:envFrom")
     return {"name": "pipeline-files", "passed": not missing, "message": "构建和部署文件检查通过" if not missing else f"缺失内容: {', '.join(missing)}"}
 
 
@@ -71,6 +78,7 @@ def _helm_templates(project_root: Path) -> dict[str, object]:
     deployment = files["deployment"].read_text(encoding="utf-8")
     configmap = files["configmap"].read_text(encoding="utf-8")
     secret = files["secret"].read_text(encoding="utf-8")
+    values = _read_yaml(files["values"])
     helpers = chart / "templates" / "_helpers.tpl"
     issues: list[str] = []
     if "envFrom:" not in deployment or "configMapRef:" not in deployment or "secretRef:" not in deployment:
@@ -79,6 +87,8 @@ def _helm_templates(project_root: Path) -> dict[str, object]:
         issues.append("configmap/secret 模板类型错误")
     if 'include "' in "\n".join([deployment, configmap, secret]) and not helpers.exists():
         issues.append("使用 include 但缺失 _helpers.tpl")
+    if not isinstance(values, dict) or not values.get("image") or not values.get("service"):
+        issues.append("values.yaml 缺失 image/service 配置")
     return {"name": "helm-templates", "passed": not issues, "message": "Helm 模板检查通过" if not issues else f"Helm 模板问题: {', '.join(issues)}"}
 
 
@@ -134,6 +144,18 @@ def _micro_frontend_contract(project_root: Path, framework: str) -> dict[str, ob
     return {"name": "micro-frontend-contract", "passed": passed, "message": "微前端依赖检查通过" if passed else f"缺失依赖: {expected}"}
 
 
+def _feature_contract(project_root: Path, tech_stack: str, feature: FeatureSpec) -> dict[str, object]:
+    files = feature.required_files(tech_stack)
+    missing = [relative for relative in files if not (project_root / relative).exists()]
+    content = "\n".join((project_root / relative).read_text(encoding="utf-8") for relative in files if (project_root / relative).exists())
+    missing.extend(f"content:{snippet}" for snippet in feature.contract_snippets if snippet not in content)
+    return {
+        "name": f"{feature.key}-contract",
+        "passed": not missing,
+        "message": f"{feature.name} 示例检查通过" if not missing else f"缺失 {feature.name} 内容: {', '.join(missing)}",
+    }
+
+
 def _artifact_archive(artifact_path: Path) -> dict[str, object]:
     try:
         with tarfile.open(artifact_path, "r:gz") as tar:
@@ -141,3 +163,31 @@ def _artifact_archive(artifact_path: Path) -> dict[str, object]:
         return {"name": "artifact-archive", "passed": True, "message": "项目压缩包可读取"}
     except (tarfile.TarError, OSError) as exc:
         return {"name": "artifact-archive", "passed": False, "message": f"项目压缩包不可读取: {exc}"}
+
+
+def _read_yaml(path: Path) -> object:
+    if not path.exists():
+        return None
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return None
+
+
+def _deployment_has_env_sources(deployment: object) -> bool:
+    if not isinstance(deployment, dict):
+        return False
+    containers = (
+        deployment.get("spec", {})
+        .get("template", {})
+        .get("spec", {})
+        .get("containers", [])
+    )
+    if not isinstance(containers, list) or not containers:
+        return False
+    env_from = containers[0].get("envFrom", []) if isinstance(containers[0], dict) else []
+    if not isinstance(env_from, list):
+        return False
+    has_configmap = any(isinstance(item, dict) and "configMapRef" in item for item in env_from)
+    has_secret = any(isinstance(item, dict) and "secretRef" in item for item in env_from)
+    return has_configmap and has_secret
