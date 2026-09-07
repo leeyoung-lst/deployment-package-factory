@@ -67,6 +67,19 @@ from deployment_package_factory.services.deployment_packages.errors import (
     filesystem_error,
     network_error,
 )
+from deployment_package_factory.services.deployment_packages.image_utils import (
+    has_registry,
+    image_path_without_tag,
+    image_registry_priority,
+    matches_catalog_image,
+    normalize_image_id,
+    runtime_image_match_score,
+    safe_image_filename,
+    source_registry_host,
+    split_image_tag,
+    target_image_ref,
+    with_default_tag,
+)
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "deployment-packages"
@@ -462,11 +475,11 @@ def _image_entries(
     registry = request.target_profile.registry.strip().rstrip("/")
     for group, values in images.items():
         for raw in values:
-            catalog_ref = _with_default_tag(raw, default_tag)
+            catalog_ref = with_default_tag(raw, default_tag)
             runtime_image = runtime_images.get(catalog_ref)
             source_ref = _runtime_source_ref(catalog_ref, runtime_image) if runtime_image else _source_image_ref(catalog_ref, source_registry)
             source_export_ref = _source_export_ref(runtime_image, source_ref) if runtime_image else source_ref
-            target_ref = _target_image_ref(catalog_ref, registry)
+            target_ref = target_image_ref(catalog_ref, registry)
             if target_ref in seen:
                 continue
             seen.add(target_ref)
@@ -477,7 +490,7 @@ def _image_entries(
                 "sourceExportRef": source_export_ref,
                 "targetRef": target_ref,
                 "sourceRegistryInsecure": _source_registry_insecure(source_export_ref, request.target_profile.source_registry_insecure),
-                "archiveFile": f"{_safe_image_filename(target_ref)}.tar",
+                "archiveFile": f"{safe_image_filename(target_ref)}.tar",
             }
             if runtime_image:
                 entry.update(
@@ -521,7 +534,7 @@ def _discover_runtime_source_images(
     resolved: dict[str, RuntimeSourceImage] = {}
     for values in images.values():
         for raw in values:
-            catalog_ref = _with_default_tag(raw, default_tag)
+            catalog_ref = with_default_tag(raw, default_tag)
             match = _best_runtime_image(catalog_ref, runtime_images)
             if match:
                 resolved[catalog_ref] = match
@@ -556,9 +569,9 @@ def _preview_with_runtime_business_images(preview, runtime_business_images: list
     for runtime_image in sorted(runtime_business_images, key=lambda item: (item.namespace, item.pod, item.container, item.source_ref)):
         if not runtime_image.source_ref:
             continue
-        if _matches_catalog_image(non_business_images, runtime_image.source_ref):
+        if matches_catalog_image(non_business_images, runtime_image.source_ref):
             continue
-        if _matches_catalog_image(business_images, runtime_image.source_ref):
+        if matches_catalog_image(business_images, runtime_image.source_ref):
             continue
         business_images.append(runtime_image.source_ref)
     return preview.model_copy(update={"images": images})
@@ -576,7 +589,7 @@ def _preview_with_registered_microservices(preview, microservices: list[dict]):
         image = str(service.get("image") or "").strip()
         if not image:
             continue
-        if _matches_catalog_image(business_images, image):
+        if matches_catalog_image(business_images, image):
             continue
         business_images.append(image)
     return preview.model_copy(update={"images": images, "warnings": list(dict.fromkeys(warnings))})
@@ -656,7 +669,7 @@ def _list_runtime_images(namespaces: list[str]) -> list[RuntimeSourceImage]:
                 runtime_images.append(
                     RuntimeSourceImage(
                         source_ref=image,
-                        image_id=_normalize_image_id(statuses.get(container, "")),
+                        image_id=normalize_image_id(statuses.get(container, "")),
                         namespace=namespace,
                         pod=pod.get("metadata", {}).get("name", ""),
                         container=container,
@@ -680,59 +693,23 @@ def _runtime_env_probes(source_env: str, business_namespaces: list[str] | None =
 def _best_runtime_image(catalog_ref: str, runtime_images: list[RuntimeSourceImage]) -> RuntimeSourceImage | None:
     matches: list[tuple[tuple[int, int, str], RuntimeSourceImage]] = []
     for image in runtime_images:
-        score = _runtime_image_match_score(catalog_ref, image.source_ref)
+        score = runtime_image_match_score(catalog_ref, image.source_ref)
         if score <= 0:
             continue
-        matches.append(((score, _image_registry_priority(image.source_ref), image.source_ref), image))
+        matches.append(((score, image_registry_priority(image.source_ref), image.source_ref), image))
     if not matches:
         return None
     matches.sort(key=lambda item: item[0], reverse=True)
     return matches[0][1]
 
 
-def _runtime_image_match_score(catalog_ref: str, runtime_ref: str) -> int:
-    expected_path = _image_path_without_tag(catalog_ref)
-    runtime_path = _image_path_without_tag(runtime_ref)
-    expected_base = expected_path.rsplit("/", 1)[-1]
-    runtime_base = runtime_path.rsplit("/", 1)[-1]
-    if runtime_path == expected_path:
-        return 100
-    if runtime_base == expected_base:
-        return 80
-    if runtime_base == f"local-ai-{expected_base}":
-        return 70
-    if expected_base.startswith("local-ai-") and runtime_base == expected_base.removeprefix("local-ai-"):
-        return 60
-    return 0
-
-
-def _image_path_without_tag(image: str) -> str:
-    if _has_registry(image):
-        image = image.split("/", 1)[1]
-    image = image.split("@", 1)[0]
-    last_part = image.rsplit("/", 1)[-1]
-    if ":" in last_part:
-        return image.rsplit(":", 1)[0]
-    return image
-
-
-def _matches_catalog_image(catalog_images: list[str], runtime_ref: str) -> bool:
-    for image in catalog_images:
-        if _runtime_image_match_score(_with_default_tag(image, "prod"), runtime_ref) > 0:
-            return True
-    return False
-
-
-def _image_registry_priority(image: str) -> int:
-    return 1 if _has_registry(image) else 0
-
 
 def _runtime_source_ref(catalog_ref: str, runtime_image: RuntimeSourceImage | None) -> str:
     if not runtime_image:
         return catalog_ref
-    if _has_registry(runtime_image.source_ref):
+    if has_registry(runtime_image.source_ref):
         return runtime_image.source_ref
-    if _has_registry(catalog_ref):
+    if has_registry(catalog_ref):
         return catalog_ref
     return runtime_image.source_ref
 
@@ -740,64 +717,21 @@ def _runtime_source_ref(catalog_ref: str, runtime_image: RuntimeSourceImage | No
 def _source_image_ref(catalog_ref: str, source_registry: str) -> str:
     if not source_registry:
         return catalog_ref
-    if not _has_registry(catalog_ref):
-        return _target_image_ref(catalog_ref, source_registry)
+    if not has_registry(catalog_ref):
+        return target_image_ref(catalog_ref, source_registry)
     image_path = catalog_ref.split("/", 1)[1]
     registry_project = source_registry.rstrip("/").rsplit("/", 1)[-1]
     if image_path.startswith(f"{registry_project}/") or image_path.startswith("local-ai/"):
-        return _target_image_ref(catalog_ref, source_registry)
+        return target_image_ref(catalog_ref, source_registry)
     return catalog_ref
 
 
 def _source_export_ref(runtime_image: RuntimeSourceImage | None, source_ref: str = "") -> str:
     if not runtime_image:
         return ""
-    if _has_registry(runtime_image.source_ref):
+    if has_registry(runtime_image.source_ref):
         return runtime_image.source_ref
     return source_ref or runtime_image.source_ref
-
-
-def _normalize_image_id(image_id: str) -> str:
-    for prefix in ("docker-pullable://", "containerd://", "docker://"):
-        if image_id.startswith(prefix):
-            return image_id.removeprefix(prefix)
-    return image_id
-
-
-def _with_default_tag(image: str, default_tag: str) -> str:
-    image = image.strip()
-    if not image:
-        raise PackageBuildError("Image reference cannot be empty.")
-    last_part = image.rsplit("/", 1)[-1]
-    if ":" in last_part or "@" in last_part:
-        return image
-    return f"{image}:{default_tag}"
-
-
-def _target_image_ref(source_ref: str, registry: str) -> str:
-    if not registry:
-        return source_ref
-    if _has_registry(source_ref):
-        image_path = source_ref.split("/", 1)[1]
-    else:
-        image_path = source_ref
-    registry_project = registry.rstrip("/").rsplit("/", 1)[-1]
-    for project_prefix in (registry_project, "local-ai"):
-        if project_prefix and image_path.startswith(f"{project_prefix}/"):
-            image_path = image_path.removeprefix(f"{project_prefix}/")
-            break
-    return f"{registry}/{image_path}"
-
-
-def _has_registry(image: str) -> bool:
-    if "/" not in image:
-        return False
-    first = image.split("/", 1)[0]
-    return "." in first or ":" in first or first == "localhost"
-
-
-def _safe_image_filename(image: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", image).strip("_")
 
 
 def _images_txt(image_entries: list[dict]) -> str:
@@ -974,7 +908,7 @@ def _first_line(value: str) -> str:
 def _source_registry_authfile(source_ref: str) -> str:
     username = os.getenv("DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_USERNAME", "").strip()
     password = os.getenv("DEPLOYMENT_PACKAGE_SOURCE_REGISTRY_PASSWORD", "")
-    registry = _source_registry_host(source_ref)
+    registry = source_registry_host(source_ref)
     if not username or not password or not registry:
         return ""
     auth = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
@@ -984,11 +918,6 @@ def _source_registry_authfile(source_ref: str) -> str:
         json.dump(payload, handle)
     return handle.name
 
-
-def _source_registry_host(source_ref: str) -> str:
-    if not _has_registry(source_ref):
-        return ""
-    return source_ref.split("/", 1)[0]
 
 
 def _try_export_local_containerd_image(item: dict, archive_path: Path) -> bool:
@@ -1117,22 +1046,14 @@ def _containerd_image_candidates(item: dict) -> list[str]:
         item.get("sourceImageId", ""),
     ]
     source_ref = item.get("sourceRef", "")
-    if source_ref and not _has_registry(source_ref):
-        path, tag = _split_image_tag(source_ref)
+    if source_ref and not has_registry(source_ref):
+        path, tag = split_image_tag(source_ref)
         if "/" not in path:
             candidates.append(f"docker.io/library/{source_ref}")
         else:
             candidates.append(f"docker.io/{source_ref}")
     return [value for value in dict.fromkeys(candidates) if value]
 
-
-def _split_image_tag(image: str) -> tuple[str, str]:
-    image = image.split("@", 1)[0]
-    last_part = image.rsplit("/", 1)[-1]
-    if ":" not in last_part:
-        return image, ""
-    path, tag = image.rsplit(":", 1)
-    return path, tag
 
 
 def _current_worker_image() -> str:
@@ -1153,7 +1074,7 @@ def _shell_quote(value: str) -> str:
 def _source_registry_insecure(source_ref: str, user_requested: bool = False) -> bool:
     if user_requested:
         return True
-    registry = _source_registry_host(source_ref)
+    registry = source_registry_host(source_ref)
     if not registry:
         return False
     configured = {

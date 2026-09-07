@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 
 from deployment_package_factory.services.deployment_packages import builder
+from deployment_package_factory.services.deployment_packages.image_utils import has_registry, with_default_tag
 from deployment_package_factory.services.deployment_packages.dependency_resolver import resolve_package_preview
 from deployment_package_factory.services.deployment_packages.models import DeploymentCatalog, ProjectProfile
 from deployment_package_factory.services.deployment_packages.kubernetes_runtime import (
@@ -182,7 +183,7 @@ def _business_option(item: RegisteredBusinessPlatform) -> dict:
 def _has_runtime_image(catalog_images: list[str], runtime_images: list[builder.RuntimeSourceImage]) -> bool:
     for image in catalog_images:
         for tag in ("prod", "latest", "k8s"):
-            if builder._best_runtime_image(builder._with_default_tag(image, tag), runtime_images):
+            if builder._best_runtime_image(with_default_tag(image, tag), runtime_images):
                 return True
     return False
 
@@ -260,7 +261,7 @@ def _image_tags(catalog_images: list[str], runtime_images: list[builder.RuntimeS
     for image in catalog_images:
         match = None
         for tag in ("prod", "latest", "k8s"):
-            match = builder._best_runtime_image(builder._with_default_tag(image, tag), runtime_images)
+            match = builder._best_runtime_image(with_default_tag(image, tag), runtime_images)
             if match:
                 break
         if not match:
@@ -282,7 +283,7 @@ def _tag_from_image(image: str) -> str:
 def _dominant_registry(images: list[builder.RuntimeSourceImage]) -> str:
     registries: dict[str, int] = {}
     for image in images:
-        if not builder._has_registry(image.source_ref):
+        if not has_registry(image.source_ref):
             continue
         parts = image.source_ref.split("/")
         if len(parts) < 3:
