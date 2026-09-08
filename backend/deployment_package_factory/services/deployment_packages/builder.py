@@ -80,6 +80,18 @@ from deployment_package_factory.services.deployment_packages.image_utils import 
     target_image_ref,
     with_default_tag,
 )
+from deployment_package_factory.services.deployment_packages.file_content_generator import (
+    generate_readme,
+    generate_images_txt,
+    generate_pull_images_script,
+    generate_save_images_script,
+    generate_load_images_script,
+    generate_validation_summary,
+    generate_package_index,
+    generate_file_index_entry,
+    extract_section,
+    extract_section_by_prefix,
+)
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[4] / "data" / "deployment-packages"
@@ -199,7 +211,7 @@ def build_deployment_package(
     manifest = _manifest(package_id, request, preview, image_entries, project, image_tag, registered_microservices)
 
     _write_text(package_root / "manifest.json", json.dumps(_public_manifest(manifest), ensure_ascii=False, indent=2) + "\n")
-    _write_text(package_root / "README.md", _readme(manifest))
+    _write_text(package_root / "README.md", generate_readme(manifest))
     _write_text(package_root / "docs" / "install-k8s.md", "# K8s 安装说明\n\n替换 `k8s/secrets.template.yaml` 后执行 `k8s/install.sh`。\n")
     _write_text(package_root / "docs" / "install-docker-compose.md", "# Docker Compose 安装说明\n\n导出时会尽量把来源环境的中间件密码写入 `docker-compose/.env`。如果 `.env` 中仍存在 `__REPLACE_WITH_` 占位符，请参考 `.env.template` 补齐后再执行 `docker-compose/install.sh`。\n")
     for rendered_file in render_root_install_files(manifest):
@@ -226,11 +238,11 @@ def build_deployment_package(
     for rendered_file in render_project_overlay_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
-    _write_text(package_root / "images" / "images.txt", _images_txt(image_entries))
+    _write_text(package_root / "images" / "images.txt", generate_images_txt(image_entries))
     _write_text(package_root / "images" / "archives" / ".gitkeep", "")
-    _write_script(package_root / "scripts" / "pull-images.sh", _pull_images_script(image_entries))
-    _write_script(package_root / "scripts" / "save-images.sh", _save_images_script(image_entries))
-    _write_script(package_root / "scripts" / "load-images.sh", _load_images_script(image_entries))
+    _write_script(package_root / "scripts" / "pull-images.sh", generate_pull_images_script(image_entries))
+    _write_script(package_root / "scripts" / "save-images.sh", generate_save_images_script(image_entries))
+    _write_script(package_root / "scripts" / "load-images.sh", generate_load_images_script(image_entries))
     image_lock = {"images": image_entries, "archives": _archive_lock(package_root)}
     _write_text(package_root / "security" / "image-digest-lock.json", json.dumps(image_lock, ensure_ascii=False, indent=2) + "\n")
 
@@ -241,12 +253,12 @@ def build_deployment_package(
             json.dumps({"images": image_entries, "archives": _archive_lock(package_root)}, ensure_ascii=False, indent=2) + "\n",
         )
 
-    package_index = _package_index(package_root, manifest)
-    manifest["validationSummary"] = _validation_summary(package_root, None, package_index, image_entries, request.image_mode)
+    package_index = generate_package_index(package_root, manifest)
+    manifest["validationSummary"] = generate_validation_summary(package_root, None, package_index, image_entries, request.image_mode)
     for rendered_file in render_values_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
-    package_index = _package_index(package_root, manifest)
+    package_index = generate_package_index(package_root, manifest)
     _write_text(package_root / "package-index.json", json.dumps(package_index, ensure_ascii=False, indent=2) + "\n")
     sha_file = package_root / "security" / "SHA256SUMS"
     _write_text(sha_file, _sha256s(package_root))
@@ -264,7 +276,7 @@ def build_deployment_package(
         artifactPath=str(artifact_path),
         checksumPath=str(checksum_path),
         artifactSize=artifact_path.stat().st_size,
-        validationSummary=_validation_summary(package_root, artifact_path, package_index, image_entries, request.image_mode),
+        validationSummary=generate_validation_summary(package_root, artifact_path, package_index, image_entries, request.image_mode),
         sha256=digest,
         manifest=_public_manifest(manifest),
     )
@@ -434,30 +446,6 @@ def _apply_project_build_defaults(request: PackageBuildRequest, catalog) -> tupl
             "target_profile": target,
         }
     ), project
-
-
-def _readme(manifest: dict) -> str:
-    return f"""# Local AI 生产部署包
-
-包编号：`{manifest["packageId"]}`
-
-来源环境：`{manifest["sourceEnv"]}`
-
-目标环境：`{manifest["targetEnv"]}`
-
-部署方式：{", ".join(manifest["deployModes"]) or "-"}
-
-数据库：`{manifest["database"]}`
-
-安装前质量门禁：
-
-```bash
-./quality-gate.sh
-```
-
-质量报告：`docs/quality-report.md`
-
-"""
 
 
 def _image_entries(
@@ -732,51 +720,6 @@ def _source_export_ref(runtime_image: RuntimeSourceImage | None, source_ref: str
     if has_registry(runtime_image.source_ref):
         return runtime_image.source_ref
     return source_ref or runtime_image.source_ref
-
-
-def _images_txt(image_entries: list[dict]) -> str:
-    lines = ["# group sourceRef targetRef archiveFile"]
-    lines.extend(
-        f"{item['group']} {item['sourceRef']} {item['targetRef']} {item['archiveFile']}"
-        for item in image_entries
-    )
-    return "\n".join(lines) + "\n"
-
-
-def _pull_images_script(image_entries: list[dict]) -> str:
-    commands = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
-    commands.extend(f"docker pull {item['sourceRef']}" for item in image_entries)
-    return "\n".join(commands) + "\n"
-
-
-def _save_images_script(image_entries: list[dict]) -> str:
-    commands = [
-        "#!/usr/bin/env bash",
-        "set -euo pipefail",
-        "mkdir -p images/archives",
-        "",
-    ]
-    commands.extend(
-        f"docker save -o images/archives/{item['archiveFile']} {item['sourceRef']}"
-        for item in image_entries
-    )
-    return "\n".join(commands) + "\n"
-
-
-def _load_images_script(image_entries: list[dict]) -> str:
-    commands = [
-        "#!/usr/bin/env bash",
-        "set -euo pipefail",
-        'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
-        'PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"',
-        "",
-    ]
-    for item in image_entries:
-        archive = f"${{PACKAGE_ROOT}}/images/archives/{item['archiveFile']}"
-        commands.append(f"docker load -i {archive}")
-        if item["sourceRef"] != item["targetRef"]:
-            commands.append(f"docker tag {item['sourceRef']} {item['targetRef']}")
-    return "\n".join(commands) + "\n"
 
 
 def _export_image_archives(
@@ -1102,113 +1045,6 @@ def _archive_lock(package_root: Path) -> list[dict]:
     for path in sorted(item for item in archive_dir.iterdir() if item.is_file() and item.name != ".gitkeep"):
         result.append({"file": path.name, "sha256": _file_sha256(path), "size": path.stat().st_size})
     return result
-
-
-def _validation_summary(
-    package_root: Path,
-    artifact_path: Path | None,
-    package_index: dict,
-    image_entries: list[dict],
-    image_mode: str,
-) -> dict:
-    archive_dir = package_root / "images" / "archives"
-    archive_files = {
-        path.name
-        for path in archive_dir.iterdir()
-        if path.is_file() and path.name != ".gitkeep"
-    } if archive_dir.exists() else set()
-    expected_archives = {item["archiveFile"] for item in image_entries} if image_mode == "image-archive" else set()
-    return {
-        "artifactSize": artifact_path.stat().st_size if artifact_path and artifact_path.exists() else 0,
-        "packageIndexFileCount": package_index.get("summary", {}).get("fileCount", 0),
-        "packageIndexTotalBytes": package_index.get("summary", {}).get("totalBytes", 0),
-        "imageEntryCount": len(image_entries),
-        "imageArchiveCount": len(archive_files),
-        "missingImageArchiveCount": len(expected_archives - archive_files),
-    }
-
-
-def _package_index(package_root: Path, manifest: dict) -> dict:
-    files = [_file_index_entry(path, package_root) for path in sorted(item for item in package_root.rglob("*") if item.is_file())]
-    return {
-        "schemaVersion": "deployment-package-index/v1",
-        "packageId": manifest["packageId"],
-        "projectKey": manifest.get("projectKey") or "custom",
-        "productVersion": manifest.get("productVersion") or "",
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        "summary": {
-            "fileCount": len(files),
-            "totalBytes": sum(item["size"] for item in files),
-            "deployModes": manifest["deployModes"],
-            "imageMode": manifest["imageMode"],
-            "database": manifest["database"],
-        },
-        "installer": {
-            "version": INSTALLER_VERSION,
-            "entrypoints": ["install.sh", "install.ps1"],
-            "supportedModes": ["k8s", "docker-compose"],
-            "options": INSTALLER_OPTIONS,
-            "successChecks": ["health-check", "diagnostics"],
-        },
-        "verifier": {
-            "version": VERIFIER_VERSION,
-            "entrypoints": ["verify.sh", "verify.ps1"],
-            "checks": ["required-files", "sha256sums", "package-index", "image-archive-lock"],
-        },
-        "qualityGate": {
-            "version": QUALITY_GATE_VERSION,
-            "entrypoints": ["quality-gate.sh", "quality-gate.ps1"],
-            "checks": QUALITY_GATE_CHECKS,
-            "report": "docs/quality-report.runtime.md",
-            "template": "docs/quality-report.md",
-        },
-        "acceptance": {
-            "report": "docs/acceptance-report.md",
-        },
-        "sections": {
-            "root": _section(
-                files,
-                {
-                    "README.md",
-                    "manifest.json",
-                    "package-index.json",
-                    "install.sh",
-                    "install.ps1",
-                    "verify.sh",
-                    "verify.ps1",
-                    "quality-gate.sh",
-                    "quality-gate.ps1",
-                    "deploy-values.json",
-                },
-            ),
-            "docs": _section_prefix(files, "docs/"),
-            "k8s": _section_prefix(files, "k8s/"),
-            "dockerCompose": _section_prefix(files, "docker-compose/"),
-            "init": _section_prefix(files, "init/"),
-            "overlays": _section_prefix(files, "overlays/"),
-            "images": _section_prefix(files, "images/"),
-            "scripts": _section_prefix(files, "scripts/"),
-            "security": _section_prefix(files, "security/"),
-        },
-    }
-
-
-def _file_index_entry(path: Path, package_root: Path) -> dict:
-    rel = path.relative_to(package_root).as_posix()
-    return {
-        "path": rel,
-        "size": path.stat().st_size,
-        "sha256": _file_sha256(path),
-        "executable": path.suffix == ".sh",
-    }
-
-
-def _section(files: list[dict], paths: set[str]) -> list[dict]:
-    return [item for item in files if item["path"] in paths]
-
-
-def _section_prefix(files: list[dict], prefix: str) -> list[dict]:
-    return [item for item in files if item["path"].startswith(prefix)]
 
 
 def _write_text(path: Path, content: str) -> None:
