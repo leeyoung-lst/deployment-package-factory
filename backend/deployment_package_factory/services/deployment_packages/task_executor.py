@@ -56,8 +56,21 @@ class PackageTaskExecutor:
     async def _build_with_heartbeat(self, task_id: str, payload: PackageBuildRequest):
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat_loop(task_id, stop))
+
+        def progress_callback(progress: int, message: str) -> None:
+            """进度回调函数，从构建线程更新任务进度"""
+            try:
+                self.repo.update_progress(task_id, progress, message)
+            except Exception:
+                pass  # 进度更新失败不影响构建
+
         try:
-            return await asyncio.to_thread(build_deployment_package, payload, output_dir=self.config.output_dir)
+            return await asyncio.to_thread(
+                build_deployment_package,
+                payload,
+                output_dir=self.config.output_dir,
+                progress_callback=progress_callback
+            )
         finally:
             try:
                 self.repo.heartbeat(task_id, self.config.worker_id)

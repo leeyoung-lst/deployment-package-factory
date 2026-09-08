@@ -167,6 +167,28 @@ class PostgresPackageTaskRepository:
             raise KeyError(task_id)
         return _task_from_row(row)
 
+    def update_progress(self, task_id: str, progress: int, message: str) -> PackageTask:
+        """更新任务进度和消息（用于实时进度反馈）"""
+        task = self.get(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task.status != "running":
+            return task
+        now = _now_iso()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                update package_tasks
+                set progress = %s, message = %s, updated_at = %s
+                where task_id = %s and status = 'running'
+                returning *
+                """,
+                (progress, message, now, task_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(task_id)
+        return _task_from_row(row)
+
     def mark_stale_running_failed(self, timeout_minutes: int) -> list[PackageTask]:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, timeout_minutes))
         now = _now_iso()

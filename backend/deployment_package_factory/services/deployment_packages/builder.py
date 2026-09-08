@@ -181,7 +181,13 @@ def build_deployment_package(
     *,
     output_dir: Path | None = None,
     docker_runner: DockerRunner | None = None,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> PackageBuildResult:
+    def _report_progress(progress: int, message: str) -> None:
+        if progress_callback:
+            progress_callback(progress, message)
+
+    _report_progress(5, "初始化构建环境")
     package_id = f"pkg-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
     base_dir = output_dir or DEFAULT_OUTPUT_DIR
     work_dir = base_dir / "work" / package_id
@@ -192,12 +198,15 @@ def build_deployment_package(
 
     from deployment_package_factory.services.deployment_packages.runtime_options import with_runtime_projects
 
+    _report_progress(10, "加载服务目录和解析依赖")
     catalog = with_runtime_projects(load_catalog())
     request, project = _apply_project_build_defaults(request, catalog)
     preview = resolve_package_preview(request, catalog)
     image_tag = project.image_tag if project else "prod"
     business_namespaces = _request_business_namespaces(request)
     registered_microservices = _registered_microservices_for_request(request)
+
+    _report_progress(20, "发现运行时镜像")
     runtime_business_images = _discover_runtime_business_images(request.source_env, business_namespaces)
     preview = _preview_with_runtime_business_images(preview, runtime_business_images)
     preview = _preview_with_registered_microservices(preview, registered_microservices)
@@ -210,10 +219,13 @@ def build_deployment_package(
     image_entries = _image_entries(preview.images, request, image_tag, runtime_images, require_runtime_sources=bool(runtime_images))
     manifest = _manifest(package_id, request, preview, image_entries, project, image_tag, registered_microservices)
 
+    _report_progress(30, "生成部署配置文件")
     _write_text(package_root / "manifest.json", json.dumps(_public_manifest(manifest), ensure_ascii=False, indent=2) + "\n")
     _write_text(package_root / "README.md", generate_readme(manifest))
     _write_text(package_root / "docs" / "install-k8s.md", "# K8s 安装说明\n\n替换 `k8s/secrets.template.yaml` 后执行 `k8s/install.sh`。\n")
     _write_text(package_root / "docs" / "install-docker-compose.md", "# Docker Compose 安装说明\n\n导出时会尽量把来源环境的中间件密码写入 `docker-compose/.env`。如果 `.env` 中仍存在 `__REPLACE_WITH_` 占位符，请参考 `.env.template` 补齐后再执行 `docker-compose/install.sh`。\n")
+
+    _report_progress(40, "生成安装和校验脚本")
     for rendered_file in render_root_install_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
@@ -226,18 +238,24 @@ def build_deployment_package(
     for rendered_file in render_quality_gate_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
+
+    _report_progress(50, "生成验收报告和部署清单")
     for rendered_file in render_acceptance_report_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_deployment_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
+
+    _report_progress(55, "生成初始化脚本")
     for rendered_file in render_init_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
     for rendered_file in render_project_overlay_files(manifest):
         writer = _write_script if rendered_file.executable else _write_text
         writer(package_root / rendered_file.path, rendered_file.content)
+
+    _report_progress(60, "生成镜像清单和脚本")
     _write_text(package_root / "images" / "images.txt", generate_images_txt(image_entries))
     _write_text(package_root / "images" / "archives" / ".gitkeep", "")
     _write_script(package_root / "scripts" / "pull-images.sh", generate_pull_images_script(image_entries))
@@ -247,12 +265,14 @@ def build_deployment_package(
     _write_text(package_root / "security" / "image-digest-lock.json", json.dumps(image_lock, ensure_ascii=False, indent=2) + "\n")
 
     if request.image_mode == "image-archive" or request.target_profile.export_images:
+        _report_progress(65, f"导出镜像归档 (共 {len(image_entries)} 个镜像)")
         _export_image_archives(package_root, image_entries, docker_runner, source_tls_verify=not request.target_profile.source_registry_insecure)
         _write_text(
             package_root / "security" / "image-digest-lock.json",
             json.dumps({"images": image_entries, "archives": _archive_lock(package_root)}, ensure_ascii=False, indent=2) + "\n",
         )
 
+    _report_progress(85, "生成包索引和校验和")
     package_index = generate_package_index(package_root, manifest)
     manifest["validationSummary"] = generate_validation_summary(package_root, None, package_index, image_entries, request.image_mode)
     for rendered_file in render_values_files(manifest):
@@ -263,6 +283,7 @@ def build_deployment_package(
     sha_file = package_root / "security" / "SHA256SUMS"
     _write_text(sha_file, _sha256s(package_root))
 
+    _report_progress(95, "打包归档文件")
     artifact_path = artifact_dir / f"{package_root.name}.tar.gz"
     with tarfile.open(artifact_path, "w:gz") as tar:
         tar.add(package_root, arcname=package_root.name, filter=_tar_metadata_filter)
@@ -270,6 +291,7 @@ def build_deployment_package(
     checksum_path = artifact_path.with_name(f"{artifact_path.name}.sha256")
     _write_text(checksum_path, f"{digest}  {artifact_path.name}\n")
 
+    _report_progress(100, "构建完成")
     return PackageBuildResult(
         packageId=package_id,
         workDir=str(work_dir),
