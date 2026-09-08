@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { App, Form } from "antd";
+import { ConfigPreviewDrawer } from "./components/ConfigPreviewDrawer";
 import { DeploymentPackageDrawer } from "./components/DeploymentPackageDrawer";
 import { DeploymentPackageHeader } from "./components/DeploymentPackageHeader";
 import { DeploymentPackageModals } from "./components/DeploymentPackageModals";
@@ -17,6 +18,8 @@ export const DeploymentPackageExportView: React.FC = () => {
   const [form] = Form.useForm();
   const [registerForm] = Form.useForm();
   const [exportDrawer, setExportDrawer] = useState<ExportDrawerKey | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
   const notify = useMemo(() => ({ error: message.error, info: message.info, success: message.success, warning: message.warning }), [message]);
   const actions = useDeploymentPackageActions(notify);
   const { auditEvents, cancelTask, cleanupResult, copyResumeDownloadCommand, downloadResumeScript, downloadTaskArtifact, downloadTaskChecksum, imageEnvironment, loading, preview, refreshAuditEvents, refreshImageEnvironment, refreshPreview, refreshTasks, retryTask, runCleanup, setTask, task, tasks } = actions;
@@ -114,6 +117,21 @@ export const DeploymentPackageExportView: React.FC = () => {
         onSelectTask={(item) => {
           setTask(item);
           setExportDrawer("task");
+        }}
+        onPreviewConfig={() => {
+          if (task?.taskId) {
+            setPreviewTaskId(task.taskId);
+            setPreviewOpen(true);
+          }
+        }}
+      />
+
+      <ConfigPreviewDrawer
+        taskId={previewTaskId}
+        open={previewOpen}
+        onClose={() => {
+          setPreviewOpen(false);
+          setPreviewTaskId(null);
         }}
       />
 

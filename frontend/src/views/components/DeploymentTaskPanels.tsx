@@ -2,6 +2,7 @@ import React from "react";
 import { Button, Empty, Popconfirm, Progress, Space, Tag } from "antd";
 import type { CleanupResult, PackageTask } from "../../api/deploymentPackages";
 import { formatBytes, taskStatusColor } from "./deploymentPackageUtils";
+import { SmartErrorDisplay } from "./SmartErrorDisplay";
 import styles from "../DeploymentPackageExportView.module.css";
 
 export function ValidationSummary({ result }: { result: NonNullable<PackageTask["result"]> }) {
@@ -42,7 +43,7 @@ function TaskBody(props: TaskPanelProps & { detail?: boolean }) {
       <Progress percent={task.progress} status={task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"} />
       {task.result ? <ValidationSummary result={task.result} /> : null}
       {props.detail && task.result ? <TaskResultDetails task={task} /> : null}
-      {props.detail && task.error ? <ResultRow label="错误"><span className={styles.mono}>{task.error}</span></ResultRow> : null}
+      {props.detail && task.error ? <SmartErrorDisplay error={task.error} style={{ marginTop: 16, marginBottom: 16 }} /> : null}
       {props.detail ? <ResultRow label="日志"><div className={styles.logBox}>{task.logs.map((item, index) => <div key={`${index}-${item}`} className={styles.mono}>{item}</div>)}</div></ResultRow> : null}
       <TaskActions {...props} task={task} />
     </>
@@ -69,11 +70,12 @@ interface TaskPanelProps {
   onDownloadResumeScript: (shell: "powershell" | "bash") => void;
   onDownloadChecksum: () => void;
   onDownloadArtifact: () => void;
+  onPreviewConfig?: () => void;
 }
 
 function TaskActions(props: TaskPanelProps & { task: PackageTask }) {
   const task = props.task;
-  return <div className={styles.actions}><Button icon={<i className="ri-close-circle-line" />} loading={props.taskActionLoading} disabled={task.status !== "pending" && task.status !== "running"} onClick={props.onCancel}>取消任务</Button><Button icon={<i className="ri-restart-line" />} loading={props.taskActionLoading} disabled={task.status !== "failed" && task.status !== "canceled"} onClick={props.onRetry}>重试任务</Button><Button icon={<i className="ri-file-copy-line" />} onClick={props.onCopyResumeCommand} disabled={!task.result || !task.artifactAvailable}>复制续传命令</Button><Button icon={<i className="ri-terminal-box-line" />} onClick={() => props.onDownloadResumeScript("powershell")} disabled={!task.result || !task.artifactAvailable}>下载PS脚本</Button><Button icon={<i className="ri-terminal-line" />} onClick={() => props.onDownloadResumeScript("bash")} disabled={!task.result || !task.artifactAvailable}>下载SH脚本</Button><Button icon={<i className="ri-file-shield-2-line" />} loading={props.checksumDownloadLoading} onClick={props.onDownloadChecksum} disabled={!task.result || !task.artifactAvailable}>下载校验文件</Button><Button type="primary" icon={<i className="ri-download-line" />} loading={props.downloadLoading} onClick={props.onDownloadArtifact} disabled={!task.result || !task.artifactAvailable}>{task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}</Button></div>;
+  return <div className={styles.actions}><Button icon={<i className="ri-close-circle-line" />} loading={props.taskActionLoading} disabled={task.status !== "pending" && task.status !== "running"} onClick={props.onCancel}>取消任务</Button><Button icon={<i className="ri-restart-line" />} loading={props.taskActionLoading} disabled={task.status !== "failed" && task.status !== "canceled"} onClick={props.onRetry}>重试任务</Button><Button icon={<i className="ri-file-copy-line" />} onClick={props.onCopyResumeCommand} disabled={!task.result || !task.artifactAvailable}>复制续传命令</Button><Button icon={<i className="ri-terminal-box-line" />} onClick={() => props.onDownloadResumeScript("powershell")} disabled={!task.result || !task.artifactAvailable}>下载PS脚本</Button><Button icon={<i className="ri-terminal-line" />} onClick={() => props.onDownloadResumeScript("bash")} disabled={!task.result || !task.artifactAvailable}>下载SH脚本</Button><Button icon={<i className="ri-file-shield-2-line" />} loading={props.checksumDownloadLoading} onClick={props.onDownloadChecksum} disabled={!task.result || !task.artifactAvailable}>下载校验文件</Button>{task.status === "completed" && props.onPreviewConfig && <Button icon={<i className="ri-eye-line" />} onClick={props.onPreviewConfig} disabled={!task.result || !task.artifactAvailable}>预览配置</Button>}<Button type="primary" icon={<i className="ri-download-line" />} loading={props.downloadLoading} onClick={props.onDownloadArtifact} disabled={!task.result || !task.artifactAvailable}>{task.result && !task.artifactAvailable ? "产物已清理" : "下载部署包"}</Button></div>;
 }
 
 export function ActionTile({ icon, title, value, actionLabel, loading, onAction }: { icon: string; title: string; value: string; actionLabel: string; loading: boolean; onAction: () => void }) {

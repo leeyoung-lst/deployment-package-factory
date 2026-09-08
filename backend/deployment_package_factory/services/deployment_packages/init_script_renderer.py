@@ -5,6 +5,16 @@ from pathlib import Path
 from pathlib import PurePosixPath
 
 from deployment_package_factory.services.deployment_packages.template_paths import default_overlay_template_dir
+from deployment_package_factory.services.deployment_packages.init_data_generators import (
+    generate_default_iam_data,
+    generate_gateway_default_data,
+    generate_monitoring_tables,
+    generate_workflow_tables,
+    generate_document_tables,
+    generate_notification_tables,
+    generate_cache_tables,
+    generate_job_queue_tables,
+)
 
 
 DATABASE_INIT_PATHS = {
@@ -227,6 +237,38 @@ def _postgres_schema_sql(manifest: dict) -> str:
                 f"CREATE SCHEMA IF NOT EXISTS {_sql_ident(f'{service}_schema')};",
             ])
 
+    # 添加增强的表结构
+    enhanced_tables = []
+
+    # 监控表
+    enhanced_tables.append(generate_monitoring_tables())
+
+    # 工作流表
+    enhanced_tables.append(generate_workflow_tables())
+
+    # 文档管理表
+    enhanced_tables.append(generate_document_tables())
+
+    # 通知系统表
+    enhanced_tables.append(generate_notification_tables())
+
+    # 缓存辅助表
+    enhanced_tables.append(generate_cache_tables())
+
+    # 任务队列表
+    enhanced_tables.append(generate_job_queue_tables())
+
+    # 添加默认数据
+    default_data = []
+
+    # IAM 默认数据
+    if "iam" in platform_services:
+        default_data.append(generate_default_iam_data())
+
+    # Gateway 默认数据
+    if "api-gateway" in platform_services or "gateway" in platform_services:
+        default_data.append(generate_gateway_default_data())
+
     return (
         "-- PostgreSQL schema and core table initialization.\n"
         "-- This script is idempotent and can be executed multiple times.\n"
@@ -235,6 +277,10 @@ def _postgres_schema_sql(manifest: dict) -> str:
         + "\n".join(dict.fromkeys(schema_lines))
         + "\n"
         + "\n".join(core_tables)
+        + "\n"
+        + "\n".join(enhanced_tables)
+        + "\n"
+        + "\n".join(default_data)
         + "\n"
     )
 

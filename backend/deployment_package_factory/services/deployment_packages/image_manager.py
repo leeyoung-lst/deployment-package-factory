@@ -10,6 +10,12 @@ import subprocess
 from dataclasses import dataclass
 
 from deployment_package_factory.services.deployment_packages.models import ImageExportEnvironmentCheck, PackageBuildRequest
+from deployment_package_factory.services.deployment_packages.image_version_manager import (
+    inspect_image,
+    ImageMetadata,
+    extract_version_from_tag,
+    format_size,
+)
 
 
 @dataclass(frozen=True)

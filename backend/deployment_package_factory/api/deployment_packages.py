@@ -35,6 +35,8 @@ from deployment_package_factory.services.deployment_packages.models import (
     PackagePreviewRequest,
     PackageTask,
 )
+from deployment_package_factory.services.deployment_packages.preview_models import PackagePreviewResponse
+from deployment_package_factory.services.deployment_packages.preview_service import get_package_root_from_task, preview_package_files
 from deployment_package_factory.services.deployment_packages.runtime_options import build_runtime_options, ensure_request_matches_runtime, with_runtime_projects
 from deployment_package_factory.api._common import _registered_business_platforms, request_business_namespaces, request_microservices
 
@@ -168,6 +170,46 @@ async def get_deployment_package_task(task_id: str) -> PackageTask:
     if task is None:
         raise HTTPException(status_code=404, detail="Deployment package task not found")
     return task
+
+
+@router.get("/tasks/{task_id}/preview", response_model=PackagePreviewResponse)
+async def preview_deployment_package_config(
+    task_id: str,
+    files: list[str] = Query(default=None, description="要预览的文件路径列表，默认预览常用文件"),
+) -> PackagePreviewResponse:
+    """
+    预览部署包配置文件内容
+
+    允许用户在下载前查看部署包中的关键配置文件，如：
+    - manifest.json
+    - README.md
+    - k8s/*.yaml
+    - docker-compose/docker-compose.yml
+    - images/images.txt
+    等
+    """
+    task = get_task_repository().get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Deployment package task not found")
+
+    if task.status != "completed":
+        raise HTTPException(status_code=400, detail=f"Task is not completed (status: {task.status})")
+
+    if not task.result:
+        raise HTTPException(status_code=400, detail="Task has no result")
+
+    # 获取部署包根目录
+    package_root = get_package_root_from_task(task.result.model_dump(by_alias=True))
+    if not package_root:
+        raise HTTPException(status_code=404, detail="Package files not found (may have been cleaned up)")
+
+    try:
+        return preview_package_files(package_root, files)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        LOGGER.exception("Failed to preview package config")
+        raise HTTPException(status_code=500, detail=f"Failed to preview package: {exc}") from exc
 
 
 @router.post("/cleanup", response_model=CleanupResult)

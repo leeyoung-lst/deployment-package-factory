@@ -6,6 +6,7 @@ from pathlib import Path
 
 from deployment_package_factory.services.deployment_packages.builder import PackageBuildError, build_deployment_package
 from deployment_package_factory.services.deployment_packages.catalog import CatalogError
+from deployment_package_factory.services.deployment_packages.error_diagnosis import diagnose_error
 from deployment_package_factory.services.deployment_packages.models import PackageBuildRequest, PackageTask
 
 
@@ -44,14 +45,32 @@ class PackageTaskExecutor:
                 else:
                     self.repo.mark_completed(task_id, result)
         except (CatalogError, PackageBuildError) as exc:
-            self._finish_error(task_id, str(exc))
+            self._finish_error(task_id, exc, context={"operation": "build_package", "payload": payload.model_dump(by_alias=True)})
         except Exception as exc:  # pragma: no cover - defensive boundary for background execution
-            self._finish_error(task_id, f"Unexpected deployment package error: {exc}")
+            self._finish_error(task_id, exc, context={"operation": "build_package", "payload": payload.model_dump(by_alias=True)})
 
-    def _finish_error(self, task_id: str, error: str) -> PackageTask:
+    def _finish_error(self, task_id: str, error: Exception | str, context: dict | None = None) -> PackageTask:
         if self.repo.is_cancel_requested(task_id):
             return self.repo.mark_canceled(task_id)
-        return self.repo.mark_failed(task_id, error)
+
+        # 如果是字符串，直接使用（向后兼容）
+        if isinstance(error, str):
+            return self.repo.mark_failed(task_id, error)
+
+        # 使用智能错误诊断
+        diagnosis = diagnose_error(error, context)
+
+        # 构建用户友好的错误消息
+        error_message = diagnosis.user_message
+        if diagnosis.possible_causes:
+            error_message += f"\n\n可能原因：\n" + "\n".join(f"• {cause}" for cause in diagnosis.possible_causes[:3])
+        if diagnosis.solutions:
+            error_message += f"\n\n解决方案：\n" + "\n".join(f"{i+1}. {sol}" for i, sol in enumerate(diagnosis.solutions[:3]))
+
+        # 添加技术细节（可选查看）
+        error_message += f"\n\n技术细节：{diagnosis.technical_details}"
+
+        return self.repo.mark_failed(task_id, error_message)
 
     async def _build_with_heartbeat(self, task_id: str, payload: PackageBuildRequest):
         stop = asyncio.Event()

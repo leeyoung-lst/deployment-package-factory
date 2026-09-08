@@ -309,6 +309,20 @@ export interface AuditEventQuery {
   actionPrefix?: string;
 }
 
+export interface PreviewFile {
+  path: string;
+  content: string;
+  language: string;
+  size: number;
+  truncated: boolean;
+}
+
+export interface PackagePreviewFilesResponse {
+  packageId: string;
+  files: PreviewFile[];
+  availableFiles: string[];
+}
+
 export function getDeploymentPackageOptions() {
   return request<DeploymentPackageOptions>("/api/deployment-packages/options");
 }
@@ -392,4 +406,9 @@ export function downloadDeploymentPackageChecksum(packageId: string) {
 export function downloadDeploymentPackageScript(packageId: string, shell: "powershell" | "bash") {
   const suffix = shell === "powershell" ? "download-script.ps1" : "download-script.sh";
   return buildDownloadUrl(`/api/deployment-packages/${encodeURIComponent(packageId)}/${suffix}`);
+}
+
+export function previewDeploymentPackageConfig(taskId: string, files?: string[]) {
+  const params = files && files.length > 0 ? `?${files.map(f => `files=${encodeURIComponent(f)}`).join("&")}` : "";
+  return request<PackagePreviewFilesResponse>(`/api/deployment-packages/tasks/${encodeURIComponent(taskId)}/preview${params}`);
 }
